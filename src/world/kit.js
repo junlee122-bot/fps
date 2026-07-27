@@ -126,35 +126,141 @@ export function columnGeometry(h, d = T.COL_D) {
   return new THREE.LatheGeometry(pts, 12);
 }
 
-/** 공포 — 주심포(1출목) / 다포(2출목) 간이형. 원점이 조립 하단 중심 */
-export function bracketGeometry(kind) {
-  const specs = [
-    // 주두
-    [0.36, 0.2, 0.36, 0, 0.10, 0],
-    // 1출목 첨차(도리 방향 x) + 살미(직교 z)
-    [0.92, 0.16, 0.18, 0, 0.28, 0],
-    [0.18, 0.16, 0.68, 0, 0.28, 0],
-    // 소로 4
-    [0.12, 0.12, 0.12, -0.36, 0.44, 0],
-    [0.12, 0.12, 0.12, 0.36, 0.44, 0],
-    [0.12, 0.12, 0.12, 0, 0.44, -0.24],
-    [0.12, 0.12, 0.12, 0, 0.44, 0.24],
+/* ------------------------------------------------------------------ */
+/* 공포 부재 (P1.5 §1-1 — 부재별 개별 지오메트리, 인스턴스 배치)          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 굽 블록 (주두·소로 공용 형태) — 정사각 평면 + 오목 굽 곡면.
+ * LatheGeometry 4세그(45° 위상)로 정사각 단면, 프로파일 곡선으로 굽 표현.
+ * size = 상판 한 변, h = 전체 높이. 원점 = 하단 중심.
+ */
+function gupBlockGeometry(size, h) {
+  const rt = (size / 2) * Math.SQRT2; // 모서리 반경
+  const pts = [
+    new THREE.Vector2(rt * 0.52, 0),
+    new THREE.Vector2(rt * 0.60, h * 0.16),
+    new THREE.Vector2(rt * 0.78, h * 0.36),
+    new THREE.Vector2(rt * 0.97, h * 0.52),
+    new THREE.Vector2(rt, h * 0.58),
+    new THREE.Vector2(rt, h),
   ];
-  if (kind === 'dapo') {
-    specs.push(
-      [1.24, 0.16, 0.18, 0, 0.56, 0],
-      [0.18, 0.16, 0.96, 0, 0.56, 0],
-      [0.12, 0.12, 0.12, -0.5, 0.72, 0],
-      [0.12, 0.12, 0.12, 0.5, 0.72, 0],
-      [0.12, 0.12, 0.12, 0, 0.72, -0.38],
-      [0.12, 0.12, 0.12, 0, 0.72, 0.38],
-    );
-  }
-  return mergeBoxes(specs);
+  const g = new THREE.LatheGeometry(pts, 4, Math.PI / 4);
+  return g;
 }
 
-/** 공포 조립 높이 (지붕 처마 산정용) */
-export const BRACKET_H = Object.freeze({ jusimpo: 0.5, dapo: 0.78 });
+/** 첨차 — 도리 방향 팔. 하단 양 끝 연화두형 곡선. 원점 = 하단 중심 */
+function cheomchaGeometry(L = 0.94, H = 0.18, D = 0.15) {
+  const hx = L / 2;
+  const s = new THREE.Shape();
+  s.moveTo(-hx, H);
+  s.lineTo(hx, H);
+  s.lineTo(hx, H * 0.5);
+  // 우측 연화두 (오목 곡선 3분절)
+  s.lineTo(hx - 0.05, H * 0.24);
+  s.lineTo(hx - 0.13, H * 0.07);
+  s.lineTo(hx - 0.22, 0);
+  s.lineTo(-hx + 0.22, 0);
+  // 좌측 연화두
+  s.lineTo(-hx + 0.13, H * 0.07);
+  s.lineTo(-hx + 0.05, H * 0.24);
+  s.lineTo(-hx, H * 0.5);
+  s.closePath();
+  const g = new THREE.ExtrudeGeometry(s, { depth: D, bevelEnabled: false });
+  g.translate(0, 0, -D / 2);
+  return g;
+}
+
+/** 행공첨차 — 짧은 첨차 (다포 출목선용) */
+function haenggongGeometry() {
+  return cheomchaGeometry(0.62, 0.16, 0.14);
+}
+
+/**
+ * 살미 — 보 방향(외부 +z) 팔, 쇠서(牛舌) 돌출.
+ * (z,y) 프로파일을 x로 압출. 원점 = 하단 중심(몸통 기준).
+ */
+function salmiGeometry(D = 0.15) {
+  const s = new THREE.Shape();
+  // z를 shape의 x축으로 사용
+  s.moveTo(-0.33, 0.18);
+  s.lineTo(0.18, 0.18);
+  s.lineTo(0.30, 0.15);
+  s.lineTo(0.45, 0.20);
+  s.lineTo(0.54, 0.30);   // 쇠서 끝 — 위로 굽음
+  s.lineTo(0.47, 0.17);
+  s.lineTo(0.36, 0.06);
+  s.lineTo(0.24, 0.0);
+  s.lineTo(-0.27, 0);
+  s.lineTo(-0.33, 0.07);
+  s.closePath();
+  const g = new THREE.ExtrudeGeometry(s, { depth: D, bevelEnabled: false });
+  // rotateY(-90°): 프로파일 x축 → 월드 +z (쇠서가 외부로), 압출축 → 월드 -x
+  g.rotateY(-Math.PI / 2);
+  g.translate(D / 2, 0, 0); // 압출 두께를 x 중심 정렬
+  return g;
+}
+
+/** 공포 부재 인스턴스 계열 등록 (Assembler에 1회) */
+export function defineBracketParts(A) {
+  A.defineInstanced('judu', gupBlockGeometry(0.36, 0.24), 'WOOD_COLUMN', { collide: true });
+  A.defineInstanced('soro', gupBlockGeometry(0.15, 0.115), 'WOOD_COLUMN', { collide: false }); // 소단면 — 시각
+  A.defineInstanced('cheomcha', cheomchaGeometry(), 'WOOD_COLUMN', { collide: true });
+  A.defineInstanced('haenggong', haenggongGeometry(), 'WOOD_COLUMN', { collide: false });
+  A.defineInstanced('salmi', salmiGeometry(), 'WOOD_COLUMN', { collide: true });
+}
+
+/** 출목 기하 상수 */
+const CHULMOK_STEP_OUT = 0.28; // 출목 1단당 외부 돌출
+const CHULMOK_STEP_UP = 0.26;  // 출목 1단당 상승
+const JUDU_H = 0.24;
+const SORO_H = 0.115;
+
+/**
+ * 공포 1조 배치. 로컬 좌표: x = 도리 방향, +z = 외부(출목 진행 방향), ry로 회전.
+ * y = 주두 하단. 반환 = 조립 상단(도리 하단) 높이 오프셋.
+ *
+ * 구성(간략화된 결구): 주두 → [단마다: 첨차(도리방향)+살미(직교)+소로 3] ×출목수
+ * → 최상단 행공첨차 + 소로. 다포는 매 출목선에 행공.
+ */
+export function placeBracketSet(A, { kind, chulmok, x, y, z, ry = 0 }) {
+  const c = Math.cos(ry), s = Math.sin(ry);
+  const P = (lx, ly, lz, key, extraRy = 0) =>
+    A.place(key, x + lx * c + lz * s, y + ly, z - lx * s + lz * c, 0, ry + extraRy, 0);
+
+  P(0, 0, 0, 'judu');
+  let ly = JUDU_H - 0.03;
+
+  for (let step = 0; step < chulmok; step++) {
+    const oz = CHULMOK_STEP_OUT * step;
+    // 도리 방향 첨차 + 직교 살미(쇠서는 외부로)
+    P(0, ly, oz, 'cheomcha');
+    P(0, ly, oz, 'salmi');
+    // 첨차 끝 소로 2 + 살미 위 소로 1 (개별 배치 — 뭉뚱그리지 않는다)
+    P(-0.35, ly + 0.18, oz, 'soro');
+    P(0.35, ly + 0.18, oz, 'soro');
+    P(0, ly + 0.18, oz + CHULMOK_STEP_OUT * 0.6, 'soro');
+    // 다포: 출목선 행공첨차
+    if (kind === 'dapo' && step > 0) P(0, ly + 0.02, oz, 'haenggong');
+    ly += CHULMOK_STEP_UP;
+  }
+  // 최상단: 외목도리 받침 행공 + 소로
+  const ozTop = CHULMOK_STEP_OUT * chulmok;
+  P(0, ly, ozTop * 0.85, 'haenggong');
+  P(-0.24, ly + 0.16, ozTop * 0.85, 'soro');
+  P(0.24, ly + 0.16, ozTop * 0.85, 'soro');
+  return ly + 0.16 + SORO_H; // 도리 하단
+}
+
+/** 공포 조립 높이 (지붕 처마 산정용): 출목 수 기준 */
+export function bracketSetHeight(chulmok) {
+  return JUDU_H - 0.03 + CHULMOK_STEP_UP * chulmok + 0.16 + SORO_H;
+}
+
+/** 최외곽 출목 돌출량 (외목도리·처마선 산정) */
+export function bracketSetOut(chulmok) {
+  return CHULMOK_STEP_OUT * chulmok;
+}
 
 /** 수키와 반원 셸 — 축이 +Z(경사 방향). 시각 전용 */
 export function tileGeometry() {
@@ -261,6 +367,260 @@ export class Assembler {
     }
     return created;
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* 파라메트릭 셸 유틸 (팔작지붕용)                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * (u,v) 그리드 표면 함수 → 두께 t의 닫힌 셸 지오메트리.
+ * fn(u,v) → THREE.Vector3 (외피 좌표). 노멀 방향으로 -t 오프셋한 내피 + 테두리.
+ * 관통 계산이 이 두께를 실제로 만난다 (진입/출구 쌍).
+ */
+export function shellGeometry(fn, segU, segV, t) {
+  const nu = segU + 1, nv = segV + 1;
+  const top = [];
+  const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _n = new THREE.Vector3();
+  for (let j = 0; j < nv; j++) {
+    for (let i = 0; i < nu; i++) {
+      top.push(fn(i / segU, j / segV));
+    }
+  }
+  // 정점 노멀 (이웃 차분)
+  const normals = [];
+  for (let j = 0; j < nv; j++) {
+    for (let i = 0; i < nu; i++) {
+      const p = top[j * nu + i];
+      const pu = top[j * nu + Math.min(i + 1, nu - 1)].clone().sub(top[j * nu + Math.max(i - 1, 0)]);
+      const pv = top[Math.min(j + 1, nv - 1) * nu + i].clone().sub(top[Math.max(j - 1, 0) * nu + i]);
+      _n.copy(pu.normalize()).cross(pv.normalize()).normalize();
+      if (_n.y < 0) _n.negate(); // 외피는 위를 본다
+      normals.push(_n.clone());
+    }
+  }
+  const bottom = top.map((p, k) => p.clone().addScaledVector(normals[k], -t));
+
+  const pos = [];
+  const idx = [];
+  const push = (p) => { pos.push(p.x, p.y, p.z); return pos.length / 3 - 1; };
+  const topIdx = top.map(push);
+  const botIdx = bottom.map(push);
+  const quad = (a, b, c, d) => idx.push(a, b, c, a, c, d);
+  for (let j = 0; j < segV; j++) {
+    for (let i = 0; i < segU; i++) {
+      const k = j * nu + i;
+      quad(topIdx[k], topIdx[k + 1], topIdx[k + nu + 1], topIdx[k + nu]);           // 외피
+      quad(botIdx[k + nu], botIdx[k + nu + 1], botIdx[k + 1], botIdx[k]);           // 내피 (반대 감김)
+    }
+  }
+  // 테두리 4변
+  for (let i = 0; i < segU; i++) {
+    quad(topIdx[i + 1], topIdx[i], botIdx[i], botIdx[i + 1]);                                     // v=0 (처마)
+    const k = segV * nu + i;
+    quad(topIdx[k], topIdx[k + 1], botIdx[k + 1], botIdx[k]);                                     // v=1 (마루)
+  }
+  for (let j = 0; j < segV; j++) {
+    const a = j * nu, b = (j + 1) * nu;
+    quad(topIdx[a], topIdx[b], botIdx[b], botIdx[a]);                                             // u=0
+    const c = j * nu + segU, d = (j + 1) * nu + segU;
+    quad(topIdx[d], topIdx[c], botIdx[c], botIdx[d]);                                             // u=1
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+/* ------------------------------------------------------------------ */
+/* 팔작지붕 빌더 (P1.5 §1-2)                                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 팔작: 전·후 주경사면(처마→용마루) + 좌·우 합각하부 경사면(처마→합각 밑선) +
+ * 합각 판벽 + 추녀·사래·선자연 + 마루 3종. 기와 30mm + 보토 80mm 2레이어를
+ * 곡면 셸로 유지한다 — 관통 체인 불변.
+ *
+ * 처마 곡선: 앙곡(처마 끝단 상승 angok) + 안허리(처마 끝 평면 내밈 anheori).
+ * 주경사면·합각하부면의 대각 이음매 잔차는 추녀마루가 덮는다 (전통 그대로의 처리).
+ */
+export function addHipRoof(A, {
+  namePrefix, cx, cz,
+  ridgeLen,             // 벽체 x-길이 (도리 방향)
+  span,                 // 벽체 z-깊이
+  eaveY, ridgeY,
+  overhangSide = 1.5,   // 처마 내밀기 (z)
+  overhangEnd = 1.5,    // 처마 내밀기 (x)
+  angok = 0.34,         // 앙곡
+  anheori = 0.30,       // 안허리
+  hipRatio = 0.55,      // 합각 밑선 높이 비율
+  sag = 1.45,
+  segU = 12, segV = 5,
+  tiles = true,
+}) {
+  const eaveHalfX = ridgeLen / 2 + overhangEnd;
+  const eaveHalfZ = span / 2 + overhangSide;
+  const drop = ridgeY - eaveY;
+  const yProfile = (v) => ridgeY - drop * (1 - Math.pow(1 - v, sag));
+  const yBreak = yProfile(hipRatio);
+  const topHalfX = Math.max(1.2, eaveHalfX - eaveHalfZ * hipRatio);
+  const zAtV = (v) => eaveHalfZ * (1 - v);
+  // 팔작 평면 규칙: x 반폭은 합각 밑선(hipRatio)까지만 좁아지고 그 위는 topHalfX 고정.
+  // (이 규칙이 어긋나면 합각하부면 상단과 합각 벽 사이에 구멍이 생긴다 — chainaudit이 잡았던 결함)
+  const xHalfAtV = (v) => eaveHalfX - (eaveHalfX - topHalfX) * Math.min(v / hipRatio, 1);
+  const corner = (u) => Math.pow(Math.abs(u), 2.4);
+
+  const layers = [
+    { surface: 'EARTH_WALL', t: T.BOTO_T, lift: 0 },
+    { surface: 'ROOF_TILE', t: T.TILE_T, lift: T.BOTO_T },
+  ];
+
+  /** 전/후 주경사면 (s = ±1 → ±z). 앙곡·안허리는 모서리(|u|→1)에서 최대 */
+  const mainSlopeFn = (s, lift) => (uu, vv) => {
+    const u = uu * 2 - 1;
+    const ct = corner(u);
+    const x = u * (xHalfAtV(vv) + anheori * 0.4 * ct * (1 - vv));
+    const z = s * (zAtV(vv) + anheori * ct * (1 - vv));
+    const y = yProfile(vv) + angok * ct * Math.pow(1 - vv, 2) + lift;
+    return new THREE.Vector3(cx + x, y, cz + z);
+  };
+
+  /** 좌/우 합각하부면 (e = ±1 → ±x). vv: 처마(0)→합각 밑선(1). 높이 축척은 주경사면과 공유.
+   *  x는 vv 기준 선형(처마→topHalfX)으로 주경사면의 대각 모서리와 정확히 만난다 */
+  const hipSlopeFn = (e, lift) => (uu, vv) => {
+    const u = uu * 2 - 1; // z 방향
+    const vAbs = vv * hipRatio;
+    const ct = corner(u);
+    const x = e * (eaveHalfX - (eaveHalfX - topHalfX) * vv + anheori * 0.4 * ct * (1 - vAbs));
+    const z = u * (zAtV(vAbs) + anheori * ct * (1 - vAbs) * 0.6);
+    const y = yProfile(vAbs) + angok * ct * Math.pow(1 - vAbs, 2) + lift;
+    return new THREE.Vector3(cx + x, y, cz + z);
+  };
+
+  for (const layer of layers) {
+    for (const s of [1, -1]) {
+      const g = shellGeometry(mainSlopeFn(s, layer.lift), segU, segV, layer.t);
+      A.mesh(`${namePrefix}_hip_main_${layer.surface}_${s > 0 ? 'p' : 'n'}`, layer.surface, g, 0, 0, 0, {});
+    }
+    for (const e of [1, -1]) {
+      const g = shellGeometry(hipSlopeFn(e, layer.lift), Math.max(6, segU - 4), Math.max(3, segV - 2), layer.t);
+      A.mesh(`${namePrefix}_hip_side_${layer.surface}_${e > 0 ? 'p' : 'n'}`, layer.surface, g, 0, 0, 0, {});
+    }
+  }
+
+  /* 합각 판벽 (삼각) */
+  const gableZ = zAtV(hipRatio);
+  for (const e of [1, -1]) {
+    const shape = new THREE.Shape([
+      new THREE.Vector2(-gableZ, yBreak),
+      new THREE.Vector2(gableZ, yBreak),
+      new THREE.Vector2(0, ridgeY),
+    ]);
+    const g = new THREE.ExtrudeGeometry(shape, { depth: T.PANBYEOK_T, bevelEnabled: false });
+    g.rotateY(Math.PI / 2);
+    A.mesh(`${namePrefix}_hapgak_${e > 0 ? 'p' : 'n'}`, 'WOOD_PLANK', g,
+      cx + e * topHalfX - T.PANBYEOK_T / 2, 0, cz, {});
+  }
+
+  /* 용마루 */
+  A.box(`${namePrefix}_ridge`, 'ROOF_TILE', topHalfX * 2 + 0.6, 0.22, 0.36, cx, ridgeY + 0.11, cz);
+
+  /* 모서리 4곳: 추녀마루 + 추녀 + 사래 */
+  for (const e of [1, -1]) {
+    for (const s of [1, -1]) {
+      const x0 = e * (eaveHalfX + anheori), z0 = s * (eaveHalfZ + anheori), y0 = eaveY + angok;
+      const x1 = e * topHalfX, z1 = s * gableZ, y1 = yBreak;
+      const dx = x1 - x0, dy = y1 - y0, dz = z1 - z0;
+      const len = Math.hypot(dx, dy, dz);
+      // Euler 'XYZ': local +z → (sin ry, -cos ry sin rx, cos ry cos rx)
+      const rx = Math.atan2(-dy, dz);
+      const ry = Math.atan2(dx, Math.hypot(dy, dz));
+      const lift = T.BOTO_T + T.TILE_T;
+      A.box(`${namePrefix}_hipridge_${e}_${s}`, 'ROOF_TILE', 0.26, 0.18, len,
+        cx + (x0 + x1) / 2, (y0 + y1) / 2 + lift + 0.06, cz + (z0 + z1) / 2, { rx, ry });
+      A.box(`${namePrefix}_chunyeo_${e}_${s}`, 'WOOD_COLUMN', 0.22, 0.24, len * 0.6,
+        cx + x0 + dx * 0.28, y0 + dy * 0.28 - 0.18, cz + z0 + dz * 0.28, { rx, ry });
+      A.box(`${namePrefix}_sarae_${e}_${s}`, 'WOOD_COLUMN', 0.16, 0.17, 0.85,
+        cx + x0 - e * 0.1, y0 - 0.14, cz + z0 - s * 0.1, { rx: rx * 0.5, ry });
+    }
+    /* 내림마루 — 합각 빗변 2 */
+    for (const s of [1, -1]) {
+      const dx2 = 0 - 0, dy2 = ridgeY - yBreak, dz2 = 0 - s * gableZ;
+      const len2 = Math.hypot(dy2, dz2);
+      A.box(`${namePrefix}_naerim_${e}_${s}`, 'ROOF_TILE', 0.24, 0.16, len2,
+        cx + e * topHalfX, (yBreak + ridgeY) / 2 + 0.06, cz + s * gableZ / 2,
+        { rx: Math.atan2(-dy2, dz2), ry: 0 });
+    }
+  }
+
+  /* 선자연 — 모서리 부챗살 서까래 (각 모서리 6개) */
+  for (const e of [1, -1]) {
+    for (const s of [1, -1]) {
+      const FAN = 6;
+      const eaveSlope = Math.atan2(drop, eaveHalfZ) * 0.5;
+      for (let k = 0; k < FAN; k++) {
+        const t = (k + 0.5) / FAN;
+        const yaw = e * t * (Math.PI / 4);
+        const px = e * (eaveHalfX - 0.9 - t * 1.3);
+        const pz = s * (eaveHalfZ - 0.5 - (1 - t) * 0.35);
+        A.place('rafter', cx + px, eaveY + angok * (1 - t) * 0.6 + 0.1, cz + pz,
+          s > 0 ? eaveSlope : -eaveSlope, yaw, 0);
+      }
+    }
+  }
+
+  /* 일반 서까래 — 전/후 처마 중앙부 */
+  {
+    const plainHalf = eaveHalfX - 2.6;
+    const count = Math.max(2, Math.floor((plainHalf * 2) / 0.55));
+    const eaveSlope = Math.atan2(drop, eaveHalfZ) * 0.5;
+    for (const s of [1, -1]) {
+      for (let k = 0; k < count; k++) {
+        const x = -plainHalf + (2 * plainHalf) * (k / (count - 1));
+        A.place('rafter', cx + x, eaveY + 0.1, cz + s * (eaveHalfZ - 0.9),
+          s > 0 ? eaveSlope : -eaveSlope, 0, 0);
+      }
+    }
+  }
+
+  /* 시각 기와 — 주경사면·합각하부면 곡면 추종 (비충돌) */
+  if (tiles) {
+    const topOff = T.BOTO_T + T.TILE_T + 0.05;
+    for (const s of [1, -1]) {
+      const fn = mainSlopeFn(s, 0);
+      const rows = segV * 2;
+      for (let r = 0; r < rows; r++) {
+        const vv = (r + 0.5) / rows;
+        const halfX = xHalfAtV(vv);
+        const cols = Math.max(2, Math.floor((halfX * 2) / 0.32));
+        for (let ci = 0; ci < cols; ci++) {
+          const uu = (ci + 0.5) / cols;
+          const p = fn(uu, vv);
+          const p2 = fn(uu, Math.min(1, vv + 0.08));
+          const rx = Math.atan2(p.y - p2.y, Math.abs(p2.z - p.z)) * (s > 0 ? 1 : -1);
+          A.place('tile', p.x, p.y + topOff, p.z, rx, 0, 0);
+        }
+      }
+    }
+    for (const e of [1, -1]) {
+      const hfn = hipSlopeFn(e, 0);
+      for (let r = 0; r < 6; r++) {
+        const vv = (r + 0.5) / 6;
+        const zH = zAtV(vv * hipRatio);
+        const cols = Math.max(2, Math.floor((zH * 2) / 0.32));
+        for (let ci = 0; ci < cols; ci++) {
+          const uu = (ci + 0.5) / cols;
+          const p = hfn(uu, vv);
+          const p2 = hfn(uu, Math.min(1, vv + 0.1));
+          const rz = Math.atan2(p.y - p2.y, Math.abs(p2.x - p.x)) * (e > 0 ? -1 : 1);
+          A.place('tile', p.x, p.y + topOff, p.z, 0, Math.PI / 2, rz);
+        }
+      }
+    }
+  }
+
+  return { eaveHalfX, eaveHalfZ, yBreak, topHalfX };
 }
 
 /* ------------------------------------------------------------------ */

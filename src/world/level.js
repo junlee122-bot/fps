@@ -16,8 +16,9 @@
 
 import * as THREE from 'three';
 import {
-  T, makeMaterials, Assembler, addGableRoof,
-  columnGeometry, bracketGeometry, BRACKET_H, tileGeometry, rafterGeometry,
+  T, makeMaterials, Assembler, addGableRoof, addHipRoof,
+  columnGeometry, defineBracketParts, placeBracketSet, bracketSetHeight, bracketSetOut,
+  tileGeometry, rafterGeometry,
 } from './kit.js';
 
 const CRATE_HALF = 0.35;
@@ -31,8 +32,22 @@ export function buildWorld(scene, physics) {
   A.defineInstanced('tile', tileGeometry(), 'ROOF_TILE', { collide: false, shadow: false });
   A.defineInstanced('rafter', rafterGeometry(2.6), 'WOOD_COLUMN', { collide: true });
   A.defineInstanced('choseok', new THREE.CylinderGeometry(T.CHOSEOK_D / 2, T.CHOSEOK_D / 2 + 0.04, T.CHOSEOK_H, 10), 'GRANITE', { collide: true });
-  A.defineInstanced('br_dapo', bracketGeometry('dapo'), 'WOOD_COLUMN', { collide: true });
-  A.defineInstanced('br_jusimpo', bracketGeometry('jusimpo'), 'WOOD_COLUMN', { collide: true });
+  defineBracketParts(A); // 공포 부재 5종 (P1.5 §1-1)
+
+  /** 장혀(0.09×0.15) + 도리(ø150) — 공포 상단의 결구 라인 */
+  const doriGeoCache = new Map();
+  function purlin(name, axis, x, y, z, len) {
+    A.box(`${name}_jangyeo`, 'WOOD_COLUMN',
+      axis === 'x' ? len : 0.09, 0.15, axis === 'x' ? 0.09 : len, x, y + 0.075, z);
+    let g = doriGeoCache.get(`${axis}|${len}`);
+    if (!g) {
+      g = new THREE.CylinderGeometry(T.DORI_D, T.DORI_D, len, 10);
+      if (axis === 'x') g.rotateZ(Math.PI / 2);
+      else g.rotateX(Math.PI / 2);
+      doriGeoCache.set(`${axis}|${len}`, g);
+    }
+    A.mesh(`${name}_dori`, 'WOOD_COLUMN', g, x, y + 0.15 + T.DORI_D, z, {});
+  }
 
   const colKeys = new Map(); // 높이별 기둥 인스턴스 계열
   function columnKey(h) {
@@ -182,21 +197,37 @@ export function buildWorld(scene, physics) {
     A.box('dh_changbang_e', 'WOOD_COLUMN', T.BEAM_W, T.BEAM_H, 9.3, cx + 8, colTop - T.BEAM_H / 2, cz);
     A.box('dh_pyeongbang_f', 'WOOD_COLUMN', 16.6, 0.15, T.BEAM_H, cx, colTop + 0.075, -19.5);
     A.box('dh_pyeongbang_b', 'WOOD_COLUMN', 16.6, 0.15, T.BEAM_H, cx, colTop + 0.075, -28.5);
-    // 다포: 기둥 위 + 주간
-    const brBase = colTop + 0.15;
-    for (const row of [-19.5, -28.5]) {
+    // 다포 3출목 — 기둥 위 + 주간포 실배치 (P1.5 §1-1: 출목 대비 동헌3 > 내아2 > 객사1)
+    const brBase = colTop + 0.15; // 평방 위
+    const CH_DH = 3;
+    for (const [row, bry] of [[-19.5, 0], [-28.5, Math.PI]]) {
       for (let i = 0; i < colsX.length; i++) {
-        A.place('br_dapo', cx + colsX[i], brBase, row);
-        if (i < colsX.length - 1) A.place('br_dapo', cx + (colsX[i] + colsX[i + 1]) / 2, brBase, row);
+        placeBracketSet(A, { kind: 'dapo', chulmok: CH_DH, x: cx + colsX[i], y: brBase, z: row, ry: bry });
+        if (i < colsX.length - 1) {
+          placeBracketSet(A, { kind: 'dapo', chulmok: CH_DH, x: cx + (colsX[i] + colsX[i + 1]) / 2, y: brBase, z: row, ry: bry });
+        }
       }
     }
-    for (const sx of [-8, 8]) A.place('br_dapo', cx + sx, brBase, cz);
-    // 지붕: 처마 = 공포 상단
-    const eaveY = brBase + BRACKET_H.dapo + 0.12; // ≈ 5.25
-    addGableRoof(A, {
-      namePrefix: 'dh', cx, cz, axis: 'x',
-      ridgeLen: 16, span: 12, eaveY, ridgeY: eaveY + 2.1,
-      overhangSide: 1.7, overhangEnd: 2.6, segments: 4,
+    for (const [sx, bry] of [[-8, -Math.PI / 2], [8, Math.PI / 2]]) {
+      for (const rz of [-21.75, -24, -26.25]) {
+        placeBracketSet(A, { kind: 'dapo', chulmok: CH_DH, x: cx + sx, y: brBase, z: rz, ry: bry });
+      }
+    }
+    const setH = bracketSetHeight(CH_DH);
+    const brOut = bracketSetOut(CH_DH);
+    // 주심도리(기둥열) + 외목도리(최외곽 출목선) — 장혀·도리 결구
+    purlin('dh_dori_f', 'x', cx, brBase + setH, -19.5, 17.2);
+    purlin('dh_dori_b', 'x', cx, brBase + setH, -28.5, 17.2);
+    purlin('dh_dori_fo', 'x', cx, brBase + setH, -19.5 + brOut, 18.4);
+    purlin('dh_dori_bo', 'x', cx, brBase + setH, -28.5 - brOut, 18.4);
+    purlin('dh_dori_wo', 'z', cx - 8 - brOut, brBase + setH, cz, 10.6);
+    purlin('dh_dori_eo', 'z', cx + 8 + brOut, brBase + setH, cz, 10.6);
+    // 팔작지붕 (P1.5 §1-2)
+    const eaveY = brBase + setH + 0.32;
+    addHipRoof(A, {
+      namePrefix: 'dh', cx, cz,
+      ridgeLen: 16, span: 12, eaveY, ridgeY: eaveY + 2.3,
+      overhangSide: 1.7, overhangEnd: 2.6,
     });
     // 전면(남) 베이: 창호 4 + 중앙 개방
     const bayH = colTop - T.BEAM_H - 1.45; // 1.45..3.9
@@ -256,17 +287,33 @@ export function buildWorld(scene, physics) {
     A.box('na_changbang_b', 'WOOD_COLUMN', 10.2, T.BEAM_H, T.BEAM_W, cx, colTop - T.BEAM_H / 2, cz - 3);
     A.box('na_changbang_w', 'WOOD_COLUMN', T.BEAM_W, T.BEAM_H, 6.2, cx - 5, colTop - T.BEAM_H / 2, cz);
     A.box('na_changbang_e', 'WOOD_COLUMN', T.BEAM_W, T.BEAM_H, 6.2, cx + 5, colTop - T.BEAM_H / 2, cz);
-    const brBase = colTop + 0.1;
-    for (const rz of [3, -3]) {
+    // 평방 (다포 필수 부재)
+    A.box('na_pyeongbang_f', 'WOOD_COLUMN', 10.4, 0.15, T.BEAM_H, cx, colTop + 0.075, cz + 3);
+    A.box('na_pyeongbang_b', 'WOOD_COLUMN', 10.4, 0.15, T.BEAM_H, cx, colTop + 0.075, cz - 3);
+    // 다포 2출목
+    const brBase = colTop + 0.15;
+    const CH_NA = 2;
+    for (const [rz, bry] of [[3, 0], [-3, Math.PI]]) {
       for (let i = 0; i < colsX.length; i++) {
-        A.place('br_dapo', cx + colsX[i], brBase, cz + rz);
-        if (i < colsX.length - 1) A.place('br_dapo', cx + (colsX[i] + colsX[i + 1]) / 2, brBase, cz + rz);
+        placeBracketSet(A, { kind: 'dapo', chulmok: CH_NA, x: cx + colsX[i], y: brBase, z: cz + rz, ry: bry });
+        if (i < colsX.length - 1) {
+          placeBracketSet(A, { kind: 'dapo', chulmok: CH_NA, x: cx + (colsX[i] + colsX[i + 1]) / 2, y: brBase, z: cz + rz, ry: bry });
+        }
       }
     }
-    const eaveY = brBase + BRACKET_H.dapo + 0.1;
+    for (const [sx, bry] of [[-5, -Math.PI / 2], [5, Math.PI / 2]]) {
+      placeBracketSet(A, { kind: 'dapo', chulmok: CH_NA, x: cx + sx, y: brBase, z: cz, ry: bry });
+    }
+    const setH = bracketSetHeight(CH_NA);
+    const brOut = bracketSetOut(CH_NA);
+    purlin('na_dori_f', 'x', cx, brBase + setH, cz + 3, 11.0);
+    purlin('na_dori_b', 'x', cx, brBase + setH, cz - 3, 11.0);
+    purlin('na_dori_fo', 'x', cx, brBase + setH, cz + 3 + brOut, 12.0);
+    purlin('na_dori_bo', 'x', cx, brBase + setH, cz - 3 - brOut, 12.0);
+    const eaveY = brBase + setH + 0.32;
     addGableRoof(A, {
       namePrefix: 'na', cx, cz, axis: 'x',
-      ridgeLen: 10, span: d, eaveY, ridgeY: eaveY + 1.7,
+      ridgeLen: 10, span: d, eaveY, ridgeY: eaveY + 1.8,
       overhangSide: 1.3, overhangEnd: 1.8, segments: 4,
     });
     const bayH = colTop - T.BEAM_H - 1.45;
@@ -317,15 +364,29 @@ export function buildWorld(scene, physics) {
     A.box('gs_changbang_b', 'WOOD_COLUMN', 12.2, T.BEAM_H, T.BEAM_W, cx, colTop - T.BEAM_H / 2, cz - 3.5);
     A.box('gs_changbang_w', 'WOOD_COLUMN', T.BEAM_W, T.BEAM_H, 7.2, cx - 6, colTop - T.BEAM_H / 2, cz);
     A.box('gs_changbang_e', 'WOOD_COLUMN', T.BEAM_W, T.BEAM_H, 7.2, cx + 6, colTop - T.BEAM_H / 2, cz);
-    // 주심포: 기둥 위에만
+    // 주심포 1출목 — 기둥 위에만 (주간포 없음: 다포와의 대비가 목적)
     const brBase = colTop;
-    for (const rz of [3.5, -3.5]) for (const x of colsX) A.place('br_jusimpo', cx + x, brBase, cz + rz);
-    for (const sx of [-6, 6]) A.place('br_jusimpo', cx + sx, brBase, cz);
-    const eaveY = brBase + BRACKET_H.jusimpo + 0.1;
-    addGableRoof(A, {
-      namePrefix: 'gs', cx, cz, axis: 'x',
-      ridgeLen: 12, span: d, eaveY, ridgeY: eaveY + 1.9,
-      overhangSide: 1.4, overhangEnd: 2.0, segments: 4,
+    const CH_GS = 1;
+    for (const [rz, bry] of [[3.5, 0], [-3.5, Math.PI]]) {
+      for (const x of colsX) {
+        placeBracketSet(A, { kind: 'jusimpo', chulmok: CH_GS, x: cx + x, y: brBase, z: cz + rz, ry: bry });
+      }
+    }
+    for (const [sx, bry] of [[-6, -Math.PI / 2], [6, Math.PI / 2]]) {
+      placeBracketSet(A, { kind: 'jusimpo', chulmok: CH_GS, x: cx + sx, y: brBase, z: cz, ry: bry });
+    }
+    const setH = bracketSetHeight(CH_GS);
+    const brOut = bracketSetOut(CH_GS);
+    purlin('gs_dori_f', 'x', cx, brBase + setH, cz + 3.5, 12.8);
+    purlin('gs_dori_b', 'x', cx, brBase + setH, cz - 3.5, 12.8);
+    purlin('gs_dori_fo', 'x', cx, brBase + setH, cz + 3.5 + brOut, 13.6);
+    purlin('gs_dori_bo', 'x', cx, brBase + setH, cz - 3.5 - brOut, 13.6);
+    // 팔작지붕 (P1.5 §1-2 — 동헌과 함께 2동)
+    const eaveY = brBase + setH + 0.32;
+    addHipRoof(A, {
+      namePrefix: 'gs', cx, cz,
+      ridgeLen: 12, span: d, eaveY, ridgeY: eaveY + 2.0,
+      overhangSide: 1.4, overhangEnd: 2.0,
     });
     const bayH = colTop - T.BEAM_H - 1.45;
     const bayCY = 1.45 + bayH / 2;
