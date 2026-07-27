@@ -5,7 +5,7 @@
  * 배경: `--tolerance` 무값 → 1 게이트 약화 결함이 같은 자리에서 두 번 발생했다.
  * 같은 클래스의 세 번째를 막는 회귀 테스트. **모든 패스 종료 조건에 영구 포함.**
  *
- * 케이스 8종:
+ * 케이스 9종:
  *  1. imagediff — 1픽셀 변경 쌍 → 반드시 exit 1
  *  2. imagediff — 값 없는 --tolerance → 0 처리 또는 에러 (1로 새면 실패)
  *  3. profile — 무인자 실행 시 duration 30 / runs 3 / dpr 2
@@ -14,6 +14,7 @@
  *  6. surfaceaudit — 미매핑 메시 주입 시 exit 1
  *  7. coveraudit — 임계 초과 조작 입력(max-dist 2) 시 exit 1
  *  8. p95 산출 — 알려진 분포 정답 일치 (프레임별 합 분위수·다중 run 집계 포함)
+ *  9. chainaudit — 음성 훅 (레이어 제거·순서 뒤집기) → exit 1 (P2A §0-1)
  */
 
 import { spawnSync } from 'node:child_process';
