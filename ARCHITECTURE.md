@@ -129,7 +129,7 @@ light:transient      { worldPos, intensity, colorK, decayMs } // 총구화염 �
 audio:impact         { surfaceType, worldPos, energy }
 audio:occlusion      { listenerPos, sourcePos, surfaceChain[] }
 
-actor:damage         { actorId, amount, hitZone, throughSurfaces[] }
+actor:damage         { actorId, amount, hitZone, throughSurfaces[], residualEnergy }  // [PATCH-002-F] 관통은 k가, 피해는 잔여 에너지가 지배
 actor:death          { actorId, impulseWorldPos, impulse }
 
 world:tod            { hours }                              // sky 발행
