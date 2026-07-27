@@ -13,10 +13,21 @@ import * as THREE from 'three';
 import { SURFACES, COVER_PLACEMENT_LIMITS } from '../src/core/surfaces.js';
 import { PhysicsWorld } from '../src/physics/index.js';
 import { buildWorld } from '../src/world/level.js';
+import { parseArgs } from './lib/args.mjs';
+
+const args = parseArgs();
 
 const scene = new THREE.Scene();
 const physics = new PhysicsWorld();
 buildWorld(scene, physics);
+
+// harnesstest 전용 훅 (P1.5-BRIEF §3 케이스 6): 미매핑 메시를 인위 주입해
+// 이 감사가 실제로 잡아내는지 검증한다. 실사용 경로에서는 쓰지 않는다.
+if (args['inject-unmapped']) {
+  const rogue = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial());
+  rogue.name = 'harnesstest_rogue_untagged';
+  scene.add(rogue);
+}
 
 const unmapped = [];
 const surfaceCounts = new Map();

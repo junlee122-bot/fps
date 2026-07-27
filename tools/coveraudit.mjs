@@ -30,7 +30,10 @@ const GRID = 1.0;                    // m
 const HALF = 43;                     // 담장 안쪽 평가 범위
 const SPRINT = 6.7;                  // m/s — player.js SPRINT_SPEED와 일치해야 함
 const LIMIT_S = 2.0;
-const MAX_DIST = SPRINT * LIMIT_S;   // 13.4m
+// harnesstest 전용 오버라이드 (P1.5-BRIEF §3 케이스 7): 실패 경로 검증용.
+// 계약 판정에는 절대 쓰지 않는다 — 사용 시 출력에 testOverride가 박힌다.
+const MAX_DIST_OVERRIDE = args['max-dist'] !== undefined ? Number(args['max-dist']) : null;
+const MAX_DIST = MAX_DIST_OVERRIDE ?? SPRINT * LIMIT_S;   // 13.4m
 const VIOLATION_LIMIT_PCT = 2.0;
 const STEP_UP = 1.0;                 // 셀 간 허용 단차 (점프 최고 ~1.15m)
 // 인접 판정 거리: 1m 그리드에서 플레이어는 셀 중심에서 ~0.7m까지 벗어날 수 있다.
@@ -271,6 +274,7 @@ writeFileSync(OUT, PNG.sync.write(png));
 const ok = violPct <= VIOLATION_LIMIT_PCT;
 console.log(JSON.stringify({
   ok,
+  ...(MAX_DIST_OVERRIDE !== null ? { testOverride: `max-dist=${MAX_DIST_OVERRIDE} — harnesstest 전용, 계약 판정 무효` } : {}),
   rule: `모든 도달 가능 지점 → ${VERTICAL_COVER_SURFACES.join('/')} 수직 엄폐까지 경로 ≤ ${MAX_DIST}m (질주 ${SPRINT}m/s × ${LIMIT_S}s)`,
   nodes: nodes.length,
   reachable: reachCount,

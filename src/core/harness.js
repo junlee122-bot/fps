@@ -192,6 +192,31 @@ export function installHarness(ctx) {
       return errors.slice();
     },
 
+    /**
+     * tris_scene — 씬그래프 순회 산출 (P1.5-BRIEF §0 정정).
+     * 렌더러 통계가 아니다. InstancedMesh는 count × 지오메트리 삼각형으로 전개.
+     * visible=false 콜라이더(창호지 0.3mm 박스 등)도 씬 복잡도이므로 포함하되
+     * 분리 보고한다.
+     */
+    getSceneTriangles() {
+      let total = 0;
+      let invisible = 0;
+      const byName = [];
+      scene.traverse((o) => {
+        if (!o.isMesh && !o.isInstancedMesh) return;
+        const g = o.geometry;
+        if (!g?.attributes?.position) return;
+        const triPer = (g.index ? g.index.count : g.attributes.position.count) / 3;
+        const n = o.isInstancedMesh ? o.count : 1;
+        const t = triPer * n;
+        total += t;
+        if (!o.visible) invisible += t;
+        if (t > 5000) byName.push({ name: o.name || o.type, tris: Math.round(t) });
+      });
+      byName.sort((a, b) => b.tris - a.tris);
+      return { total: Math.round(total), invisibleColliders: Math.round(invisible), top: byName.slice(0, 12) };
+    },
+
     /* 내부 배선 (main.js 전용) */
     _internal: { state, stepSim, renderFrame, scriptTick },
   };

@@ -16,7 +16,8 @@
 
 import { startServer } from './lib/server.mjs';
 import { launchBrowser, openGamePage, parseArgs } from './lib/browser.mjs';
-import { VIEW } from './shots.js';
+import { percentile, sortedAsc, pairSum } from './lib/stats.mjs';
+import { VIEW, SHOTS, FIXED_STEP_FRAMES } from './shots.js';
 
 const args = parseArgs();
 
@@ -30,7 +31,7 @@ const DPR = Number(args.dpr ?? CONTRACT.dpr);
 const RUNS = Number(args.runs ?? CONTRACT.runs);
 const W = Number(args.w ?? CONTRACT.w);
 const H = Number(args.h ?? CONTRACT.h);
-const PHASE = String(args.phase ?? 'p1');
+const PHASE = String(args.phase ?? 'p15');
 /** 워밍업 제외 프레임 (조작 인계 + 첫 섀도 캐스케이드 맞춤은 1회성 비용) */
 const WARMUP_FRAMES = Number(args.warmup ?? CONTRACT.warmup);
 const HITCH_MS = 50;
@@ -39,15 +40,34 @@ const NON_CONTRACT =
   DURATION < CONTRACT.duration || RUNS < CONTRACT.runs || DPR < CONTRACT.dpr ||
   W < CONTRACT.w || H < CONTRACT.h || WARMUP_FRAMES !== CONTRACT.warmup;
 
-/** 패스별 선행지표 예산 (P1-BRIEF 0-3) */
+/**
+ * 패스별 선행지표 예산.
+ * [P1.5-BRIEF §0 정정] 삼각형은 두 지표로 분리 게이트:
+ *  - trisScene    : 씬 전체 (씬그래프 순회, 인스턴스 전개, 컬링 무관)
+ *  - trisFrameP95 : 프레임당 가시 삼각형 p95 — 11샷 순회 기준 (단일 카메라 무효)
+ */
 const BUDGETS = Object.freeze({
-  p1: { triangles: 2_000_000, drawCalls: 900, programs: 40, cpuFrameMsP95: 6 },
-  final: { triangles: 6_000_000, drawCalls: 1500, programs: 120, cpuFrameMsP95: 8 },
+  p15: { trisScene: 600_000, trisFrameP95: 250_000, drawCalls: 900, programs: 40, cpuFrameMsP95: 6 },
+  final: { trisScene: 6_000_000, trisFrameP95: 2_000_000, drawCalls: 1500, programs: 120, cpuFrameMsP95: 8 },
 });
 const budget = BUDGETS[PHASE];
 if (!budget) {
   console.error(`unknown --phase: ${PHASE} (${Object.keys(BUDGETS).join('|')})`);
   process.exit(2);
+}
+
+// harnesstest 전용: 브라우저 실행 없이 해석된 설정·배너를 출력하고 종료.
+// 케이스 3(기본값=계약)·4(NON-CONTRACT 배너)를 빠르게 검증할 수 있게 한다.
+if (args['print-config']) {
+  const banners = [];
+  if (NON_CONTRACT) banners.push('NON-CONTRACT MEASUREMENT — 계약 조건(30s/3runs/DPR2) 미달. 게이트 판정에 쓰지 마라');
+  console.log(JSON.stringify({
+    contract: { duration: DURATION, runs: RUNS, dpr: DPR, w: W, h: H, warmup: WARMUP_FRAMES, nonContract: NON_CONTRACT },
+    phase: PHASE,
+    budgets: budget,
+    banners,
+  }, null, 2));
+  process.exit(0);
 }
 
 /** P1 게임플레이 스크립트: 이동/시점/점프 사이클 (사격은 P2, AI는 P4에서 추가) */
@@ -72,11 +92,6 @@ function buildScript(duration) {
     }
   }
   return script;
-}
-
-function percentile(sorted, p) {
-  if (sorted.length === 0) return NaN;
-  return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))];
 }
 
 const SOFTWARE_GL = /swiftshader|llvmpipe|software|swangle/i;
@@ -124,15 +139,11 @@ for (let run = 0; run < RUNS; run++) {
   const tris = stats.trianglesPerFrame.slice(WARMUP_FRAMES);
   const cpuSimRaw = stats.cpuSimMsPerFrame.slice(WARMUP_FRAMES);
   const cpuSubmitRaw = stats.cpuSubmitMsPerFrame.slice(WARMUP_FRAMES);
-  const cpuSim = cpuSimRaw.filter((v) => v >= 0).sort((a, b) => a - b);
-  const cpuSubmit = cpuSubmitRaw.filter((v) => v >= 0).sort((a, b) => a - b);
+  const cpuSim = sortedAsc(cpuSimRaw.filter((v) => v >= 0));
+  const cpuSubmit = sortedAsc(cpuSubmitRaw.filter((v) => v >= 0));
   // 프레임별 합(sim+submit)의 분포 — p95(sim)+p95(submit)는 합의 p95가 아니다 (감사 B3)
-  const cpuTotal = [];
-  for (let i = 0; i < cpuSimRaw.length; i++) {
-    if (cpuSimRaw[i] >= 0 && cpuSubmitRaw[i] >= 0) cpuTotal.push(cpuSimRaw[i] + cpuSubmitRaw[i]);
-  }
-  cpuTotal.sort((a, b) => a - b);
-  const sorted = ft.slice().sort((a, b) => a - b);
+  const cpuTotal = sortedAsc(pairSum(cpuSimRaw, cpuSubmitRaw));
+  const sorted = sortedAsc(ft);
   const p50 = percentile(sorted, 0.5);
   const p95 = percentile(sorted, 0.95);
   const p99 = percentile(sorted, 0.99);
@@ -203,6 +214,24 @@ for (let run = 0; run < RUNS; run++) {
   });
 }
 
+/* ---- tris_scene + tris_frame_p95 — 11샷 순회 (P1.5-BRIEF §0 정정) ----
+ * 삼각형 카운트는 카메라·컬링에만 의존하고 DPR과 무관하므로 스윕은 DPR 1로 돈다
+ * (소프트웨어 GL에서 DPR 2 스윕은 분급 낭비). 단일 카메라 측정은 무효 — 11샷 전부. */
+const SWEEP_FRAMES = 10;
+const gSweep = await openGamePage(browser, {
+  baseUrl: server.url, width: W, height: H, dpr: 1, query: 'mode=fixed',
+});
+const trisScene = await gSweep.page.evaluate(() => window.__harness.getSceneTriangles());
+await gSweep.page.evaluate(() => window.__harness.resetState());
+for (const shot of SHOTS) {
+  await gSweep.page.evaluate((n) => window.__harness.setShot(n), shot.name);
+  await gSweep.page.evaluate((n) => window.__harness.stepFrames(n), SWEEP_FRAMES);
+}
+const sweepStats = await gSweep.page.evaluate(() => window.__harness.getStats());
+await gSweep.close();
+const trisFrameSamples = sweepStats.trianglesPerFrame;
+const trisFrameP95 = percentile(sortedAsc(trisFrameSamples), 0.95);
+
 await browser.close();
 await server.close();
 
@@ -217,7 +246,18 @@ const cpuGatedP95 = environment.softwareGL
   ? Math.max(...runs.map((r) => r.leading.cpuSimMs.p95))
   : Math.max(...runs.map((r) => r.leading.cpuTotalMs.p95)); // 프레임별 합의 참 p95 (감사 B3)
 const leading = {
-  triangles: { value: Math.max(...runs.map((r) => r.leading.trianglesMax)), budget: budget.triangles },
+  trisScene: {
+    value: trisScene.total,
+    budget: budget.trisScene,
+    basis: '씬그래프 순회, 인스턴스 전개, 컬링 무관',
+    invisibleColliders: trisScene.invisibleColliders,
+  },
+  trisFrameP95: {
+    value: Math.round(trisFrameP95),
+    budget: budget.trisFrameP95,
+    basis: `11샷 × ${SWEEP_FRAMES}프레임 순회 (${trisFrameSamples.length}샘플)`,
+    max: Math.max(...trisFrameSamples),
+  },
   drawCalls: { value: Math.max(...runs.map((r) => r.leading.drawCallsMax)), budget: budget.drawCalls },
   programs: { value: Math.max(...runs.map((r) => r.leading.programsEnd)), budget: budget.programs },
   cpuFrameMsP95: {
