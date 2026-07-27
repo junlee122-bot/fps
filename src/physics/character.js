@@ -98,6 +98,12 @@ export class CharacterController {
     this.grounded = false;
     this.touchingCeiling = false;
     this.touchingWall = false;
+    // 잔여 필드도 명시 초기화 (감사 A3) — P2+ 소비자(착지 딥·발소리)가
+    // 이전 세션 이력을 읽으면 페이지 재사용 캡처의 결정성이 깨진다.
+    this.landingSpeed = 0;
+    this.steppedUp = 0;
+    this.lastMoveBlocked = false;
+    this.wallNormal.x = this.wallNormal.y = this.wallNormal.z = 0;
     this.depenetrate(8);
     this.probeGround();
   }

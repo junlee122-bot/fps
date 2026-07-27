@@ -68,6 +68,28 @@ class EventBus {
   clearAll() {
     this._handlers.clear();
   }
+
+  /** 부팅 완료 시점의 구독 스냅샷 (감사 A4) */
+  markBoot() {
+    this._bootCounts = new Map();
+    for (const [type, list] of this._handlers) this._bootCounts.set(type, list.length);
+  }
+
+  /**
+   * 부팅 이후 추가된 구독을 전부 해제한다 (resetState 경로).
+   * 구독은 리스트에 순서대로 append되므로 부팅 시점 길이로 절단하면 된다.
+   * 페이지 재사용 플로에서 구독 누적(핸들러 n중 실행)을 막는다.
+   */
+  resetToBoot() {
+    if (!this._bootCounts) {
+      this._handlers.clear();
+      return;
+    }
+    for (const [type, list] of this._handlers) {
+      const keep = this._bootCounts.get(type) ?? 0;
+      if (list.length > keep) list.length = keep;
+    }
+  }
 }
 
 export const bus = new EventBus();

@@ -12,6 +12,7 @@
 
 import { clock, FIXED_DT, PHYSICS_DT } from './clock.js';
 import { resetAllStreams } from './rng.js';
+import { bus } from './events.js';
 
 const PHYS_STEPS_PER_FRAME = Math.round(FIXED_DT / PHYSICS_DT); // = 2
 
@@ -28,6 +29,8 @@ export function installHarness(ctx) {
   const state = {
     cameraOverride: false,
     script: null, // { segments, index, segEnd, resolve }
+    /** stepFrames 진행 중 재진입 가드 (감사 A2) */
+    busy: false,
   };
 
   function stepSim() {
@@ -76,6 +79,7 @@ export function installHarness(ctx) {
     ready: readyPromise,
 
     async setShot(name) {
+      if (state.busy) throw new Error('setShot called while stepFrames in progress');
       const shot = shotsByName.get(name);
       if (!shot) throw new Error(`unknown shot: ${name}`);
       state.cameraOverride = true;
@@ -85,12 +89,21 @@ export function installHarness(ctx) {
 
     async stepFrames(n) {
       if (mode !== 'fixed') throw new Error('stepFrames requires fixed mode (?mode=fixed)');
-      for (let i = 0; i < n; i++) {
-        const t0 = clock.wallNowMs();
-        clock.tickFixed();
-        stepSim();
-        renderFrame(t0);
-        if ((i & 31) === 31) await new Promise((r) => setTimeout(r, 0));
+      // n<1 거부 (감사 A5): 0프레임이면 새 샷이 한 번도 렌더되지 않아
+      // 프리웜 잔여 프레임이 샷 이름의 PNG로 저장된다 — 조용한 오캡처.
+      if (!Number.isInteger(n) || n < 1) throw new Error(`stepFrames: n must be an integer >= 1 (got ${n})`);
+      if (state.busy) throw new Error('stepFrames re-entered while stepping (감사 A2 가드)');
+      state.busy = true;
+      try {
+        for (let i = 0; i < n; i++) {
+          const t0 = clock.wallNowMs();
+          clock.tickFixed();
+          stepSim();
+          renderFrame(t0);
+          if ((i & 31) === 31) await new Promise((r) => setTimeout(r, 0));
+        }
+      } finally {
+        state.busy = false;
       }
       // 컴포지터가 마지막 프레임을 집도록 rAF 2회 양보 (스크린샷 안정화)
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
@@ -102,11 +115,14 @@ export function installHarness(ctx) {
     },
 
     resetState() {
+      if (state.busy) throw new Error('resetState called while stepFrames in progress');
       clock.resetSimTime();
       resetAllStreams();
       input.reset();
       player.reset();
+      physics.pruneRuntimeBodies(); // 런타임 스폰 강체 제거 (감사 A1)
       world.resetDynamic();
+      bus.resetToBoot();            // 부팅 이후 추가된 구독 해제 (감사 A4)
       stats.reset();
       state.cameraOverride = false;
       state.script = null;

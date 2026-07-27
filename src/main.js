@@ -14,6 +14,7 @@
 
 import * as THREE from 'three';
 import { clock, PHYSICS_DT } from './core/clock.js';
+import { bus } from './core/events.js';
 import { setGlobalSeed, DEFAULT_SEED } from './core/rng.js';
 import { installHarness } from './core/harness.js';
 import { prewarmShaders } from './core/prewarm.js';
@@ -94,6 +95,8 @@ const warm = await prewarmShaders({
 console.info(`[boot] prewarm programs=${warm.programsAfter} (+${warm.compiled}) ${warm.ms}ms`);
 window.__prewarm = warm;
 
+physics.markBootBodies(); // 부팅 로스터 스냅샷 — resetState가 런타임 스폰만 걷어낸다 (감사 A1)
+bus.markBoot();           // 구독 스냅샷 (감사 A4)
 clock.markBootDone();
 console.info(`[boot] ready in ${clock.bootMs.toFixed(0)}ms mode=${mode} seed=${seed}`);
 readyResolve();

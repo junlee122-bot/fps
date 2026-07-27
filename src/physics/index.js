@@ -54,6 +54,28 @@ export class PhysicsWorld {
     return this.rigid.add(new RigidBody({ ...opts, surface: surfaceIndex(opts.surface) }));
   }
 
+  /** 부팅 로스터 스냅샷 — 부팅 완료 시 1회 (감사 A1) */
+  markBootBodies() {
+    this._bootBodies = new Set(this.rigid.bodies);
+  }
+
+  /**
+   * 부팅 로스터 밖 강체(런타임 스폰: P2 파편·탄피 등)를 전부 제거하고
+   * 표시 메시도 씬에서 뗀다. resetState 경로 전용 (감사 A1 — 이게 없으면
+   * 페이지 재사용 캡처에서 이전 세션 강체가 다음 캡처 픽셀에 유입된다).
+   */
+  pruneRuntimeBodies() {
+    if (!this._bootBodies) return 0;
+    let removed = 0;
+    for (const b of this.rigid.bodies.slice()) {
+      if (this._bootBodies.has(b)) continue;
+      this.rigid.remove(b);
+      b.object3D?.parent?.remove(b.object3D);
+      removed++;
+    }
+    return removed;
+  }
+
   /** 고정 스텝. 강체 적분 + 접촉 해석 + 표시 오브젝트 동기화 */
   step(dt) {
     this.rigid.step(dt);

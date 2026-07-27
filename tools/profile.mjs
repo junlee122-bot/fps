@@ -20,20 +20,24 @@ import { VIEW } from './shots.js';
 
 const args = parseArgs();
 
-/** 계약 측정 조건 (HARNESS.md §6 / PATCH-001-C) */
-const CONTRACT = Object.freeze({ duration: 30, runs: 3, dpr: VIEW.dpr });
+/** 계약 측정 조건 (HARNESS.md §6 / PATCH-001-C) — 해상도·워밍업 포함 (감사 B1/B6) */
+const CONTRACT = Object.freeze({
+  duration: 30, runs: 3, dpr: VIEW.dpr, w: VIEW.width, h: VIEW.height, warmup: 30,
+});
 
 const DURATION = Number(args.duration ?? CONTRACT.duration);
 const DPR = Number(args.dpr ?? CONTRACT.dpr);
 const RUNS = Number(args.runs ?? CONTRACT.runs);
-const W = Number(args.w ?? VIEW.width);
-const H = Number(args.h ?? VIEW.height);
+const W = Number(args.w ?? CONTRACT.w);
+const H = Number(args.h ?? CONTRACT.h);
 const PHASE = String(args.phase ?? 'p1');
 /** 워밍업 제외 프레임 (조작 인계 + 첫 섀도 캐스케이드 맞춤은 1회성 비용) */
-const WARMUP_FRAMES = Number(args.warmup ?? 30);
+const WARMUP_FRAMES = Number(args.warmup ?? CONTRACT.warmup);
 const HITCH_MS = 50;
 
-const NON_CONTRACT = DURATION < CONTRACT.duration || RUNS < CONTRACT.runs || DPR < CONTRACT.dpr;
+const NON_CONTRACT =
+  DURATION < CONTRACT.duration || RUNS < CONTRACT.runs || DPR < CONTRACT.dpr ||
+  W < CONTRACT.w || H < CONTRACT.h || WARMUP_FRAMES !== CONTRACT.warmup;
 
 /** 패스별 선행지표 예산 (P1-BRIEF 0-3) */
 const BUDGETS = Object.freeze({
@@ -111,12 +115,23 @@ for (let run = 0; run < RUNS; run++) {
   await g.close();
 
   // 인덱스 정렬: frameTimes[i]는 레코드 i ↔ i+1 사이의 간격이다.
-  const ft = stats.frameTimes.slice(WARMUP_FRAMES);
+  // 프레임 j의 지속시간 = frameTimes[j-1] 이므로, 프레임 WARMUP..N-1을 다루려면
+  // frameTimes는 WARMUP-1부터 잘라야 per-frame 배열들과 경계가 일치한다 (감사 B7).
+  const FT_OFFSET = Math.max(0, WARMUP_FRAMES - 1);
+  const ft = stats.frameTimes.slice(FT_OFFSET);
   const progs = stats.programCountPerFrame.slice(WARMUP_FRAMES);
   const calls = stats.drawCallsPerFrame.slice(WARMUP_FRAMES);
   const tris = stats.trianglesPerFrame.slice(WARMUP_FRAMES);
-  const cpuSim = stats.cpuSimMsPerFrame.slice(WARMUP_FRAMES).filter((v) => v >= 0).sort((a, b) => a - b);
-  const cpuSubmit = stats.cpuSubmitMsPerFrame.slice(WARMUP_FRAMES).filter((v) => v >= 0).sort((a, b) => a - b);
+  const cpuSimRaw = stats.cpuSimMsPerFrame.slice(WARMUP_FRAMES);
+  const cpuSubmitRaw = stats.cpuSubmitMsPerFrame.slice(WARMUP_FRAMES);
+  const cpuSim = cpuSimRaw.filter((v) => v >= 0).sort((a, b) => a - b);
+  const cpuSubmit = cpuSubmitRaw.filter((v) => v >= 0).sort((a, b) => a - b);
+  // 프레임별 합(sim+submit)의 분포 — p95(sim)+p95(submit)는 합의 p95가 아니다 (감사 B3)
+  const cpuTotal = [];
+  for (let i = 0; i < cpuSimRaw.length; i++) {
+    if (cpuSimRaw[i] >= 0 && cpuSubmitRaw[i] >= 0) cpuTotal.push(cpuSimRaw[i] + cpuSubmitRaw[i]);
+  }
+  cpuTotal.sort((a, b) => a - b);
   const sorted = ft.slice().sort((a, b) => a - b);
   const p50 = percentile(sorted, 0.5);
   const p95 = percentile(sorted, 0.95);
@@ -126,8 +141,8 @@ for (let run = 0; run < RUNS; run++) {
   const hitches = [];
   for (let i = 0; i < ft.length; i++) {
     if (ft[i] <= HITCH_MS) continue;
-    // ft[i] = 레코드 (WARMUP+i) → (WARMUP+i+1) 간격. 히치가 끝난 프레임 인덱스:
-    const endFrame = i + WARMUP_FRAMES + 1;
+    // ft[i] = 레코드 (FT_OFFSET+i) → (FT_OFFSET+i+1) 간격. 히치가 끝난 프레임:
+    const endFrame = i + FT_OFFSET + 1;
     const lastEvent = stats.events.filter((e) => e.frame <= endFrame).at(-1)?.tag ?? 'boot';
     hitches.push({
       frame: endFrame,
@@ -159,6 +174,12 @@ for (let run = 0; run < RUNS; run++) {
         p95: +percentile(cpuSubmit, 0.95).toFixed(2),
         worst: +(cpuSubmit[cpuSubmit.length - 1] ?? NaN).toFixed(2),
       },
+      // 프레임별 sim+submit 합의 참 분위수 (실 GPU 게이트 성분 — 감사 B3)
+      cpuTotalMs: {
+        p50: +percentile(cpuTotal, 0.5).toFixed(2),
+        p95: +percentile(cpuTotal, 0.95).toFixed(2),
+        worst: +(cpuTotal[cpuTotal.length - 1] ?? NaN).toFixed(2),
+      },
     },
     gpu: {
       frameMs: { p50: +p50.toFixed(2), p95: +p95.toFixed(2), p99: +p99.toFixed(2), worst: +worst.toFixed(1) },
@@ -174,7 +195,10 @@ for (let run = 0; run < RUNS; run++) {
     programs: {
       start: progs[0] ?? 0,
       end: progs.at(-1) ?? 0,
-      compiledDuringPlay: (progs.at(-1) ?? 0) - (progs[0] ?? 0),
+      // 컴파일-0 게이트는 워밍업 절단 없이 전 기록 구간으로 판정한다 (감사 B6) —
+      // 리셋 직후 첫 프레임들의 지연 컴파일이 §0(1)이 잡으라는 바로 그 실패다.
+      compiledDuringPlay:
+        (stats.programCountPerFrame.at(-1) ?? 0) - (stats.programCountPerFrame[0] ?? 0),
     },
   });
 }
@@ -191,7 +215,7 @@ const med = (arr) => arr.slice().sort((a, b) => a - b)[Math.floor(arr.length / 2
 //    submit은 참고로 보고한다. 목표 하드웨어에서 total 기준 재검증 필요 (보고서에 명시)
 const cpuGatedP95 = environment.softwareGL
   ? Math.max(...runs.map((r) => r.leading.cpuSimMs.p95))
-  : Math.max(...runs.map((r) => r.leading.cpuSimMs.p95 + r.leading.cpuSubmitMs.p95));
+  : Math.max(...runs.map((r) => r.leading.cpuTotalMs.p95)); // 프레임별 합의 참 p95 (감사 B3)
 const leading = {
   triangles: { value: Math.max(...runs.map((r) => r.leading.trianglesMax)), budget: budget.triangles },
   drawCalls: { value: Math.max(...runs.map((r) => r.leading.drawCallsMax)), budget: budget.drawCalls },
@@ -212,7 +236,7 @@ if (environment.softwareGL) banners.push('GPU-INVALID — 소프트웨어 렌더
 
 const summary = {
   banners,
-  contract: { duration: DURATION, runs: RUNS, dpr: DPR, nonContract: NON_CONTRACT },
+  contract: { duration: DURATION, runs: RUNS, dpr: DPR, w: W, h: H, warmup: WARMUP_FRAMES, nonContract: NON_CONTRACT },
   environment,
   phase: PHASE,
   /** 환경 무관 선행지표 — 이 섹션이 P1 이후 패스 게이트다 */

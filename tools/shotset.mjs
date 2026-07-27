@@ -24,7 +24,13 @@ const SETTLE = Number(args.settle ?? 24);
 mkdirSync(OUTDIR, { recursive: true });
 const server = await startServer();
 const browser = await launchBrowser();
-const report = { ok: true, outDir: OUTDIR, reused_page: true, reproducible: false, shots: [] };
+const report = {
+  ok: true, outDir: OUTDIR, reused_page: true, reproducible: false,
+  // 리뷰 전용 기본값(DPR1/settle24)은 계약 조건 미달이 정의다 — 명시 표식 (감사 B9)
+  nonContract: true,
+  note: 'HARNESS §1: 이 도구는 게이트 사용 절대 금지. 육안 리뷰 전용',
+  shots: [],
+};
 
 try {
   const g = await openGamePage(browser, {

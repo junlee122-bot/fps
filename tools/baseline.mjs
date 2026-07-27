@@ -34,7 +34,19 @@ const wanted = args.shots
 mkdirSync(OUTDIR, { recursive: true });
 const server = await startServer();
 const browser = await launchBrowser();
-const report = { ok: true, outDir: OUTDIR, size: `${W}x${H}@${DPR}x`, settle: SETTLE, isolated: true, shots: [] };
+
+// 비계약 조건 표식 (감사 B5 / PATCH-001-C 일반 원칙): 축소 해상도·부분 샷·짧은 settle로
+// 재생성한 쌍이 무표식으로 픽셀 게이트를 통과하는 것을 막는다.
+const NON_CONTRACT =
+  DPR < VIEW.dpr || W < VIEW.width || H < VIEW.height ||
+  SETTLE !== FIXED_STEP_FRAMES || wanted.length !== SHOTS.length;
+const report = {
+  ok: true, outDir: OUTDIR, size: `${W}x${H}@${DPR}x`, settle: SETTLE, isolated: true,
+  nonContract: NON_CONTRACT,
+  ...(NON_CONTRACT ? { banner: 'NON-CONTRACT CAPTURE — 계약 조건(DPR2/1512×982/settle90/11샷) 미달. 게이트 baseline으로 쓰지 마라' } : {}),
+  shots: [],
+};
+if (NON_CONTRACT) console.error(report.banner);
 
 for (const name of wanted) {
   let g = null;

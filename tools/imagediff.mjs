@@ -13,28 +13,43 @@ import { PNG } from 'pngjs';
 import { readFileSync, writeFileSync, readdirSync, mkdirSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { parseArgs } from './lib/args.mjs';
+import { SHOTS } from './shots.js';
 
 const flags = parseArgs();
 const positional = flags._;
 
 if (positional.length < 2) {
-  console.error('usage: node tools/imagediff.mjs <dirA> <dirB> [--tolerance=0] [--diffdir=tmp/diff]');
+  console.error('usage: node tools/imagediff.mjs <dirA> <dirB> [--tolerance 0] [--diffdir tmp/diff] [--partial]');
   process.exit(2);
 }
 const A = resolve(positional[0]);
 const B = resolve(positional[1]);
-// 값 없는 --tolerance가 Number(true)=1로 새는 것을 차단 — 게이트 상수는 명시가 원칙
-const TOL = flags.tolerance === undefined ? 0 : Number(flags.tolerance);
+// 값 없는 --tolerance(불리언 true)까지 거부 — Number(true)=1로 게이트가 약화된다 (감사 B2)
+const TOL = flags.tolerance === undefined ? 0 : (typeof flags.tolerance === 'string' ? Number(flags.tolerance) : NaN);
 if (!Number.isFinite(TOL) || TOL < 0) {
-  console.error(`invalid --tolerance: ${flags.tolerance}`);
+  console.error(`invalid --tolerance: ${flags.tolerance} (값을 명시하라, 예: --tolerance 0)`);
   process.exit(2);
 }
+/** 기본은 계약 11샷 전수 요구. --partial은 부분 비교 허용(비계약 — 게이트로 쓰지 말 것) */
+const PARTIAL = flags.partial === true;
 const DIFFDIR = resolve(flags.diffdir ?? 'tmp/diff');
 
 const namesA = readdirSync(A).filter((f) => f.endsWith('.png')).sort();
 const namesB = new Set(readdirSync(B).filter((f) => f.endsWith('.png')));
 const rows = [];
 let fail = false;
+
+// 공허 통과 차단 (감사 B4): 기본 모드에서는 계약 11샷이 양쪽에 전부 있어야 한다.
+if (!PARTIAL) {
+  for (const s of SHOTS) {
+    const f = `${s.name}.png`;
+    if (!namesA.includes(f)) { rows.push({ shot: f, status: 'CONTRACT_SHOT_MISSING_IN_A' }); fail = true; }
+    if (!namesB.has(f)) { rows.push({ shot: f, status: 'CONTRACT_SHOT_MISSING_IN_B' }); fail = true; }
+  }
+} else if (namesA.length === 0) {
+  console.error('no PNGs to compare in A — 공허 통과 거부');
+  process.exit(2);
+}
 
 for (const n of namesA) {
   if (!namesB.has(n)) {
@@ -54,10 +69,12 @@ for (const n of namesA) {
   const total = a.width * a.height;
   let diff = null;
   for (let i = 0; i < a.data.length; i += 4) {
+    // 알파 포함 4채널 — "픽셀 하나라도 다르면"의 문자 그대로 (감사 B8)
     const d = Math.max(
       Math.abs(a.data[i] - b.data[i]),
       Math.abs(a.data[i + 1] - b.data[i + 1]),
-      Math.abs(a.data[i + 2] - b.data[i + 2])
+      Math.abs(a.data[i + 2] - b.data[i + 2]),
+      Math.abs(a.data[i + 3] - b.data[i + 3])
     );
     sum += d;
     if (d > maxD) maxD = d;
@@ -100,5 +117,5 @@ for (const n of namesB) {
 }
 
 const identical = !fail;
-console.log(JSON.stringify({ a: A, b: B, tolerance: TOL, identical, rows }, null, 2));
+console.log(JSON.stringify({ a: A, b: B, tolerance: TOL, partial: PARTIAL, identical, rows }, null, 2));
 process.exit(identical ? 0 : 1);
