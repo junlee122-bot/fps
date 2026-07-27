@@ -1,0 +1,9 @@
+# dependencies
+node_modules/
+
+# harness output — baseline PNGs are machine-specific generated artifacts,
+# and the "no art assets in repo" rule forbids committing images (CONTRACT-NOTES A3)
+baseline/
+current/
+tmp/
+dist/

@@ -1,0 +1,23 @@
+{
+  "name": "joseon-cqb",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "JOSEON-CQB — browser FPS in late-Joseon wooden architecture. Walls are not cover.",
+  "scripts": {
+    "serve": "node tools/lib/serve-cli.mjs",
+    "capture": "node tools/capture.mjs",
+    "shotset": "node tools/shotset.mjs",
+    "baseline": "node tools/baseline.mjs",
+    "imagediff": "node tools/imagediff.mjs",
+    "profile": "node tools/profile.mjs",
+    "playtest": "node tools/playtest.mjs"
+  },
+  "dependencies": {
+    "three": "0.180.0"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1",
+    "pngjs": "7.0.0"
+  }
+}
