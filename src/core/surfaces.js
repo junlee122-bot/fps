@@ -261,6 +261,12 @@ export const DECAL_SURFACES = Object.freeze(
     .map(s => s.id)
 );
 
+/** 수직 엄폐물로 기능하는 표면 — 레벨 검증·AI 엄폐 선택의 기준 (CONTRACT-PATCH-001-A) */
+export const VERTICAL_COVER_SURFACES = Object.freeze(['GRANITE', 'BRONZE']);
+
+/** 맵당 배치 상한. 초과 시 레벨 검증 실패 (CONTRACT-PATCH-001-A) */
+export const COVER_PLACEMENT_LIMITS = Object.freeze({ BRONZE: 3 });
+
 /**
  * 다층 관통 계산.
  * 탄환은 창호지 → 창살 → 실내 → 반대편 창호지처럼 한 발에 여러 레이어를 통과한다.

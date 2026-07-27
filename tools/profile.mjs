@@ -2,14 +2,16 @@
 /**
  * tools/profile.mjs — 실플레이 프로파일러.
  *
- * 정적 카메라 벤치는 진짜 문제를 가린다 (HARNESS.md §0). 이 도구는:
- *  - realtime 모드(자유 실행 rAF 루프)에서
- *  - 실제 DPR로
- *  - 스크립트 이동·시점 전환·점프를 재생하며 (P0. 사격은 P2, AI는 P4에서 추가)
- * 프레임타임 분포(p50/p95/p99/worst)와 히치 귀속(프레임당 신규 WebGL
- * 프로그램 수, 드로우콜, 삼각형, 직전 이벤트)을 보고한다.
+ * [PATCH-001-C] 기본값 = 계약 조건 (--duration 30 --runs 3 --dpr 2).
+ * 더 약한 조건은 명시 플래그로만 가능하며 `NON-CONTRACT MEASUREMENT` 배너가 붙는다.
  *
- *   node tools/profile.mjs [--duration=30] [--dpr=2] [--runs=3]
+ * [P1-BRIEF 0-3] 출력을 두 계층으로 분리한다:
+ *  - leadingIndicators : 환경 무관 선행지표 — 삼각형 / 드로우콜 / 고유 프로그램 /
+ *    CPU 프레임 시간 p95(GPU 제외). **패스별 예산으로 게이트하며 초과 시 exit 1.**
+ *  - gpuDependent : fps·프레임타임 분포·히치 귀속. 소프트웨어 렌더러 감지 시
+ *    `GPU-INVALID` 배너 — 절대 fps는 목표 하드웨어에서만 판정한다.
+ *
+ *   node tools/profile.mjs [--phase p1] [--duration 30] [--dpr 2] [--runs 3]
  */
 
 import { startServer } from './lib/server.mjs';
@@ -17,16 +19,34 @@ import { launchBrowser, openGamePage, parseArgs } from './lib/browser.mjs';
 import { VIEW } from './shots.js';
 
 const args = parseArgs();
-const DURATION = Number(args.duration ?? 30);
-const DPR = Number(args.dpr ?? VIEW.dpr);
-const RUNS = Number(args.runs ?? 3);
+
+/** 계약 측정 조건 (HARNESS.md §6 / PATCH-001-C) */
+const CONTRACT = Object.freeze({ duration: 30, runs: 3, dpr: VIEW.dpr });
+
+const DURATION = Number(args.duration ?? CONTRACT.duration);
+const DPR = Number(args.dpr ?? CONTRACT.dpr);
+const RUNS = Number(args.runs ?? CONTRACT.runs);
 const W = Number(args.w ?? VIEW.width);
 const H = Number(args.h ?? VIEW.height);
+const PHASE = String(args.phase ?? 'p1');
 /** 워밍업 제외 프레임 (조작 인계 + 첫 섀도 캐스케이드 맞춤은 1회성 비용) */
 const WARMUP_FRAMES = Number(args.warmup ?? 30);
 const HITCH_MS = 50;
 
-/** P0 게임플레이 스크립트: 이동/시점/점프 사이클. duration을 채울 때까지 반복 */
+const NON_CONTRACT = DURATION < CONTRACT.duration || RUNS < CONTRACT.runs || DPR < CONTRACT.dpr;
+
+/** 패스별 선행지표 예산 (P1-BRIEF 0-3) */
+const BUDGETS = Object.freeze({
+  p1: { triangles: 2_000_000, drawCalls: 900, programs: 40, cpuFrameMsP95: 6 },
+  final: { triangles: 6_000_000, drawCalls: 1500, programs: 120, cpuFrameMsP95: 8 },
+});
+const budget = BUDGETS[PHASE];
+if (!budget) {
+  console.error(`unknown --phase: ${PHASE} (${Object.keys(BUDGETS).join('|')})`);
+  process.exit(2);
+}
+
+/** P1 게임플레이 스크립트: 이동/시점/점프 사이클 (사격은 P2, AI는 P4에서 추가) */
 function buildScript(duration) {
   const cycle = [
     { dur: 2.0, input: { forward: 1, right: 0, sprint: true }, tag: 'sprint_north' },
@@ -38,7 +58,6 @@ function buildScript(duration) {
     { dur: 0.8, input: { forward: 0, right: -1, crouch: true }, tag: 'crouch_strafe' },
     { dur: 0.5, input: { forward: 0, right: 0, crouch: false }, yawRate: 1.2, tag: 'idle_look' },
   ];
-  const cycleDur = cycle.reduce((a, s) => a + s.dur, 0);
   const script = [];
   let t = 0;
   while (t < duration) {
@@ -56,9 +75,12 @@ function percentile(sorted, p) {
   return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))];
 }
 
+const SOFTWARE_GL = /swiftshader|llvmpipe|software|swangle/i;
+
 const server = await startServer();
 const browser = await launchBrowser();
 const runs = [];
+let environment = null;
 
 for (let run = 0; run < RUNS; run++) {
   const g = await openGamePage(browser, {
@@ -72,16 +94,15 @@ for (let run = 0; run < RUNS; run++) {
   const internal = await g.page.evaluate(() => {
     const c = document.getElementById('game');
     const gl = c.getContext('webgl2');
+    const d = gl.getExtension('WEBGL_debug_renderer_info');
     return {
       dpr: devicePixelRatio,
       drawingBuffer: [gl.drawingBufferWidth, gl.drawingBufferHeight],
       megapixels: +((gl.drawingBufferWidth * gl.drawingBufferHeight) / 1e6).toFixed(2),
-      renderer: (() => {
-        const d = gl.getExtension('WEBGL_debug_renderer_info');
-        return d ? gl.getParameter(d.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
-      })(),
+      renderer: d ? gl.getParameter(d.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER),
     };
   });
+  environment ??= { ...internal, softwareGL: SOFTWARE_GL.test(internal.renderer) };
 
   await g.page.evaluate(() => window.__harness.resetState());
   const script = buildScript(DURATION);
@@ -90,11 +111,12 @@ for (let run = 0; run < RUNS; run++) {
   await g.close();
 
   // 인덱스 정렬: frameTimes[i]는 레코드 i ↔ i+1 사이의 간격이다.
-  // 따라서 그 간격에서 일어난 컴파일 수는 programCountPerFrame[i+1] - [i]다.
   const ft = stats.frameTimes.slice(WARMUP_FRAMES);
   const progs = stats.programCountPerFrame.slice(WARMUP_FRAMES);
   const calls = stats.drawCallsPerFrame.slice(WARMUP_FRAMES);
   const tris = stats.trianglesPerFrame.slice(WARMUP_FRAMES);
+  const cpuSim = stats.cpuSimMsPerFrame.slice(WARMUP_FRAMES).filter((v) => v >= 0).sort((a, b) => a - b);
+  const cpuSubmit = stats.cpuSubmitMsPerFrame.slice(WARMUP_FRAMES).filter((v) => v >= 0).sort((a, b) => a - b);
   const sorted = ft.slice().sort((a, b) => a - b);
   const p50 = percentile(sorted, 0.5);
   const p95 = percentile(sorted, 0.95);
@@ -120,27 +142,40 @@ for (let run = 0; run < RUNS; run++) {
   runs.push({
     run: run + 1,
     bootMs: Math.round(bootMs),
-    internal,
     frames: ft.length,
-    frameMs: {
-      p50: +p50.toFixed(2), p95: +p95.toFixed(2), p99: +p99.toFixed(2), worst: +worst.toFixed(1),
+    leading: {
+      trianglesMax: Math.max(...tris),
+      drawCallsMax: Math.max(...calls),
+      programsEnd: progs.at(-1) ?? 0,
+      // sim: 항상 환경 무관. submit: 실 GPU에서만 CPU 비용 (소프트웨어 GL은 라스터에 블록)
+      cpuSimMs: {
+        p50: +percentile(cpuSim, 0.5).toFixed(2),
+        p95: +percentile(cpuSim, 0.95).toFixed(2),
+        worst: +(cpuSim[cpuSim.length - 1] ?? NaN).toFixed(2),
+        samples: cpuSim.length,
+      },
+      cpuSubmitMs: {
+        p50: +percentile(cpuSubmit, 0.5).toFixed(2),
+        p95: +percentile(cpuSubmit, 0.95).toFixed(2),
+        worst: +(cpuSubmit[cpuSubmit.length - 1] ?? NaN).toFixed(2),
+      },
     },
-    fps: {
-      p50: +(1000 / p50).toFixed(1),
-      p95: +(1000 / p95).toFixed(1),
-      p99: +(1000 / p99).toFixed(1),
-      min: +(1000 / worst).toFixed(1),
+    gpu: {
+      frameMs: { p50: +p50.toFixed(2), p95: +p95.toFixed(2), p99: +p99.toFixed(2), worst: +worst.toFixed(1) },
+      fps: {
+        p50: +(1000 / p50).toFixed(1),
+        p95: +(1000 / p95).toFixed(1),
+        p99: +(1000 / p99).toFixed(1),
+        min: +(1000 / worst).toFixed(1),
+      },
+      hitchCount: hitches.length,
+      hitches: hitches.sort((a, b) => b.ms - a.ms).slice(0, 15),
     },
     programs: {
       start: progs[0] ?? 0,
       end: progs.at(-1) ?? 0,
       compiledDuringPlay: (progs.at(-1) ?? 0) - (progs[0] ?? 0),
     },
-    drawCalls: { min: Math.min(...calls), max: Math.max(...calls) },
-    triangles: { min: Math.min(...tris), max: Math.max(...tris) },
-    hitchCount: hitches.length,
-    hitches: hitches.sort((a, b) => b.ms - a.ms).slice(0, 15),
-    errors: [],
   });
 }
 
@@ -148,19 +183,54 @@ await browser.close();
 await server.close();
 
 const med = (arr) => arr.slice().sort((a, b) => a - b)[Math.floor(arr.length / 2)];
+
+// ---- 선행지표 집계는 보수적으로: 런 간 최악값을 예산과 비교 ----
+// CPU 프레임 시간(GPU 제외):
+//  - 실 GPU: sim + submit (render()가 제출만 하고 리턴 → 전부 CPU 비용)
+//  - 소프트웨어 GL: render()가 라스터에 블록되어 submit이 오염 → sim 성분만 게이트하고
+//    submit은 참고로 보고한다. 목표 하드웨어에서 total 기준 재검증 필요 (보고서에 명시)
+const cpuGatedP95 = environment.softwareGL
+  ? Math.max(...runs.map((r) => r.leading.cpuSimMs.p95))
+  : Math.max(...runs.map((r) => r.leading.cpuSimMs.p95 + r.leading.cpuSubmitMs.p95));
+const leading = {
+  triangles: { value: Math.max(...runs.map((r) => r.leading.trianglesMax)), budget: budget.triangles },
+  drawCalls: { value: Math.max(...runs.map((r) => r.leading.drawCallsMax)), budget: budget.drawCalls },
+  programs: { value: Math.max(...runs.map((r) => r.leading.programsEnd)), budget: budget.programs },
+  cpuFrameMsP95: {
+    value: +cpuGatedP95.toFixed(2),
+    budget: budget.cpuFrameMsP95,
+    basis: environment.softwareGL ? 'sim-only (software GL: submit은 라스터 오염)' : 'sim+submit',
+    submitP95_reference: +Math.max(...runs.map((r) => r.leading.cpuSubmitMs.p95)).toFixed(2),
+  },
+};
+for (const k of Object.keys(leading)) leading[k].pass = leading[k].value <= leading[k].budget;
+const leadingPass = Object.values(leading).every((v) => v.pass);
+
+const banners = [];
+if (NON_CONTRACT) banners.push('NON-CONTRACT MEASUREMENT — 계약 조건(30s/3runs/DPR2) 미달. 게이트 판정에 쓰지 마라');
+if (environment.softwareGL) banners.push('GPU-INVALID — 소프트웨어 렌더러. gpuDependent 섹션은 절대 성능 판정에 무효');
+
 const summary = {
-  runs: RUNS,
-  duration: DURATION,
-  dpr: DPR,
-  aggregate: {
-    fps_p50_median: med(runs.map((r) => r.fps.p50)),
-    fps_p95_median: med(runs.map((r) => r.fps.p95)),
-    fps_p99_median: med(runs.map((r) => r.fps.p99)),
-    frame_worst_max: Math.max(...runs.map((r) => r.frameMs.worst)),
-    shaderCompilesDuringPlay_max: Math.max(...runs.map((r) => r.programs.compiledDuringPlay)),
-    hitchCount_total: runs.reduce((a, r) => a + r.hitchCount, 0),
-    bootMs_median: med(runs.map((r) => r.bootMs)),
+  banners,
+  contract: { duration: DURATION, runs: RUNS, dpr: DPR, nonContract: NON_CONTRACT },
+  environment,
+  phase: PHASE,
+  /** 환경 무관 선행지표 — 이 섹션이 P1 이후 패스 게이트다 */
+  leadingIndicators: { ...leading, pass: leadingPass },
+  shaderCompilesDuringPlay_max: Math.max(...runs.map((r) => r.programs.compiledDuringPlay)),
+  bootMs_median: med(runs.map((r) => r.bootMs)),
+  /** GPU 의존 — softwareGL이면 참고치 */
+  gpuDependent: {
+    valid: !environment.softwareGL,
+    fps_p50_median: med(runs.map((r) => r.gpu.fps.p50)),
+    fps_p99_median: med(runs.map((r) => r.gpu.fps.p99)),
+    frame_worst_max: Math.max(...runs.map((r) => r.gpu.frameMs.worst)),
+    hitchCount_total: runs.reduce((a, r) => a + r.gpu.hitchCount, 0),
   },
   perRun: runs,
 };
 console.log(JSON.stringify(summary, null, 2));
+
+// 게이트: 선행지표 초과 또는 플레이 중 셰이더 컴파일 발생 시 실패
+const compileFail = summary.shaderCompilesDuringPlay_max > 0;
+process.exit(leadingPass && !compileFail ? 0 : 1);

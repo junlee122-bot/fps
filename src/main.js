@@ -104,6 +104,7 @@ if (mode === 'realtime') {
   let accum = 0;
   const loop = (ts) => {
     requestAnimationFrame(loop);
+    const cpuT0 = clock.wallNowMs(); // CPU 프레임 시간(GPU 제외) 계측 시작
     clock.tickRealtime(ts);
     harness._internal.scriptTick();
     accum += clock.dt;
@@ -115,7 +116,7 @@ if (mode === 'realtime') {
       steps++;
     }
     if (steps === MAX_SUBSTEPS) accum = 0; // 백로그 폐기 — 나선 방지
-    harness._internal.renderFrame();
+    harness._internal.renderFrame(cpuT0);
   };
   requestAnimationFrame(loop);
 }

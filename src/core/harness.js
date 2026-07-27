@@ -37,10 +37,15 @@ export function installHarness(ctx) {
     }
   }
 
-  function renderFrame() {
+  function renderFrame(cpuStartMs = -1) {
     if (!state.cameraOverride) player.applyCamera(camera);
+    const preRender = clock.wallNowMs();
     renderer.render(scene, camera);
-    stats.record();
+    const end = clock.wallNowMs();
+    stats.record(
+      cpuStartMs >= 0 ? preRender - cpuStartMs : -1,
+      cpuStartMs >= 0 ? end - preRender : -1
+    );
   }
 
   /** realtime 루프가 매 프레임 호출 — 프로파일 스크립트 재생 */
@@ -81,9 +86,10 @@ export function installHarness(ctx) {
     async stepFrames(n) {
       if (mode !== 'fixed') throw new Error('stepFrames requires fixed mode (?mode=fixed)');
       for (let i = 0; i < n; i++) {
+        const t0 = clock.wallNowMs();
         clock.tickFixed();
         stepSim();
-        renderFrame();
+        renderFrame(t0);
         if ((i & 31) === 31) await new Promise((r) => setTimeout(r, 0));
       }
       // 컴포지터가 마지막 프레임을 집도록 rAF 2회 양보 (스크린샷 안정화)

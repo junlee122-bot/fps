@@ -23,14 +23,22 @@ export class StatsRecorder {
     this.programCountPerFrame = [];
     this.drawCallsPerFrame = [];
     this.trianglesPerFrame = [];
+    /**
+     * 프레임당 CPU 시간(ms), 2성분. 미계측 프레임 -1.
+     * - sim    : 프레임 시작 → render() 직전 (입력·물리·플레이어·씬 갱신). 항상 환경 무관
+     * - submit : render() 호출 소요. 실 GPU에선 제출 비용 ≈ CPU, 소프트웨어 GL에선
+     *            라스터에 블록되어 오염됨 (profile이 환경 감지로 게이트 성분을 선택)
+     */
+    this.cpuSimMsPerFrame = [];
+    this.cpuSubmitMsPerFrame = [];
     this.events = [];              // {frame, tag}
     this._lastWall = null;
     this._frame = 0;
   }
 
   /** 렌더 직후 호출 */
-  record() {
-    if (this.frameTimes.length >= MAX_SAMPLES) return;
+  record(cpuSimMs = -1, cpuSubmitMs = -1) {
+    if (this.programCountPerFrame.length >= MAX_SAMPLES) return;
     const now = clock.wallNowMs();
     if (this._lastWall !== null) this.frameTimes.push(now - this._lastWall);
     this._lastWall = now;
@@ -38,6 +46,8 @@ export class StatsRecorder {
     this.programCountPerFrame.push(info.programs?.length ?? 0);
     this.drawCallsPerFrame.push(info.render.calls);
     this.trianglesPerFrame.push(info.render.triangles);
+    this.cpuSimMsPerFrame.push(cpuSimMs);
+    this.cpuSubmitMsPerFrame.push(cpuSubmitMs);
     this._frame++;
   }
 
@@ -56,6 +66,8 @@ export class StatsRecorder {
       // 확장 (CONTRACT-NOTES B2)
       drawCallsPerFrame: this.drawCallsPerFrame.slice(),
       trianglesPerFrame: this.trianglesPerFrame.slice(),
+      cpuSimMsPerFrame: this.cpuSimMsPerFrame.slice(),
+      cpuSubmitMsPerFrame: this.cpuSubmitMsPerFrame.slice(),
       events: this.events.slice(),
       bootMs: clock.bootMs,
     };

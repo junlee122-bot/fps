@@ -22,6 +22,10 @@ Retina DPR 실제 게임플레이(내부 해상도 3.34MP, 2.07MP 아님)에서 
 
 이 두 가지를 해결하지 못한 상태의 모든 품질·성능 판단은 무효다.
 
+> **[PATCH-001-C 일반 원칙] 모든 하네스 툴의 기본값은 계약 조건과 일치해야 한다.**
+> 인자를 잊었을 때 나오는 결과는 "덜 엄격한 통과"가 아니라 "계약 조건 그대로"여야 한다.
+> 이 원칙을 어기는 툴은 결함이다.
+
 ---
 
 ## 1. 툴 목록
@@ -135,8 +139,13 @@ node tools/imagediff.mjs baseline/ current/ [--tolerance 0]
 
 ### `profile.mjs`
 ```
-node tools/profile.mjs --duration 30 --dpr 2 --runs 3
+node tools/profile.mjs            # 계약 기본값으로 실행 = --duration 30 --runs 3 --dpr 2
 ```
+**[PATCH-001-C]** `profile.mjs`의 기본값은 §6 측정 조건과 동일해야 한다.
+인자 없이 실행한 결과가 곧 게이트 판정에 쓰이는 수치다. 더 짧거나 적은 조건은
+명시적 플래그로만 가능하며, 이 경우 출력 헤더에 `NON-CONTRACT MEASUREMENT` 배너를
+반드시 출력한다.
+
 정적 카메라 금지. **실제 게임플레이**를 스크립트로 재생한다 — 이동 중, AI 활성,
 사격 중. 실제 device pixel ratio 사용.
 
