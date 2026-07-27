@@ -171,7 +171,7 @@ function makePng(path, px) {
  * 게이트 툴의 통과 케이스만으로는 툴이 작동한다는 증거가 되지 않는다.
  * (a) 레이어 제거 입력, (b) 순서 뒤집기 입력 — 둘 다 반드시 exit 1. */
 {
-  const dropped = run('node', ['tools/chainaudit.mjs', '--test-drop', 'EARTH_WALL']);
+  const dropped = run('node', ['tools/chainaudit.mjs', '--test-drop', 'ROOF_SOIL']); // 보토 재태깅 [PATCH-003-D]
   const reversed = run('node', ['tools/chainaudit.mjs', '--test-reverse']);
   let dropMarked = false, revMarked = false;
   try { dropMarked = String(JSON.parse(dropped.out).testOverride ?? '').includes('drop'); } catch { /* fail */ }

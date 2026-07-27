@@ -85,7 +85,7 @@ export const SURFACES = Object.freeze({
   WOOD_COLUMN: Object.freeze({
     id: 'WOOD_COLUMN',
     penClass: PenClass.MEDIUM,
-    energyRetain: 0.35,
+    energyRetain: 0.59, // [PATCH-002-D] 0.35 → 0.59 (밀리미터 스케일 상수의 데시미터 부재 적용 오류 정정)
     density: 0.65,
     opaque: true,
     translucent: false,
@@ -100,7 +100,7 @@ export const SURFACES = Object.freeze({
   EARTH_WALL: Object.freeze({
     id: 'EARTH_WALL',
     penClass: PenClass.HEAVY,
-    energyRetain: 0.25,
+    energyRetain: 0.235, // [PATCH-002-D] 0.25 → 0.235 (PATCH-002-E 여유 요건 재도출)
     density: 0.80,
     opaque: true,
     translucent: false,
@@ -244,6 +244,26 @@ export const SURFACES = Object.freeze({
     fx: 'dirt_puff',
     audio: 'dirt_dull',
     ricochet: 0.05,
+  }),
+
+  /**
+   * 지붕 보토(알매흙) — 기와 아래 완충토. [PATCH-003-A]
+   * 심벽(EARTH_WALL)과의 병합 정정: 산자 위 이완 흙층은 다진 벽체 충전재와
+   * 재료·밀도·시공이 다르다. 신설이 아니라 잘못된 병합의 정정.
+   * (기존 표면 인덱스 보존을 위해 반드시 마지막에 추가)
+   */
+  ROOF_SOIL: Object.freeze({
+    id: 'ROOF_SOIL',
+    penClass: PenClass.LIGHT,
+    energyRetain: 0.39,
+    density: 0.50,      // EARTH_WALL(0.80) 미만 제약 [PATCH-003-A]
+    opaque: true,
+    translucent: false,
+    dynamicOpacity: false,
+    breachable: true,
+    fx: 'soil_puff',    // EARTH_WALL 'dust_burst'와 구별 [PATCH-003-B 3항]
+    audio: 'soil_dull', // EARTH_WALL 'muffled_thud'와 구별
+    ricochet: 0.02,
   }),
 });
 

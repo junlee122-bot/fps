@@ -194,6 +194,28 @@
   (k=5.6/0.425/9.332, retain_C 0.59, retain_E 0.2346, retain_B 0.455)로 승인 대기.
 - FABRIC·THATCH 기준 두께가 P1 두께표에 없음 — 매트릭스 검증은 킷 실측값
   (FABRIC 2mm, THATCH 200mm) 사용. 유닛 테스트 고정 전 계약 확정 필요 (BLOCKER-001 §5).
+- **PATCH-003 판정** (P2A-BLOCKER-002에 대한 작성자 회신): 증명 독립 검증 후 승인.
+  A(ROOF_SOIL 신설 — "신설이 아니라 잘못된 병합의 정정"; penClass LIGHT 고정,
+  retain 도출값, **밀도 < 0.80 필수**, fx/audio는 EARTH_WALL과 구별, ricochet ≤ 0.02) /
+  B(표면 신설 3기준 영구화 — 물리적 구별·독립적 정당화·플레이어 구별 가능성) /
+  C(표 재정정 대안 반려) / D(재태깅 파급 점검 6항목 — 보토만, 심벽 불변) /
+  E(실현 가능성 증명 선행 원칙 영구화).
+- **PATCH-003 실행 기록**: 밀도<0.8 제약으로 해 재도출 — ROOF_SOIL density 0.50,
+  retain 0.39 (S_TB=13.675); EARTH_WALL retain 0.2346→**0.235**로 반올림 고정.
+  최종: k=5.6/0.425/9.332, retain_C=0.59, retain_E=0.235, retain_B=0.39.
+  30칸 전부 밴드 내, 경계 밀착 없음 — `npm test`(test/margins.test.mjs)가 영구 고정.
+  surfaces.js diff는 정확히 2값+1항목(마지막 위치 — 물리 Uint8 인덱스 보존) 후 재동결.
+  재태깅 파급: surfaceaudit 메시 393 불변, 표면 계수 EARTH_WALL 48→16(심벽만) /
+  ROOF_SOIL 0→32(지붕 보토); chainaudit 9/9; coveraudit 0.12% 불변.
+- **P2A-2. PATCH-001-B 케이스 3 판정**: 원문 "HANJI→창살과 역순의 잔여값이 다름"은
+  성립 불가 — 잔여는 retain^t의 가환 곱이므로 순서에 불변이다(조기 정지도 곱을
+  바꾸지 못한다: 곱이 단조 감소라 임계 미달 시점만 달라질 뿐 최종 잔여 0은 동일).
+  순서 의존이 실재하는 관측치는 **path의 레이어 순서**와 **stoppedAt 귀속**이며,
+  test/penetration.test.mjs B-3이 그 성질을 검증한다. 순서 불변성 자체도 고정했다.
+- **P2A-1. FABRIC 기준 두께 고정**: 킷에 FABRIC 두께 상수가 없어(주렴·발은 P2B FX
+  소관) 매트릭스 참조값 **2mm**를 test/margins.test.mjs에 계약 참조값으로 고정했다.
+  BLOCKER-001 §5로 보고된 가정을 PATCH-002·003이 정정하지 않았으므로 채택.
+  THATCH는 킷 상수 THATCH_T=200mm를 그대로 사용(단일 출처).
 
 ## C. 표류 방지 메모 (충돌은 아니지만 오해 소지)
 

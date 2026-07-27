@@ -5,6 +5,7 @@
   "type": "module",
   "description": "JOSEON-CQB — browser FPS in late-Joseon wooden architecture. Walls are not cover.",
   "scripts": {
+    "test": "node --test",
     "serve": "node tools/lib/serve-cli.mjs",
     "capture": "node tools/capture.mjs",
     "shotset": "node tools/shotset.mjs",

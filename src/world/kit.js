@@ -25,7 +25,7 @@ export const T = Object.freeze({
   BEAM_H: 0.3,
   DORI_D: 0.15,        // 도리·서까래 ø150
   TILE_T: 0.03,        // 기와 30mm
-  BOTO_T: 0.08,        // 보토 80mm (EARTH_WALL 태그)
+  BOTO_T: 0.08,        // 보토 80mm (ROOF_SOIL 태그 — PATCH-003-A 분리)
   THATCH_T: 0.2,       // 초가 이엉층
   HANJI_T: 0.0003,     // 창호지 0.3mm
   LATTICE_T: 0.024,    // 창살 24mm
@@ -60,6 +60,7 @@ export const MAT_OF = Object.freeze({
   GRANITE: 'GREY_LIGHT',
   PACKED_DIRT: 'GREY_LIGHT',
   EARTH_WALL: 'GREY_LIGHT',
+  ROOF_SOIL: 'GREY_LIGHT',   // 보토 — 회색 규율상 EARTH_WALL과 시각 동일 (PATCH-003 픽셀 중립)
   WOOD_COLUMN: 'GREY_MID',
   WOOD_PLANK: 'GREY_MID',
   THATCH: 'GREY_MID',
@@ -472,7 +473,7 @@ export function addHipRoof(A, {
   const corner = (u) => Math.pow(Math.abs(u), 2.4);
 
   const layers = [
-    { surface: 'EARTH_WALL', t: T.BOTO_T, lift: 0 },
+    { surface: 'ROOF_SOIL', t: T.BOTO_T, lift: 0 },  // 보토 재태깅 [PATCH-003-D]
     { surface: 'ROOF_TILE', t: T.TILE_T, lift: T.BOTO_T },
   ];
 
@@ -628,7 +629,7 @@ export function addHipRoof(A, {
 /* ------------------------------------------------------------------ */
 
 /**
- * 충돌 2레이어(기와 ROOF_TILE 30mm 위 / 보토 EARTH_WALL 80mm 아래 — 탄이 위에서
+ * 충돌 2레이어(기와 ROOF_TILE 30mm 위 / 보토 ROOF_SOIL 80mm 아래 — 탄이 위에서
  * 아래로 기와→보토 순서로 만난다) + 시각 기와 인스턴스(비충돌) + 용마루 +
  * 서까래(충돌 — 지붕 관통 체인의 3층) + 박공 판벽.
  *
@@ -657,7 +658,7 @@ export function addGableRoof(A, {
   const layerDefs = thatch
     ? [{ surface: 'THATCH', t: T.THATCH_T, collide: true }]
     : [
-        { surface: 'EARTH_WALL', t: T.BOTO_T, collide: true },  // 보토 (아래)
+        { surface: 'ROOF_SOIL', t: T.BOTO_T, collide: true },   // 보토 (아래) [PATCH-003-D]
         { surface: 'ROOF_TILE', t: T.TILE_T, collide: true },   // 기와 (위)
       ];
 

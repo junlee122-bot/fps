@@ -4,8 +4,8 @@
  *
  * 월드를 Node에서 빌드하고 대표 경로에 레이를 쏴 레이어 순서를 확인한다:
  *  - 창호: HANJI → LATTICE(있으면) → [실내] → … → HANJI (한 발에 창호지 2겹)
- *  - 맞배지붕: ROOF_TILE → EARTH_WALL(보토) (위→아래)
- *  - 팔작지붕: 주경사면·합각하부면 양쪽 모두 ROOF_TILE → EARTH_WALL
+ *  - 맞배지붕: ROOF_TILE → ROOF_SOIL(보토) (위→아래) [PATCH-003-D 재태깅]
+ *  - 팔작지붕: 주경사면·합각하부면 양쪽 모두 ROOF_TILE → ROOF_SOIL
  *  - 담장: 상부 기와만 관통 / 하부 화강암 차단
  *
  * 곡면·합각 어느 쪽에서도 체인이 깨지면 exit 1.
@@ -93,31 +93,31 @@ function expectChain(name, seq, expected, opts = {}) {
 
 /* 2. 맞배지붕 (내아): 위→아래 기와 → 보토 */
 expectChain('내아 맞배: TILE→보토', surfaceSequence(-27, 12, -8.5, 0, -1, 0, 12),
-  ['ROOF_TILE', 'EARTH_WALL']);
+  ['ROOF_TILE', 'ROOF_SOIL']);
 
 /* 3. 팔작 주경사면 (동헌 남측): TILE→보토 */
 expectChain('동헌 팔작 주경사면: TILE→보토', surfaceSequence(0, 12, -21, 0, -1, 0, 12),
-  ['ROOF_TILE', 'EARTH_WALL']);
+  ['ROOF_TILE', 'ROOF_SOIL']);
 
 /* 4. 팔작 합각하부면 (동헌 동측 끝): TILE→보토 */
 expectChain('동헌 팔작 합각하부면: TILE→보토', surfaceSequence(8.8, 12, -24, 0, -1, 0, 12),
-  ['ROOF_TILE', 'EARTH_WALL']);
+  ['ROOF_TILE', 'ROOF_SOIL']);
 
 /* 5. 객사 팔작 주경사면 + 합각하부면 */
 expectChain('객사 팔작 주경사면: TILE→보토', surfaceSequence(27, 12, -7.5, 0, -1, 0, 12),
-  ['ROOF_TILE', 'EARTH_WALL']);
+  ['ROOF_TILE', 'ROOF_SOIL']);
 expectChain('객사 팔작 합각하부면: TILE→보토', surfaceSequence(33.2, 12, -10, 0, -1, 0, 12),
-  ['ROOF_TILE', 'EARTH_WALL']);
+  ['ROOF_TILE', 'ROOF_SOIL']);
 
 /* 6. 지붕 전체 체인: 기와→보토→서까래(WOOD_COLUMN) — 처마 부근 */
 {
   const seq = surfaceSequence(0, 12, -17.2, 0, -1, 0, 12);
   const iTile = seq.findIndex((s) => s.surface === 'ROOF_TILE');
-  const iEarth = seq.findIndex((s) => s.surface === 'EARTH_WALL');
+  const iSoil = seq.findIndex((s) => s.surface === 'ROOF_SOIL');
   const iWood = seq.findIndex((s) => s.surface === 'WOOD_COLUMN');
   checks.push({
     name: '동헌 처마 체인: 기와→보토→서까래',
-    ok: iTile >= 0 && iEarth > iTile && iWood > iEarth,
+    ok: iTile >= 0 && iSoil > iTile && iWood > iSoil,
     got: seq.map((s) => s.surface).slice(0, 12),
   });
 }

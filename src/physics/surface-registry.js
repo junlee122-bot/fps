@@ -56,6 +56,7 @@ export const SURFACE_PROPS = Object.freeze(
       case 'HANJI':       return { friction: 0.60, restitution: 0.02 };
       case 'FABRIC':      return { friction: 0.75, restitution: 0.02 };
       case 'THATCH':      return { friction: 0.80, restitution: 0.03 };
+      case 'ROOF_SOIL':   return { friction: 0.85, restitution: 0.03 };
       case 'DANCHEONG':   return { friction: 0.70, restitution: 0.20 };
       default:            return { friction: 0.80, restitution: 0.10 };
     }
