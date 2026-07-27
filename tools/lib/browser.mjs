@@ -74,10 +74,5 @@ export async function capturePng(page, path) {
   }
 }
 
-/** --key=value 인자 파서 (참조 레포 관례) */
-export function parseArgs(argv = process.argv.slice(2)) {
-  return Object.fromEntries(argv.map((a) => {
-    const m = a.match(/^--([^=]+)(?:=(.*))?$/);
-    return m ? [m[1], m[2] ?? true] : [a, true];
-  }));
-}
+// 인자 파서는 args.mjs가 소유 — playwright 의존이 없는 도구(imagediff)도 쓴다
+export { parseArgs } from './args.mjs';

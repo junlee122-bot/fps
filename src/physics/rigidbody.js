@@ -51,7 +51,10 @@ export class RigidBody {
     this.linearDamping = opts.linearDamping ?? 0.16;
     this.angularDamping = opts.angularDamping ?? 0.5;
     this.gravityScale = opts.gravityScale ?? 1;
-    this.surface = opts.surface ?? 0;
+    // -1 = 미지정. 참조 구현의 0은 'concrete'(중립)였지만 이 프로젝트의 0은
+    // HANJI(창호지)라 기본값으로 쓰면 조용한 오태깅이 된다. 태그는
+    // PhysicsWorld.addRigidBody가 강제한다.
+    this.surface = opts.surface ?? -1;
     this.mask = opts.mask ?? MASK.DEBRIS;
     this.layer = opts.layer ?? 0;
     this.ccd = opts.ccd ?? true;
@@ -201,6 +204,8 @@ function buildProbes(body) {
 
 const MAX_CONTACTS = 48;
 const SLOP = 0.0015;
+/** 표면 인덱스를 모르는 접촉의 중립 물성 — 인덱스 0(HANJI)을 폴백으로 쓰지 않는다 */
+const NEUTRAL_CONTACT = Object.freeze({ friction: 0.8, restitution: 0.1 });
 /** 잔여 침투 중 스텝당 위치로 제거하는 비율 */
 const BAUMGARTE = 0.4;
 const REST_THRESHOLD = 0.55; // 이하 접근 속도에서 반발 억제, m/s
@@ -326,7 +331,7 @@ export class RigidBodyWorld {
         b.position.z += dz * adv;
         // 반발 + 접선 마찰로 반사하고, 미끄럼 일부를 스핀으로 바꿔
         // 스케이트 대신 구르게 한다.
-        const sp = SURFACE_PROPS[this.world.surface[hit.tri]] ?? SURFACE_PROPS[0];
+        const sp = SURFACE_PROPS[this.world.surface[hit.tri]] ?? NEUTRAL_CONTACT;
         const e = Math.sqrt(Math.max(0, b.restitution * sp.restitution));
         const mu = Math.sqrt(Math.max(0, b.friction * sp.friction));
         const vn = b.linearVelocity.x * hit.nx + b.linearVelocity.y * hit.ny + b.linearVelocity.z * hit.nz;
@@ -468,7 +473,7 @@ export class RigidBodyWorld {
         this._cn[k * 3] = dnx; this._cn[k * 3 + 1] = dny; this._cn[k * 3 + 2] = dnz;
         this._cp[k * 3] = dpx; this._cp[k * 3 + 1] = dpy; this._cp[k * 3 + 2] = dpz;
         this._cd[k] = deepest;
-        const sp = SURFACE_PROPS[w.surface[dtri]] ?? SURFACE_PROPS[0];
+        const sp = SURFACE_PROPS[w.surface[dtri]] ?? NEUTRAL_CONTACT;
         this._cf[k] = Math.sqrt(Math.max(0, b.friction * sp.friction));
         this._ce[k] = Math.sqrt(Math.max(0, b.restitution * sp.restitution));
         this._cs[k] = w.surface[dtri];

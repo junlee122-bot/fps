@@ -10,7 +10,8 @@
  */
 
 import * as THREE from 'three';
-import { surfaceIndex } from '../physics/index.js';
+// 주의: physics를 직접 import하지 않는다 (ARCHITECTURE §3).
+// 물리 접근은 전부 buildGreybox(scene, physics)로 주입받은 파사드를 통한다.
 
 // ---------------------------------------------------------------- 상수
 const WALL_HALF = 44;          // 담장 중심선
@@ -68,14 +69,12 @@ function makeMaterials() {
   return m;
 }
 
-/** 물리 등록 레이어 (physics/surface-registry.js LAYER와 일치해야 함) */
-const LAYER_STATIC = 1 << 0;
-const LAYER_DEBRIS_ONLY = 1 << 1;
-
 export function buildGreybox(scene, physics) {
   const group = new THREE.Group();
   group.name = 'greybox';
   const mats = makeMaterials();
+  const LAYER_STATIC = physics.layers.STATIC;
+  const LAYER_DEBRIS_ONLY = physics.layers.DEBRIS_ONLY;
 
   const geoCache = new Map();
   function boxGeo(w, h, d) {
@@ -309,7 +308,7 @@ export function buildGreybox(scene, physics) {
       position: new THREE.Vector3(...spec.pos),
       quaternion: quat,
       object3D: mesh,
-      surface: surfaceIndex('WOOD_PLANK'),
+      surface: 'WOOD_PLANK',
       friction: 0.65,
       restitution: 0.18,
     });

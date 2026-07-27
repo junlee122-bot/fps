@@ -20,6 +20,14 @@ export class PhysicsWorld {
     this._hit = makeHitRecord();
   }
 
+  /**
+   * 레이어 비트 노출 — world 등 소비자는 physics를 import하지 않고
+   * 주입받은 파사드의 이 게터를 쓴다 (ARCHITECTURE §3 직접 import 금지).
+   */
+  get layers() {
+    return LAYER;
+  }
+
   /** 월드 지오메트리 등록. 표면 태그 필수 (bakeMesh가 강제) */
   addStaticMesh(mesh, surface, mask = LAYER.STATIC) {
     return this.static.addMesh(mesh, surface, mask);
@@ -35,8 +43,15 @@ export class PhysicsWorld {
     return new CharacterController(this.static, opts);
   }
 
+  /**
+   * 강체 추가. 표면 태그 필수 — 이름('WOOD_PLANK') 또는 인덱스.
+   * 기본값에 기대면 인덱스 0(HANJI)으로 조용히 오태깅된다 (감사 발견 #5).
+   */
   addRigidBody(opts) {
-    return this.rigid.add(new RigidBody(opts));
+    if (opts.surface === undefined || opts.surface === null) {
+      throw new Error('addRigidBody: surface tag is required');
+    }
+    return this.rigid.add(new RigidBody({ ...opts, surface: surfaceIndex(opts.surface) }));
   }
 
   /** 고정 스텝. 강체 적분 + 접촉 해석 + 표시 오브젝트 동기화 */

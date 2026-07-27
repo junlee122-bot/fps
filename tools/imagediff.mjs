@@ -10,13 +10,12 @@
  */
 
 import { PNG } from 'pngjs';
-import { readFileSync, writeFileSync, readdirSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync, mkdirSync } from 'node:fs';
 import { resolve, join } from 'node:path';
+import { parseArgs } from './lib/args.mjs';
 
-const positional = process.argv.slice(2).filter((a) => !a.startsWith('--'));
-const flags = Object.fromEntries(process.argv.slice(2)
-  .filter((a) => a.startsWith('--'))
-  .map((a) => { const m = a.match(/^--([^=]+)(?:=(.*))?$/); return [m[1], m[2] ?? true]; }));
+const flags = parseArgs();
+const positional = flags._;
 
 if (positional.length < 2) {
   console.error('usage: node tools/imagediff.mjs <dirA> <dirB> [--tolerance=0] [--diffdir=tmp/diff]');
@@ -24,7 +23,12 @@ if (positional.length < 2) {
 }
 const A = resolve(positional[0]);
 const B = resolve(positional[1]);
-const TOL = Number(flags.tolerance ?? 0);
+// 값 없는 --tolerance가 Number(true)=1로 새는 것을 차단 — 게이트 상수는 명시가 원칙
+const TOL = flags.tolerance === undefined ? 0 : Number(flags.tolerance);
+if (!Number.isFinite(TOL) || TOL < 0) {
+  console.error(`invalid --tolerance: ${flags.tolerance}`);
+  process.exit(2);
+}
 const DIFFDIR = resolve(flags.diffdir ?? 'tmp/diff');
 
 const namesA = readdirSync(A).filter((f) => f.endsWith('.png')).sort();

@@ -65,7 +65,9 @@ export const SURFACE_PROPS = Object.freeze(
 /** 충돌 레이어 비트 */
 export const LAYER = Object.freeze({
   STATIC: 1 << 0,
-  DEBRIS_ONLY: 1 << 1, // 캐릭터는 통과, 파편만 충돌 (P2 이후 사용)
+  // 캐릭터는 통과, 탄·파편만 충돌. P0의 연못 수면(도섭 — CONTRACT-NOTES B10 예외),
+  // P2 이후의 얇은 발·주렴 등에 사용.
+  DEBRIS_ONLY: 1 << 1,
 });
 
 /** 질의 마스크 */
