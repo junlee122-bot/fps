@@ -167,6 +167,20 @@ function makePng(path, px) {
   record(8, 'p95/집계 산출 정답 일치', bad.length === 0, bad.length ? bad.map(([n]) => n).join('; ') : `${checks.length}건 전부 일치`);
 }
 
+/* ---- 9. chainaudit 음성 테스트 (P2A-BRIEF §0-1) ----
+ * 게이트 툴의 통과 케이스만으로는 툴이 작동한다는 증거가 되지 않는다.
+ * (a) 레이어 제거 입력, (b) 순서 뒤집기 입력 — 둘 다 반드시 exit 1. */
+{
+  const dropped = run('node', ['tools/chainaudit.mjs', '--test-drop', 'EARTH_WALL']);
+  const reversed = run('node', ['tools/chainaudit.mjs', '--test-reverse']);
+  let dropMarked = false, revMarked = false;
+  try { dropMarked = String(JSON.parse(dropped.out).testOverride ?? '').includes('drop'); } catch { /* fail */ }
+  try { revMarked = String(JSON.parse(reversed.out).testOverride ?? '').includes('reverse'); } catch { /* fail */ }
+  const pass = dropped.code === 1 && reversed.code === 1 && dropMarked && revMarked;
+  record(9, 'chainaudit 음성 테스트 (레이어 제거·순서 뒤집기)', pass,
+    `drop=${dropped.code}(표식=${dropMarked}) reverse=${reversed.code}(표식=${revMarked})`);
+}
+
 const ok = results.every((r) => r.pass);
 console.log(JSON.stringify({ ok, cases: results }, null, 2));
 process.exit(ok ? 0 : 1);

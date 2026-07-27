@@ -14,6 +14,15 @@
 import * as THREE from 'three';
 import { PhysicsWorld, MASK, surfaceName } from '../src/physics/index.js';
 import { buildWorld } from '../src/world/level.js';
+import { parseArgs } from './lib/args.mjs';
+
+const args = parseArgs();
+// harnesstest 케이스 9 전용 훅 (P2A-BRIEF §0-1): 판정 로직의 음성 검증.
+// (a) --test-drop <SURFACE>: 시퀀스에서 해당 표면을 제거한 입력 — 레이어 소실 시뮬레이션
+// (b) --test-reverse: 시퀀스 순서를 뒤집은 입력 — 순서 위반 시뮬레이션
+// 두 경우 모두 반드시 exit 1이어야 하며, 사용 시 출력에 testOverride가 박힌다.
+const TEST_DROP = typeof args['test-drop'] === 'string' ? args['test-drop'] : null;
+const TEST_REVERSE = args['test-reverse'] === true;
 
 const scene = new THREE.Scene();
 const physics = new PhysicsWorld();
@@ -35,7 +44,10 @@ function surfaceSequence(ox, oy, oz, dx, dy, dz, maxDist) {
     seq.push({ surface: surfaceName(hit.surface), t: +t0.toFixed(3) });
     if (t0 >= maxDist) break;
   }
-  return seq;
+  let out = seq;
+  if (TEST_DROP) out = out.filter((s) => s.surface !== TEST_DROP);
+  if (TEST_REVERSE) out = out.slice().reverse();
+  return out;
 }
 
 const checks = [];
@@ -117,5 +129,11 @@ expectChain('담장 하부: 화강암', surfaceSequence(-40, 1.0, -10, -1, 0, 0,
   ['GRANITE']);
 
 const ok = checks.every((c) => c.ok);
-console.log(JSON.stringify({ ok, checks }, null, 2));
+console.log(JSON.stringify({
+  ok,
+  ...(TEST_DROP || TEST_REVERSE
+    ? { testOverride: `${TEST_DROP ? `drop=${TEST_DROP} ` : ''}${TEST_REVERSE ? 'reverse' : ''}`.trim() + ' — harnesstest 전용, 계약 판정 무효' }
+    : {}),
+  checks,
+}, null, 2));
 process.exit(ok ? 0 : 1);
