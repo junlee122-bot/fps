@@ -23,11 +23,24 @@ export const DEFAULT_VIEW = Object.freeze({
   lantern: 0,
 });
 
+/*
+ * P1 좌표 갱신 기록 (P1-BRIEF §5 — 신규 샷 없음, 좌표만. 조명·구도 의도는 불변):
+ *  - courtyard_noon    target.y 2.4→3.2  — 동헌 용마루 7.35m 실고 반영 (프레이밍)
+ *  - daecheong_backlit pos.y 1.9→2.2    — 대청 마루 상면 1.0m + 눈높이
+ *  - hanji_silhouette  전좌표            — 대상이 내아 서벽(x=-32)으로 이동, 더미 (-29.5,-10)
+ *  - dancheong_closeup 전좌표            — 동헌 다포 공포 실좌표 (brBase 4.35, 처마 5.25)
+ *  - roofline_distant  전좌표            — 누각 데크 3.0 위에서 객사·동헌 지붕 스윕
+ *  - fog_wall          전좌표            — 구좌표 (-36,16)이 행랑 신축 실내가 됨 → 서벽-행랑 골목
+ *  - muzzle_interior   전좌표            — 객사 실내 (마루 1.0 + 눈높이)
+ *  - hanji_pierced     전좌표            — 동헌 전면 창호 베이 중심 x=3.2 (베이 [1.6,4.8])
+ *  - corridor_columns  pos.x/target.x 38→39.1 — 회랑 마루 중심선 (기둥 열 38/40.2 사이)
+ *  - lantern_night / viewmodel_ads — 앵커 불변, 유지
+ */
 export const SHOTS = Object.freeze([
   {
     name: 'courtyard_noon',
     watch: '노출·그림자 (마당 정오 직사광)',
-    cam: { pos: [7, 1.7, 8], target: [0, 2.4, -22], fov: 70 },
+    cam: { pos: [7, 1.7, 8], target: [0, 3.2, -22], fov: 70 },
     sun: { elev: 68, azim: 190, intensity: 3.2 },
     hemi: 0.55,
     lantern: 0,
@@ -35,7 +48,7 @@ export const SHOTS = Object.freeze([
   {
     name: 'daecheong_backlit',
     watch: 'EV 적응 (대청 역광, 실내→마당)',
-    cam: { pos: [0, 1.9, -26.5], target: [0, 1.2, 20], fov: 70 },
+    cam: { pos: [0, 2.2, -26.5], target: [0, 1.3, 20], fov: 70 },
     sun: { elev: 32, azim: 180, intensity: 3.4 },
     hemi: 0.4,
     lantern: 0,
@@ -43,15 +56,15 @@ export const SHOTS = Object.freeze([
   {
     name: 'hanji_silhouette',
     watch: '반투과 (창호지 너머 실루엣)',
-    cam: { pos: [-34.5, 1.5, -8], target: [-28, 1.45, -8], fov: 60 },
+    cam: { pos: [-36.8, 1.9, -10], target: [-32, 1.9, -10], fov: 60 },
     sun: { elev: 28, azim: 90, intensity: 3.0 },
     hemi: 0.35,
     lantern: 0,
   },
   {
     name: 'dancheong_closeup',
-    watch: '머티리얼 최악 케이스 (처마 근접)',
-    cam: { pos: [6.2, 3.0, -16.6], target: [8, 3.9, -19.3], fov: 50 },
+    watch: '머티리얼 최악 케이스 (처마·공포 근접)',
+    cam: { pos: [4.6, 3.6, -16.8], target: [6.4, 4.7, -19.4], fov: 50 },
     sun: { elev: 55, azim: 200, intensity: 3.2 },
     hemi: 0.5,
     lantern: 0,
@@ -59,7 +72,7 @@ export const SHOTS = Object.freeze([
   {
     name: 'roofline_distant',
     watch: 'LOD·대기원근 (기와지붕 원경)',
-    cam: { pos: [-30, 4.3, 24.5], target: [0, 3.6, -24], fov: 55 },
+    cam: { pos: [-30, 4.4, 26], target: [4, 4.5, -22], fov: 58 },
     sun: { elev: 40, azim: 240, intensity: 3.0 },
     hemi: 0.45,
     lantern: 0,
@@ -75,7 +88,7 @@ export const SHOTS = Object.freeze([
   {
     name: 'fog_wall',
     watch: '볼류메트릭 (안개 담장)',
-    cam: { pos: [-36, 1.8, 16], target: [-43.5, 2.2, -14], fov: 65 },
+    cam: { pos: [-41.6, 1.8, 0], target: [-43.6, 2.0, -28], fov: 65 },
     sun: { elev: 18, azim: 250, intensity: 2.2 },
     hemi: 0.4,
     lantern: 0,
@@ -83,7 +96,7 @@ export const SHOTS = Object.freeze([
   {
     name: 'muzzle_interior',
     watch: '트랜지언트 라이트 (실내 총구화염)',
-    cam: { pos: [26.2, 1.5, -5.6], target: [30.5, 1.3, -10.5], fov: 68 },
+    cam: { pos: [24.8, 1.9, -7.2], target: [30, 1.6, -11.8], fov: 68 },
     sun: { elev: 12, azim: 270, intensity: 1.0 },
     hemi: 0.15,
     lantern: 0,
@@ -91,7 +104,7 @@ export const SHOTS = Object.freeze([
   {
     name: 'hanji_pierced',
     watch: '동적 투과율 (피격 누적 창호지)',
-    cam: { pos: [6, 2.0, -16.9], target: [6, 2.1, -19.4], fov: 55 },
+    cam: { pos: [3.2, 2.2, -17.3], target: [3.2, 2.4, -19.6], fov: 55 },
     sun: { elev: 45, azim: 185, intensity: 3.0 },
     hemi: 0.5,
     lantern: 0,
@@ -99,7 +112,7 @@ export const SHOTS = Object.freeze([
   {
     name: 'corridor_columns',
     watch: '그림자 이음매 (회랑 기둥 리듬)',
-    cam: { pos: [38, 1.7, 17], target: [38, 1.9, -30], fov: 62 },
+    cam: { pos: [39.1, 1.7, 17], target: [39.1, 1.9, -30], fov: 62 },
     sun: { elev: 16, azim: 255, intensity: 2.8 },
     hemi: 0.35,
     lantern: 0,

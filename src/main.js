@@ -21,7 +21,7 @@ import { prewarmShaders } from './core/prewarm.js';
 import { StatsRecorder } from './core/stats.js';
 import { createRenderer, createCamera, createLighting, applySunConfig, handleResize } from './render/renderer.js';
 import { PhysicsWorld } from './physics/index.js';
-import { buildGreybox } from './world/greybox.js';
+import { buildWorld } from './world/level.js';
 import { PlayerInput } from './player/input.js';
 import { Player } from './player/player.js';
 import { SHOTS, SHOTS_BY_NAME, DEFAULT_VIEW } from '../tools/shots.js';
@@ -46,9 +46,10 @@ const scene = new THREE.Scene();
 const lighting = createLighting(scene);
 
 const physics = new PhysicsWorld();
-const world = buildGreybox(scene, physics);
+const world = buildWorld(scene, physics);
 const bvhInfo = physics.build();
 console.info(`[boot] bvh tris=${bvhInfo.tris} nodes=${bvhInfo.nodes} build=${bvhInfo.buildMs.toFixed(1)}ms`);
+console.info(`[boot] instanced: ${world.instanced.map((i) => `${i.key}×${i.count}`).join(' ')}`);
 
 const input = new PlayerInput();
 if (mode === 'realtime') input.attach(canvas);
