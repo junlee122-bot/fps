@@ -35,6 +35,11 @@ export class Player {
     this.crouched = false;
     /** 'ground' | 'air' — P0 상태머신 */
     this.state = 'ground';
+    /**
+     * 외부 속도 배율 (P2A: ADS 기동성 페널티). weapons를 import하지 않는다 —
+     * 배선(harness stepSim)이 매 스텝 firecontrol에서 읽어 주입한다.
+     */
+    this.moveSpeedMul = 1;
     this.reset();
   }
 
@@ -44,8 +49,9 @@ export class Player {
     this.crouched = false;
     this.state = 'ground';
     c.velocity.x = c.velocity.y = c.velocity.z = 0;
+    this.moveSpeedMul = 1;
     c.teleport(SPAWN.x, SPAWN.y, SPAWN.z);
-    this.input.override({ yaw: SPAWN.yaw, pitch: SPAWN.pitch, forward: 0, right: 0, jump: false, sprint: false, crouch: false, fire: false });
+    this.input.override({ yaw: SPAWN.yaw, pitch: SPAWN.pitch, forward: 0, right: 0, jump: false, sprint: false, crouch: false, fire: false, ads: false, reload: false, weaponSwitch: null });
   }
 
   /** 고정 스텝 갱신. dt는 PHYSICS_DT */
@@ -70,7 +76,7 @@ export class Player {
     const wl = Math.hypot(wx, wz);
     if (wl > 1) { wx /= wl; wz /= wl; }
 
-    const targetSpeed = this.crouched ? CROUCH_SPEED : s.sprint ? SPRINT_SPEED : WALK_SPEED;
+    const targetSpeed = (this.crouched ? CROUCH_SPEED : s.sprint ? SPRINT_SPEED : WALK_SPEED) * this.moveSpeedMul;
 
     if (c.grounded) {
       this.state = 'ground';
@@ -134,6 +140,17 @@ export class Player {
     camera.rotation.y = s.yaw;
     camera.rotation.x = s.pitch;
     camera.rotation.z = 0;
+  }
+
+  /** 발사 원점 트랜스폼 — firecontrol 주입용 (눈 위치 = 카메라와 동일 식) */
+  get fireEye() {
+    const c = this.controller;
+    const s = this.input.state;
+    return {
+      pos: [c.position.x, c.position.y + c.height - EYE_OFFSET, c.position.z],
+      yaw: s.yaw,
+      pitch: s.pitch,
+    };
   }
 
   get eyeState() {

@@ -20,6 +20,7 @@ export function installHarness(ctx) {
   const {
     renderer, scene, camera, player, input, physics, world,
     stats, shotsByName, applyShot, applyDefaultView, readyPromise, mode,
+    fire, viewmodel, hanji, fx, viewmodelAuditHook,
   } = ctx;
 
   const errors = [];
@@ -33,15 +34,23 @@ export function installHarness(ctx) {
     busy: false,
   };
 
+  /** 물리 1서브스텝 — fixed(stepSim)·realtime(메인 루프) 공용 배선 (P2A) */
+  function simSubstep() {
+    const sw = input.consumeWeaponSwitch();
+    if (sw) fire.switchTo(sw);
+    player.moveSpeedMul = fire.current.adsMoveMul; // ADS 기동성 페널티 주입
+    player.update(PHYSICS_DT);
+    fire.update(PHYSICS_DT, input.state, player.fireEye);
+    physics.step(PHYSICS_DT);
+  }
+
   function stepSim() {
-    for (let s = 0; s < PHYS_STEPS_PER_FRAME; s++) {
-      player.update(PHYSICS_DT);
-      physics.step(PHYSICS_DT);
-    }
+    for (let s = 0; s < PHYS_STEPS_PER_FRAME; s++) simSubstep();
   }
 
   function renderFrame(cpuStartMs = -1) {
     if (!state.cameraOverride) player.applyCamera(camera);
+    viewmodel.update(fire.current); // 카메라 확정 후 포즈 갱신 (fixed·realtime 공용)
     const preRender = clock.wallNowMs();
     renderer.render(scene, camera);
     const end = clock.wallNowMs();
@@ -49,6 +58,7 @@ export function installHarness(ctx) {
       cpuStartMs >= 0 ? preRender - cpuStartMs : -1,
       cpuStartMs >= 0 ? end - preRender : -1
     );
+    fx.endFrame(); // 플레이스홀더 마커는 프레임 종료 시 즉시 제거 (P2A §6)
   }
 
   /** realtime 루프가 매 프레임 호출 — 프로파일 스크립트 재생 */
@@ -83,7 +93,7 @@ export function installHarness(ctx) {
       const shot = shotsByName.get(name);
       if (!shot) throw new Error(`unknown shot: ${name}`);
       state.cameraOverride = true;
-      applyShot(shot);
+      applyShot(shot, { runActions: true }); // 샷 actions(결정적 사격)는 하네스 경로에서만
       return { ok: true, shot: name };
     },
 
@@ -122,6 +132,10 @@ export function installHarness(ctx) {
       player.reset();
       physics.pruneRuntimeBodies(); // 런타임 스폰 강체 제거 (감사 A1)
       world.resetDynamic();
+      fire.reset();                 // 무기 상태·탄약·계수 (P2A §7)
+      hanji.reset();                // 피격 누적·불투명도 — 복원 이벤트 재발행
+      fx.reset();                   // 이월 마커 방지
+      viewmodel.setVisible(mode === 'realtime');
       bus.resetToBoot();            // 부팅 이후 추가된 구독 해제 (감사 A4)
       stats.reset();
       state.cameraOverride = false;
@@ -217,8 +231,38 @@ export function installHarness(ctx) {
       return { total: Math.round(total), invisibleColliders: Math.round(invisible), top: byName.slice(0, 12) };
     },
 
+    /* ------------------------------- P2A 확장 ------------------------- */
+
+    /** 무기·사격 계수·HANJI 상태 스냅샷 (playtest 소비) */
+    getWeaponState() {
+      return { ...fire.snapshot(), hanji: hanji.snapshot() };
+    },
+
+    /** 무기 교체 (playtest·디버그) */
+    setWeapon(id) {
+      fire.switchTo(id);
+      return fire.currentId;
+    },
+
+    /**
+     * viewmodelaudit 카드 리그 설치 (테스트 훅 — P1.5-4 규칙).
+     * boost≠1은 음성 테스트 전용이며 출력에 testOverride가 박힌다.
+     */
+    viewmodelAuditSetup({ boost = 1 } = {}) {
+      if (state.busy) throw new Error('viewmodelAuditSetup called while stepFrames in progress');
+      state.cameraOverride = true; // 카드 투영을 플레이어 카메라가 덮지 않게
+      const rig = viewmodelAuditHook({ boost });
+      return {
+        rects: rig.rects,
+        boost,
+        ...(boost !== 1
+          ? { testOverride: `boost=${boost} — harnesstest 전용, 계약 판정 무효` }
+          : {}),
+      };
+    },
+
     /* 내부 배선 (main.js 전용) */
-    _internal: { state, stepSim, renderFrame, scriptTick },
+    _internal: { state, stepSim, simSubstep, renderFrame, scriptTick },
   };
 
   window.__harness = harness;

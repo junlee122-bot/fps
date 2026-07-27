@@ -20,10 +20,16 @@ import { installHarness } from './core/harness.js';
 import { prewarmShaders } from './core/prewarm.js';
 import { StatsRecorder } from './core/stats.js';
 import { createRenderer, createCamera, createLighting, applySunConfig, handleResize } from './render/renderer.js';
+import { OpacityApplier } from './render/opacity.js';
 import { PhysicsWorld } from './physics/index.js';
+import { collectRayChain } from './physics/raychain.js';
 import { buildWorld } from './world/level.js';
 import { PlayerInput } from './player/input.js';
 import { Player } from './player/player.js';
+import { FireControl } from './weapons/firecontrol.js';
+import { Viewmodel, setupViewmodelAudit } from './weapons/viewmodel.js';
+import { HanjiState } from './materials/hanji.js';
+import { FxPlaceholder } from './fx/placeholder.js';
 import { SHOTS, SHOTS_BY_NAME, DEFAULT_VIEW } from '../tools/shots.js';
 
 const params = new URLSearchParams(location.search);
@@ -57,14 +63,68 @@ const player = new Player(physics, input);
 
 const stats = new StatsRecorder(renderer);
 
-/** 샷 구성 적용 — 카메라 + 태양 + 등롱 (world:tod 이벤트는 P3 sky 소유) */
-function applyShot(shot) {
+/* ------------------------------------------------- P2A 무기·HANJI 배선 */
+// 카메라가 씬에 있어야 카메라 자식(뷰모델)이 월드 조명으로 렌더된다 (§3 리그)
+scene.add(camera);
+
+const fire = new FireControl((ox, oy, oz, dx, dy, dz, maxDist) =>
+  collectRayChain(physics.static, ox, oy, oz, dx, dy, dz, maxDist));
+const viewmodel = new Viewmodel(camera);
+viewmodel.setVisible(mode === 'realtime'); // 캡처는 샷 데이터가 명시할 때만 표시
+
+// HANJI 판 등록: 가시 판(_hanji) ↔ 콜라이더(_hanji_col) 쌍의 가시 쪽
+const hanjiPanes = new Map();
+scene.traverse((o) => {
+  if (o.isMesh && o.visible && o.userData.surface === 'HANJI' && o.name.endsWith('_hanji')) {
+    hanjiPanes.set(o.name, o);
+  }
+});
+const hanji = new HanjiState();
+for (const id of hanjiPanes.keys()) hanji.register(id);
+const opacityApplier = new OpacityApplier(hanjiPanes);
+const fx = new FxPlaceholder(scene);
+
+// surface:damage → HANJI 상태 어댑터 (콜라이더 이름 → 판 이름, 월드 → 판 로컬 UV)
+const _uvVec = new THREE.Vector3();
+bus.on('surface:damage', (e) => {
+  if (e.surfaceType !== 'HANJI') return;
+  const paneId = e.surfaceId.endsWith('_col') ? e.surfaceId.slice(0, -4) : e.surfaceId;
+  const mesh = hanjiPanes.get(paneId);
+  if (!mesh) throw new Error(`HANJI surface:damage 대상 판 없음: ${e.surfaceId}`); // PATCH-001-D
+  _uvVec.set(e.worldPos[0], e.worldPos[1], e.worldPos[2]);
+  mesh.worldToLocal(_uvVec);
+  const { width, height } = mesh.geometry.parameters;
+  hanji.registerHit(paneId, [_uvVec.x / width + 0.5, _uvVec.y / height + 0.5]);
+});
+
+/**
+ * 샷 구성 적용 — 카메라 + 태양 + 등롱 (world:tod 이벤트는 P3 sky 소유).
+ * P2A: 샷 데이터의 viewmodel(표시·무기·ADS)과 actions(결정적 사격)도 여기서
+ * 해석한다. actions는 opts.runActions=true(하네스 setShot 경로)에서만 실행 —
+ * 프리웜의 applyShot이 부팅 중 사격 상태를 오염시키지 않게 한다.
+ */
+function applyShot(shot, opts = {}) {
   camera.position.set(...shot.cam.pos);
   camera.lookAt(...shot.cam.target);
   camera.fov = shot.cam.fov;
   camera.updateProjectionMatrix();
   applySunConfig(lighting, shot.sun, shot.hemi);
   for (const l of world.lanternLights) l.intensity = shot.lantern;
+
+  viewmodel.setVisible(!!shot.viewmodel);
+  if (shot.viewmodel) {
+    fire.switchTo(shot.viewmodel.weapon);
+    fire.current.adsBlend = shot.viewmodel.ads ?? 0;
+  }
+  viewmodel.update(fire.current);
+
+  if (opts.runActions && shot.actions) {
+    for (const act of shot.actions) {
+      if (act.type !== 'fire') throw new Error(`unknown shot action: ${act.type}`);
+      fire.switchTo(act.weapon);
+      for (let i = 0; i < (act.rounds ?? 1); i++) fire.fire(act.eye);
+    }
+  }
 }
 
 function applyDefaultView() {
@@ -73,6 +133,8 @@ function applyDefaultView() {
   camera.fov = 70;
   camera.updateProjectionMatrix();
   player.applyCamera(camera);
+  viewmodel.setVisible(mode === 'realtime'); // 샷 적용(프리웜 포함)이 남긴 표시 상태 복원
+  viewmodel.update(fire.current);
 }
 
 handleResize(renderer, camera);
@@ -84,6 +146,13 @@ const harness = installHarness({
   renderer, scene, camera, player, input, physics, world,
   stats, shotsByName: SHOTS_BY_NAME, applyShot, applyDefaultView,
   readyPromise, mode,
+  // P2A 배선
+  fire, viewmodel, hanji, fx,
+  viewmodelAuditHook: ({ boost }) => setupViewmodelAudit({
+    scene, camera, boost,
+    // 순수 태양만 — applyDefaultView는 카메라도 움직여 카드 투영이 깨진다
+    applySun: () => applySunConfig(lighting, DEFAULT_VIEW.sun, DEFAULT_VIEW.hemi),
+  }),
 });
 
 /* ------------------------------------------------------------- 부팅 */
@@ -96,6 +165,7 @@ const warm = await prewarmShaders({
 console.info(`[boot] prewarm programs=${warm.programsAfter} (+${warm.compiled}) ${warm.ms}ms`);
 window.__prewarm = warm;
 
+fire.reset();             // 프리웜의 applyShot(viewmodel 샷)이 만진 무기 상태를 부팅 초기로
 physics.markBootBodies(); // 부팅 로스터 스냅샷 — resetState가 런타임 스폰만 걷어낸다 (감사 A1)
 bus.markBoot();           // 구독 스냅샷 (감사 A4)
 clock.markBootDone();
@@ -114,8 +184,7 @@ if (mode === 'realtime') {
     accum += clock.dt;
     let steps = 0;
     while (accum >= PHYSICS_DT && steps < MAX_SUBSTEPS) {
-      player.update(PHYSICS_DT);
-      physics.step(PHYSICS_DT);
+      harness._internal.simSubstep(); // player + fire + physics — fixed 경로와 동일 배선
       accum -= PHYSICS_DT;
       steps++;
     }

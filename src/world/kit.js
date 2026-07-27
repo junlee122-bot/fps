@@ -350,21 +350,41 @@ export class Assembler {
     rec.xforms.push(new THREE.Matrix4().compose(_pos, _quat, _scale));
   }
 
-  /** 모든 인스턴스 계열을 InstancedMesh로 확정 + 콜라이더 등록 */
-  finalizeInstancing() {
+  /**
+   * 모든 인스턴스 계열을 InstancedMesh로 확정 + 콜라이더 등록.
+   *
+   * [P2A-BRIEF §0-3] 공간 버킷 분할: 단일 배치는 바운딩 스피어가 맵 전체를
+   * 덮어 프러스텀 컬링이 무효였다 (P1.5 실측: tris_frame_p95 ≈ tris_scene).
+   * 평면 그리드(CELL m)로 나눠 배치하면 화면 밖 버킷이 통째로 컬링된다.
+   * 결정성: xforms 순서·정수 나눗셈 버킷·Map 삽입 순회 전부 결정적.
+   * BVH 내용은 분할 전과 동일(같은 월드 삼각형 집합)이라 물리 불변.
+   */
+  finalizeInstancing({ cellSize = 18 } = {}) {
     const created = [];
     for (const [key, rec] of this.inst) {
       if (rec.xforms.length === 0) continue;
-      const im = new THREE.InstancedMesh(rec.geometry, this.mats[rec.matKey], rec.xforms.length);
-      im.name = `inst_${key}`;
-      for (let i = 0; i < rec.xforms.length; i++) im.setMatrixAt(i, rec.xforms[i]);
-      im.instanceMatrix.needsUpdate = true;
-      im.castShadow = rec.shadow;
-      im.receiveShadow = true;
-      im.userData.surface = rec.surface;
-      this.group.add(im);
-      if (rec.collide) this.physics.addStaticMesh(im, rec.surface, rec.layer);
-      created.push({ key, count: rec.xforms.length });
+      const buckets = new Map();
+      for (const m of rec.xforms) {
+        const bk = `${Math.floor(m.elements[12] / cellSize)}|${Math.floor(m.elements[14] / cellSize)}`;
+        let arr = buckets.get(bk);
+        if (!arr) buckets.set(bk, (arr = []));
+        arr.push(m);
+      }
+      let batchCount = 0;
+      for (const [bk, xf] of buckets) {
+        const im = new THREE.InstancedMesh(rec.geometry, this.mats[rec.matKey], xf.length);
+        im.name = `inst_${key}@${bk}`;
+        for (let i = 0; i < xf.length; i++) im.setMatrixAt(i, xf[i]);
+        im.instanceMatrix.needsUpdate = true;
+        im.castShadow = rec.shadow;
+        im.receiveShadow = true;
+        im.userData.surface = rec.surface;
+        im.computeBoundingSphere(); // 인스턴스 전개 기준 스피어 — 컬링의 근거
+        this.group.add(im);
+        if (rec.collide) this.physics.addStaticMesh(im, rec.surface, rec.layer);
+        batchCount++;
+      }
+      created.push({ key, count: rec.xforms.length, batches: batchCount });
     }
     return created;
   }

@@ -16,6 +16,8 @@
  */
 
 import { PNG } from 'pngjs';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { startServer } from './lib/server.mjs';
 import { launchBrowser, openGamePage, parseArgs, capturePng } from './lib/browser.mjs';
 import { VIEW, FIXED_STEP_FRAMES } from './shots.js';
@@ -47,18 +49,21 @@ try {
     BOOST
   );
   await page.evaluate((n) => window.__harness.stepFrames(n), FIXED_STEP_FRAMES);
-  const buf = await capturePng(page);
-  const png = PNG.sync.read(buf);
+  const shotPath = resolve('tmp/viewmodelaudit.png');
+  await capturePng(page, shotPath);
+  const png = PNG.sync.read(readFileSync(shotPath));
 
   // sRGB → 선형
   const lin = (c) => {
     const s = c / 255;
     return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
   };
-  /** rect {x,y,w,h} (CSS px) → 디바이스 px 평균 선형 휘도 */
+  /** rect {x,y,w,h} (CSS px) → 평균 선형 휘도. 스케일은 실제 PNG 크기에서 도출
+   * (CDP 캡처가 CSS 크기로 나오는 환경과 디바이스 크기로 나오는 환경 모두 대응) */
+  const scale = png.width / VIEW.width;
   const meanLum = (rect) => {
-    const x0 = Math.round(rect.x * DPR), y0 = Math.round(rect.y * DPR);
-    const x1 = Math.round((rect.x + rect.w) * DPR), y1 = Math.round((rect.y + rect.h) * DPR);
+    const x0 = Math.round(rect.x * scale), y0 = Math.round(rect.y * scale);
+    const x1 = Math.round((rect.x + rect.w) * scale), y1 = Math.round((rect.y + rect.h) * scale);
     let sum = 0, n = 0;
     for (let y = y0; y < y1; y++) {
       for (let x = x0; x < x1; x++) {

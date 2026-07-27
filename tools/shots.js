@@ -114,6 +114,13 @@ export const SHOTS = Object.freeze([
     sun: { elev: 45, azim: 185, intensity: 3.0 },
     hemi: 0.5,
     lantern: 0,
+    // [P2A] 누적 피격 반영: setShot 시 실제 발사 파이프라인으로 결정적 사격.
+    // 카빈 3발 + 산탄 1격발(9펠릿) — 시드 스트림 산포라 2회 캡처 비트 동일.
+    // 시점은 카메라와 같은 베이 정면 (마커는 프레임 종료 시 제거, 불투명도만 남는다)
+    actions: [
+      { type: 'fire', weapon: 'CARBINE', rounds: 3, eye: { pos: [3.2, 1.7, -16.2], yaw: 0, pitch: 0.09 } },
+      { type: 'fire', weapon: 'SHOTGUN', rounds: 1, eye: { pos: [3.2, 1.7, -16.2], yaw: 0, pitch: 0.09 } },
+    ],
   },
   {
     name: 'corridor_columns',
@@ -125,11 +132,14 @@ export const SHOTS = Object.freeze([
   },
   {
     name: 'viewmodel_ads',
-    watch: '뷰모델 조명 리그 (P2에서 뷰모델 장착 후 본격 감시)',
+    watch: '뷰모델 조명 리그 (P2A부터 실제 뷰모델 감시)',
     cam: { pos: [0, 1.64, 10], target: [0, 1.5, -24], fov: 58 },
     sun: { elev: 50, azim: 205, intensity: 3.0 },
     hemi: 0.5,
     lantern: 0,
+    // [P2A] 카빈 완전 ADS — 뷰모델이 월드 조명 리그로 렌더되는지 감시하는 샷.
+    // 이 필드가 없는 샷은 뷰모델을 표시하지 않는다 (씬 검사 샷의 시야 확보)
+    viewmodel: { weapon: 'CARBINE', ads: 1 },
   },
 ]);
 

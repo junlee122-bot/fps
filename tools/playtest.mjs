@@ -138,6 +138,71 @@ try {
     });
   }
 
+  // --- 7b. 사격 시나리오 (P2A) — 스폰에서 동헌 전면 창호 조준·연사 ---
+  // 스폰 (0, 1.69눈, 24) → 창호 베이 중심 (3.2, 2.2, -19.5): 거리 ~43.6m.
+  // 힙 산포 1.4°는 이 거리에서 ±1m라 판 명중이 불확실 — ADS(0.18°, ±14cm)로 조준.
+  await page.evaluate(() => window.__harness.resetState());
+  await step(30); // 스폰 안착
+  const aimYaw = -Math.atan2(3.2 - 0, 24 - (-19.5));
+  const aimPitch = Math.atan2(2.2 - 1.69, Math.hypot(3.2, 43.5));
+  await setInput({ yaw: aimYaw, pitch: aimPitch, ads: true });
+  await step(30); // ADS 블렌드 완료
+  await setInput({ fire: true });
+  await step(60); // 1초 @700rpm ≈ 11발
+  await setInput({ fire: false, ads: false });
+  await step(10);
+  const ws = await page.evaluate(() => window.__harness.getWeaponState());
+  check('fire_rounds', ws.counters.fired >= 8 && ws.counters.fired <= 13, { fired: ws.counters.fired });
+  check('fire_ammo_spent', ws.weapons.CARBINE.ammo === 30 - ws.counters.fired, {
+    ammo: ws.weapons.CARBINE.ammo, fired: ws.counters.fired,
+  });
+  check('fire_multilayer_hits', ws.counters.hits > ws.counters.fired, { counters: ws.counters });
+  check('fire_stops_at_wall', ws.counters.stops >= 1, { stops: ws.counters.stops });
+  const hanjiPanes = Object.keys(ws.hanji);
+  check('hanji_hit_recorded', hanjiPanes.length >= 1, { panes: ws.hanji });
+  if (hanjiPanes.length) {
+    check('hanji_opacity_drops', ws.hanji[hanjiPanes[0]].opacity < 0.62, { got: ws.hanji[hanjiPanes[0]] });
+  }
+
+  // --- 7c. 무기 교체(산탄) → 1격발 = 9펠릿 독립 ---
+  await page.evaluate(() => window.__harness.setWeapon('SHOTGUN'));
+  const pelletsBefore = ws.counters.pellets;
+  await setInput({ fire: true });
+  await step(4);
+  await setInput({ fire: false });
+  await step(10);
+  const ws2 = await page.evaluate(() => window.__harness.getWeaponState());
+  check('shotgun_one_trigger', ws2.counters.fired === ws.counters.fired + 1, {
+    fired: ws2.counters.fired,
+  });
+  check('shotgun_nine_pellets', ws2.counters.pellets - pelletsBefore === 9, {
+    delta: ws2.counters.pellets - pelletsBefore,
+  });
+
+  // --- 7d. 장전 배선 ---
+  await page.evaluate(() => window.__harness.setWeapon('CARBINE'));
+  await setInput({ reload: true });
+  await step(10);
+  const midReload = await page.evaluate(() => window.__harness.getWeaponState());
+  check('reload_begins', midReload.weapons.CARBINE.reloading === true, {
+    got: midReload.weapons.CARBINE,
+  });
+  await step(140); // 2.2s = 132프레임
+  await setInput({ reload: false });
+  const done = await page.evaluate(() => window.__harness.getWeaponState());
+  check('reload_refills', done.weapons.CARBINE.ammo === 30, { ammo: done.weapons.CARBINE.ammo });
+
+  // --- 7e. resetState가 사격 상태를 완전 초기화 (§7 결정성) ---
+  await page.evaluate(() => window.__harness.resetState());
+  const cleared = await page.evaluate(() => window.__harness.getWeaponState());
+  check('reset_clears_counters', cleared.counters.fired === 0 && cleared.counters.pellets === 0, {
+    counters: cleared.counters,
+  });
+  check('reset_clears_hanji', Object.keys(cleared.hanji).length === 0, { hanji: cleared.hanji });
+  check('reset_refills_ammo', cleared.weapons.CARBINE.ammo === 30 && cleared.weapons.SHOTGUN.ammo === 6, {
+    carbine: cleared.weapons.CARBINE.ammo, shotgun: cleared.weapons.SHOTGUN.ammo,
+  });
+
   // --- 8. 페이지 에러 0 ---
   check('no_page_errors', g.errors.length === 0, { errors: g.errors });
   const harnessErrors = await page.evaluate(() => window.__harness.getErrors());
