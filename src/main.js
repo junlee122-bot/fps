@@ -15,7 +15,7 @@
 import * as THREE from 'three';
 import { clock, PHYSICS_DT } from './core/clock.js';
 import { bus } from './core/events.js';
-import { setGlobalSeed, DEFAULT_SEED } from './core/rng.js';
+import { setGlobalSeed, resetAllStreams, DEFAULT_SEED } from './core/rng.js';
 import { installHarness } from './core/harness.js';
 import { prewarmShaders } from './core/prewarm.js';
 import { StatsRecorder } from './core/stats.js';
@@ -200,6 +200,7 @@ window.__prewarm = warm;
 
 fire.reset();             // 프리웜의 applyShot(viewmodel 샷)이 만진 무기 상태를 부팅 초기로
 fx.reset();               // 프리웜 대표 fx 인스턴스 정리 (부팅 = 무상태)
+resetAllStreams();        // 프리웜이 소비한 fx 스트림 위상 원점 복원 — 부팅 상태 ≡ resetState 상태 (P2B 감사)
 physics.markBootBodies(); // 부팅 로스터 스냅샷 — resetState가 런타임 스폰만 걷어낸다 (감사 A1)
 bus.markBoot();           // 구독 스냅샷 (감사 A4)
 clock.markBootDone();

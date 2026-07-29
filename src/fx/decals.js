@@ -69,6 +69,7 @@ export class DecalPool {
     // 박리(DECAL 표면) 전용 — 밝은 회색, 소량 풀
     this.peelCapacity = 64;
     this.peelCursor = 0;
+    this.peelSizes = new Float32Array(64);
     const peelMat = new THREE.MeshBasicMaterial({
       color: 0x9d9a94, alphaMap: tex, transparent: true,
       depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
@@ -124,23 +125,27 @@ export class DecalPool {
   /** 박리 (DANCHEONG/LACQUER 층이 관통 체인에 있던 히트) */
   addPeel(x, y, z, nx, ny, nz) {
     const size = PEEL_SIZE[0] + this._rand() * (PEEL_SIZE[1] - PEEL_SIZE[0]);
-    return this._place(this.peelMesh, this.peelCapacity, 'peelCursor', null, x, y, z, nx, ny, nz, size);
+    return this._place(this.peelMesh, this.peelCapacity, 'peelCursor', this.peelSizes, x, y, z, nx, ny, nz, size);
   }
 
-  /** overdraw 기여: 활성 데칼 화면 투영 면적 합 (§7) */
+  /** overdraw 기여: 활성 데칼(탄흔+박리) 화면 투영 면적 합 (§7 — 박리 누락 감사 정정) */
   overdrawArea(camera, viewportH) {
     const k = (viewportH / 2) / Math.tan((camera.fov * Math.PI / 180) / 2);
-    const n = Math.min(this.cursor, this.capacity);
-    let sum = 0;
     const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
-    for (let i = 0; i < n; i++) {
-      this.mesh.getMatrixAt(i, this._m);
-      const e = this._m.elements;
-      const d = Math.max(0.3, Math.hypot(e[12] - cx, e[13] - cy, e[14] - cz));
-      const rPx = (this.sizes[i] / 2) * k / d;
-      sum += Math.PI * rPx * rPx;
-    }
-    return sum;
+    const sumOf = (mesh, cursor, capacity, sizes) => {
+      const n = Math.min(cursor, capacity);
+      let sum = 0;
+      for (let i = 0; i < n; i++) {
+        mesh.getMatrixAt(i, this._m);
+        const e = this._m.elements;
+        const d = Math.max(0.3, Math.hypot(e[12] - cx, e[13] - cy, e[14] - cz));
+        const rPx = (sizes[i] / 2) * k / d;
+        sum += Math.PI * rPx * rPx;
+      }
+      return sum;
+    };
+    return sumOf(this.mesh, this.cursor, this.capacity, this.sizes) +
+           sumOf(this.peelMesh, this.peelCursor, this.peelCapacity, this.peelSizes);
   }
 
   reset() {
