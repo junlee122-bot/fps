@@ -23,13 +23,22 @@ export class FireControl {
   /**
    * @param {(ox,oy,oz,dx,dy,dz,maxDist)=>{layers,blocked,endT}} collectChain
    *        physics 주입 — raychain.collectRayChain 바인딩
+   * @param {(ox,oy,oz,dx,dy,dz,maxDist)=>Array} collectBodyHits
+   *        physics 주입 — 동적 강체 레이 질의 (P2B §8). 미주입 시 강체 무시
    */
-  constructor(collectChain) {
+  constructor(collectChain, collectBodyHits = null) {
     this.collectChain = collectChain;
+    this.collectBodyHits = collectBodyHits;
     this.weapons = new Map(WEAPON_ORDER.map((id) => [id, new Weapon(id)]));
     this.currentId = WEAPON_ORDER[0];
     /** playtest·디버그용 누적 계수 — 게임 로직은 읽지 않는다 */
-    this.counters = { fired: 0, pellets: 0, hits: 0, penetrations: 0, stops: 0 };
+    this.counters = { fired: 0, pellets: 0, hits: 0, penetrations: 0, stops: 0, bodyHits: 0 };
+    /**
+     * 카메라 반동 스프링 (P2B §8 — weapons 소유, 렌더 오프셋으로 발행).
+     * 임계 감쇠: a = -k·p - c·v. 조준 입력(yaw/pitch 상태)은 건드리지 않는다 —
+     * 스크립트 사격 결정성을 오프셋이 오염하지 않게 하기 위한 선택.
+     */
+    this.camSpring = { p: 0, v: 0, py: 0, vy: 0 };
   }
 
   get current() {
@@ -47,7 +56,9 @@ export class FireControl {
   reset() {
     for (const w of this.weapons.values()) w.reset();
     this.currentId = WEAPON_ORDER[0];
-    this.counters = { fired: 0, pellets: 0, hits: 0, penetrations: 0, stops: 0 };
+    this.counters = { fired: 0, pellets: 0, hits: 0, penetrations: 0, stops: 0, bodyHits: 0 };
+    this.camSpring.p = 0; this.camSpring.v = 0;
+    this.camSpring.py = 0; this.camSpring.vy = 0;
   }
 
   /**
@@ -69,6 +80,12 @@ export class FireControl {
       bus.emit('weapon:reload:end', { weaponId: w.id });
     }
 
+    // 카메라 반동 스프링 (임계 감쇠 — k=90, c=2√k≈19)
+    const K = 90, C = 19;
+    const sp = this.camSpring;
+    sp.v += (-K * sp.p - C * sp.v) * dt;  sp.p += sp.v * dt;
+    sp.vy += (-K * sp.py - C * sp.vy) * dt; sp.py += sp.vy * dt;
+
     if (mayFire) this.fire(eye);
   }
 
@@ -78,6 +95,9 @@ export class FireControl {
     const offsets = w.commitFire();
     const muzzle = this.muzzleWorldPos(eye);
     this.counters.fired++;
+    // 카메라 스프링 킥 (시드 스트림 — 요는 좌우 무작위)
+    this.camSpring.v += w.handling.camKickPitch;
+    this.camSpring.vy += (w._rand() * 2 - 1) * w.handling.camKickYaw;
 
     // weapon:fire는 격발 1회당 1건 — 펠릿별 이벤트는 ballistic:* 소관
     // (산탄 9펠릿에 총구화염 9개가 그려지는 것을 막는다)
@@ -98,13 +118,35 @@ export class FireControl {
       const dy = Math.sin(pitch);
       const dz = -Math.cos(yaw) * cp;
 
-      this.tracePellet(w, muzzle, dx, dy, dz);
+      // 레이 원점은 눈 — 시각 총구(muzzle)는 화염·예광 전용 (조준 정확도 분리)
+      this.tracePellet(w, eye.pos, dx, dy, dz);
     }
   }
 
-  /** 펠릿 1발의 체인 수집 → 관통 판정 → 이벤트 발행 */
-  tracePellet(w, muzzle, dx, dy, dz) {
-    const chain = this.collectChain(muzzle[0], muzzle[1], muzzle[2], dx, dy, dz, MAX_RANGE);
+  /** 펠릿 1발의 체인 수집 → 관통 판정 → 이벤트 발행. origin = 눈 (레이 원점) */
+  tracePellet(w, origin, dx, dy, dz) {
+    const chain = this.collectChain(origin[0], origin[1], origin[2], dx, dy, dz, MAX_RANGE);
+
+    // 동적 강체 히트를 체인에 병합 (P2B §8) — 차단 지점 이후는 제외
+    if (this.collectBodyHits) {
+      const limit = chain.blocked ? chain.endT : MAX_RANGE;
+      for (const bh of this.collectBodyHits(origin[0], origin[1], origin[2], dx, dy, dz, MAX_RANGE)) {
+        if (bh.tEnter >= limit) continue;
+        chain.layers.push({
+          surface: bh.surfaceName,
+          thicknessCm: (bh.tExit - bh.tEnter) * 100,
+          entryT: bh.tEnter,
+          exitT: bh.tExit,
+          objectId: -1,
+          objectName: `body:${bh.body.id}`,
+          entry: [origin[0] + dx * bh.tEnter, origin[1] + dy * bh.tEnter, origin[2] + dz * bh.tEnter],
+          normal: [bh.nx, bh.ny, bh.nz],
+          body: bh.body,
+        });
+      }
+      chain.layers.sort((a, b) => a.entryT - b.entryT);
+    }
+
     if (chain.layers.length === 0) return null;
 
     const result = penetrate(w.params, w.params.energy, chain.layers);
@@ -125,6 +167,14 @@ export class FireControl {
         incidentEnergy: incident,
         layerIndex: i,
       });
+      // 강체 층: 잔여 에너지 비례 임펄스 (P2B §8 — incidentEnergy 사용)
+      if (L.body) {
+        this.counters.bodyHits++;
+        const J = Math.min(6, incident * 0.004); // kg·m/s — 캡으로 폭주 방지
+        L.body.applyImpulse(dx * J, dy * J, dz * J, L.entry[0], L.entry[1], L.entry[2]);
+        L.body.sleeping = false;
+        L.body.sleepTimer = 0;
+      }
       bus.emit('audio:impact', {
         surfaceType: L.surface,
         worldPos: L.entry.slice(),
@@ -151,9 +201,9 @@ export class FireControl {
       }
       if (pathEntry && pathEntry.exited && def.penClass !== PenClass.DECAL) {
         const exitPos = [
-          muzzle[0] + dx * L.exitT,
-          muzzle[1] + dy * L.exitT,
-          muzzle[2] + dz * L.exitT,
+          origin[0] + dx * L.exitT,
+          origin[1] + dy * L.exitT,
+          origin[2] + dz * L.exitT,
         ];
         this.counters.penetrations++;
         bus.emit('ballistic:penetrate', {
@@ -178,15 +228,34 @@ export class FireControl {
     return e;
   }
 
-  /** 총구 위치 — 눈에서 전방 소폭 오프셋 (뷰모델 시각 총구와 분리된 논리 총구) */
+  /**
+   * 시각 총구 위치 — 화염·예광의 시작점. 뷰모델 총열 끝 근사
+   * (눈 + 전방 0.45 + 우 0.16·(1-ads) + 하 0.12·(1-ads)).
+   * **레이 원점은 여전히 눈**(tracePellet 호출부) — 조준 정확도가 시각에
+   * 종속되지 않는다.
+   */
   muzzleWorldPos(eye) {
-    return [eye.pos[0], eye.pos[1], eye.pos[2]];
+    const b = this.current.adsBlend;
+    const cy = Math.cos(eye.yaw), sy = Math.sin(eye.yaw);
+    const cp = Math.cos(eye.pitch), sp = Math.sin(eye.pitch);
+    const fx = -sy * cp, fy = sp, fz = -cy * cp;   // 전방
+    const rx = cy, rz = -sy;                        // 우측 (yaw 평면)
+    const side = 0.16 * (1 - b), down = 0.12 * (1 - b);
+    return [
+      eye.pos[0] + fx * 0.45 + rx * side,
+      eye.pos[1] + fy * 0.45 - down,
+      eye.pos[2] + fz * 0.45 + rz * side,
+    ];
   }
 
   snapshot() {
     return {
       current: this.currentId,
       counters: { ...this.counters },
+      camSpring: {
+        p: +this.camSpring.p.toFixed(6), v: +this.camSpring.v.toFixed(6),
+        py: +this.camSpring.py.toFixed(6), vy: +this.camSpring.vy.toFixed(6),
+      },
       weapons: Object.fromEntries([...this.weapons].map(([id, w]) => [id, w.snapshot()])),
     };
   }

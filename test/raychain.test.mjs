@@ -67,6 +67,36 @@ test('§4-2-9b. 겹침 합집합 — 같은 표면 상호 관입 박스는 이�
   assert.ok(Math.abs(total - 15) < 0.1, `합집합 15cm 기대, 실측 ${total.toFixed(2)}cm`);
 });
 
+test('P2B. 와인딩 반전 내성 — 뒤집힌 삼각형 순서의 박스도 두께가 정확하다', () => {
+  // 거울 대칭 셸(합각하부면 등)의 와인딩 반전 실측 사례를 합성으로 고정:
+  // 인덱스를 뒤집은 박스 = 전 삼각형 안쪽 감김. 패리티 페어링은 무관해야 한다.
+  const physics = new PhysicsWorld();
+  const g = new THREE.BoxGeometry(4, 4, 0.08);
+  const idx = g.index.array;
+  for (let i = 0; i < idx.length; i += 3) { const t = idx[i + 1]; idx[i + 1] = idx[i + 2]; idx[i + 2] = t; }
+  const m = new THREE.Mesh(g);
+  m.name = 'inverted';
+  m.position.set(0, 0, -5);
+  m.updateMatrixWorld(true);
+  physics.addStaticMesh(m, 'ROOF_SOIL');
+  physics.build();
+  const r = collectRayChain(physics.static, 0, 0, 0, 0, 0, -1, 50);
+  assert.equal(r.layers.length, 1);
+  assert.ok(Math.abs(r.layers[0].thicknessCm - 8) < 0.05, `반전 와인딩 두께 ${r.layers[0].thicknessCm}cm ≈ 8cm`);
+});
+
+test('P2B. 공면 스윕 — 정확히 맞닿은 두 층(기와 하면=보토 상면)이 둘 다 잡힌다', () => {
+  // 내아 보토 5.8m 오기입 실측 사례의 합성 고정: 인접 층 경계가 수치상 동일 평면
+  const w = makeWorld([
+    ['tile', 'ROOF_TILE', 4, 4, 0.03, 0, 0, -5.015],   // z [-5.030, -5.000]
+    ['soil', 'ROOF_SOIL', 4, 4, 0.08, 0, 0, -5.070],   // z [-5.110, -5.030] — 상면 = 기와 하면
+  ]);
+  const r = collectRayChain(w.static, 0, 0, 0, 0, 0, -1, 50);
+  assert.equal(r.layers.length, 2, `층 2개 기대, 실측 ${r.layers.map((l) => l.surface).join(',')}`);
+  assert.ok(Math.abs(r.layers[0].thicknessCm - 3) < 0.06, `TILE ${r.layers[0].thicknessCm}cm`);
+  assert.ok(Math.abs(r.layers[1].thicknessCm - 8) < 0.06, `SOIL ${r.layers[1].thicknessCm}cm ≈ 8cm (5.8m 아님)`);
+});
+
 test('§4-2-8. 산탄 9펠릿 독립 — 펠릿마다 독립 체인·독립 이벤트, 합산 없음', () => {
   setGlobalSeed(DEFAULT_SEED);
   // 넓은 HANJI 막 하나 — 모든 펠릿이 개별 관통

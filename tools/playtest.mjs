@@ -192,6 +192,39 @@ try {
   const done = await page.evaluate(() => window.__harness.getWeaponState());
   check('reload_refills', done.weapons.CARBINE.ammo === 30, { ammo: done.weapons.CARBINE.ammo });
 
+  // --- 7d2. [P2B §3-1] 사격 후 resetState → 전 상태 바이트 단위 복원 ---
+  // 기준: 리셋 직후 스냅샷. 사격(파티클·데칼·예광·화염·기와낙하·반동·강체 임펄스)
+  // 후 resetState하면 JSON 직렬화가 기준과 정확히 일치해야 한다.
+  const fullState = async () => {
+    // 복원 검증 대상: 무기·FX·강체·플레이어·HANJI (frameTimes 등 계측 배열은 제외 —
+    // 벽시계 종속이라 결정 대상이 아니다)
+    const inv0 = await page.evaluate(() => window.__harness.getInvariants());
+    const w0 = await page.evaluate(() => window.__harness.getWeaponState());
+    const f0 = await page.evaluate(() => window.__harness.getFxState());
+    return JSON.stringify({
+      player: inv0.player, bodies: inv0.bodies, simTime: inv0.simTime, frame: inv0.frame,
+      weapon: w0, fx: f0,
+    });
+  };
+  await page.evaluate(() => window.__harness.resetState());
+  const pristine = await fullState();
+  // 사격 난장: 지붕(기와 낙하) + 상자(강체 임펄스) + 창호(HANJI) 순서로 갈긴다
+  await setInput({ yaw: 0, pitch: 0.6, fire: true });  // 상공(지붕 방향)
+  await step(40);
+  await setInput({ yaw: aimYaw, pitch: aimPitch, fire: true });
+  await step(40);
+  await setInput({ fire: false });
+  await step(30);
+  const dirtyFx = await page.evaluate(() => window.__harness.getFxState());
+  check('p2b_fx_engaged', dirtyFx.particles.emittedTotal > 0 && dirtyFx.decals.cursor > 0, {
+    fx: dirtyFx,
+  });
+  await page.evaluate(() => window.__harness.resetState());
+  const restored = await fullState();
+  check('p2b_reset_byte_identical', restored === pristine, restored === pristine ? {} : {
+    diffHint: '복원 불일치 — 두 스냅샷 길이 ' + pristine.length + ' vs ' + restored.length,
+  });
+
   // --- 7e. resetState가 사격 상태를 완전 초기화 (§7 결정성) ---
   await page.evaluate(() => window.__harness.resetState());
   const cleared = await page.evaluate(() => window.__harness.getWeaponState());

@@ -31,13 +31,17 @@ export class StatsRecorder {
      */
     this.cpuSimMsPerFrame = [];
     this.cpuSubmitMsPerFrame = [];
+    /** §7 overdraw_estimate — (파티클+데칼 화면 투영 면적)/화면 픽셀. 미계측 -1 */
+    this.overdrawPerFrame = [];
+    this.particlesPerFrame = [];
+    this.decalsPerFrame = [];
     this.events = [];              // {frame, tag}
     this._lastWall = null;
     this._frame = 0;
   }
 
   /** 렌더 직후 호출 */
-  record(cpuSimMs = -1, cpuSubmitMs = -1) {
+  record(cpuSimMs = -1, cpuSubmitMs = -1, overdraw = -1, particlesActive = -1, decalsUsed = -1) {
     if (this.programCountPerFrame.length >= MAX_SAMPLES) return;
     const now = clock.wallNowMs();
     if (this._lastWall !== null) this.frameTimes.push(now - this._lastWall);
@@ -48,6 +52,9 @@ export class StatsRecorder {
     this.trianglesPerFrame.push(info.render.triangles);
     this.cpuSimMsPerFrame.push(cpuSimMs);
     this.cpuSubmitMsPerFrame.push(cpuSubmitMs);
+    this.overdrawPerFrame.push(overdraw);
+    this.particlesPerFrame.push(particlesActive);
+    this.decalsPerFrame.push(decalsUsed);
     this._frame++;
   }
 
@@ -68,6 +75,9 @@ export class StatsRecorder {
       trianglesPerFrame: this.trianglesPerFrame.slice(),
       cpuSimMsPerFrame: this.cpuSimMsPerFrame.slice(),
       cpuSubmitMsPerFrame: this.cpuSubmitMsPerFrame.slice(),
+      overdrawPerFrame: this.overdrawPerFrame.slice(),
+      particlesPerFrame: this.particlesPerFrame.slice(),
+      decalsPerFrame: this.decalsPerFrame.slice(),
       events: this.events.slice(),
       bootMs: clock.bootMs,
     };

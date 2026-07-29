@@ -25,6 +25,7 @@ export const HANDLING = Object.freeze({
     adsInS: 0.25, adsOutS: 0.20,
     spreadHipDeg: 1.4, spreadAdsDeg: 0.18,
     recoilPitchDeg: 0.55, recoilYawDeg: 0.22, recoilRecoverPerS: 6.5,
+    camKickPitch: 0.9, camKickYaw: 0.28,   // 카메라 스프링 속도 임펄스 rad/s (P2B §8)
     adsMoveMul: 0.72,
   }),
   SHOTGUN: Object.freeze({
@@ -36,6 +37,7 @@ export const HANDLING = Object.freeze({
     adsInS: 0.30, adsOutS: 0.22,
     spreadHipDeg: 3.5, spreadAdsDeg: 2.6, // 산포 원뿔 — 정체성: 면적 파괴
     recoilPitchDeg: 2.6, recoilYawDeg: 0.8, recoilRecoverPerS: 4.0,
+    camKickPitch: 2.4, camKickYaw: 0.7,
     adsMoveMul: 0.70,
   }),
   DMR: Object.freeze({
@@ -46,6 +48,7 @@ export const HANDLING = Object.freeze({
     adsInS: 0.35, adsOutS: 0.26,
     spreadHipDeg: 2.2, spreadAdsDeg: 0.05,
     recoilPitchDeg: 1.7, recoilYawDeg: 0.5, recoilRecoverPerS: 4.5,
+    camKickPitch: 1.7, camKickYaw: 0.5,
     adsMoveMul: 0.55,          // §2-2: 근접 기동성 페널티
   }),
 });

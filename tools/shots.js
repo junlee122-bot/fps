@@ -106,6 +106,14 @@ export const SHOTS = Object.freeze([
     sun: { elev: 12, azim: 270, intensity: 1.0 },
     hemi: 0.15,
     lantern: 0,
+    // [P2B §4] 이 샷이 처음 의미를 갖는다: 캡처 프레임(90) 직전 atFrame 86에
+    // 격발 → 화염 지오메트리(수명 0.1s=6프레임)와 트랜지언트 라이트(감쇠 150ms)가
+    // 캡처 시점에 중간 감쇠 상태로 정확히 걸린다. 2회 캡처 비트 동일이 게이트.
+    // eye는 카메라와 동일 위치·시선 (yaw/pitch는 target 방향 실측치)
+    viewmodel: { weapon: 'CARBINE', ads: 0 },
+    actions: [
+      { type: 'fire', weapon: 'CARBINE', rounds: 1, atFrame: 86, eye: { pos: [24.8, 1.9, -7.2], yaw: -0.8459, pitch: -0.0432 } },
+    ],
   },
   {
     name: 'hanji_pierced',

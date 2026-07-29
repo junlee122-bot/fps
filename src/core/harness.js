@@ -32,7 +32,18 @@ export function installHarness(ctx) {
     script: null, // { segments, index, segEnd, resolve }
     /** stepFrames 진행 중 재진입 가드 (감사 A2) */
     busy: false,
+    /** setShot 이후 진행된 프레임 수 — atFrame 지연 액션의 기준 (P2B §4) */
+    shotFrame: 0,
+    /** atFrame 지정 샷 액션 대기열 */
+    pendingActions: [],
   };
+
+  /** 샷 액션 실행 — 즉시(applyShot)·지연(stepFrames) 공용 (P2B) */
+  function runShotAction(act) {
+    if (act.type !== 'fire') throw new Error(`unknown shot action: ${act.type}`);
+    fire.switchTo(act.weapon);
+    for (let i = 0; i < (act.rounds ?? 1); i++) fire.fire(act.eye);
+  }
 
   /** 물리 1서브스텝 — fixed(stepSim)·realtime(메인 루프) 공용 배선 (P2A) */
   function simSubstep() {
@@ -41,6 +52,7 @@ export function installHarness(ctx) {
     player.moveSpeedMul = fire.current.adsMoveMul; // ADS 기동성 페널티 주입
     player.update(PHYSICS_DT);
     fire.update(PHYSICS_DT, input.state, player.fireEye);
+    fx.update(PHYSICS_DT); // 파티클·예광·화염 수명 — 고정 스텝 (P2B §3-2)
     physics.step(PHYSICS_DT);
   }
 
@@ -49,16 +61,26 @@ export function installHarness(ctx) {
   }
 
   function renderFrame(cpuStartMs = -1) {
-    if (!state.cameraOverride) player.applyCamera(camera);
+    if (!state.cameraOverride) {
+      player.applyCamera(camera);
+      // P2B §8 카메라 반동 — 렌더 오프셋 (조준 입력 상태를 오염시키지 않는다)
+      camera.rotation.x += fire.camSpring.p;
+      camera.rotation.y += fire.camSpring.py;
+    }
     viewmodel.update(fire.current); // 카메라 확정 후 포즈 갱신 (fixed·realtime 공용)
+    fx.writeInstances(camera);      // 빌보드·스트릭 행렬 (P2B)
     const preRender = clock.wallNowMs();
     renderer.render(scene, camera);
     const end = clock.wallNowMs();
+    // §7 overdraw_estimate — CPU 산출, GPU 타이밍 무관
+    const od = fx.overdrawEstimate(camera, renderer.domElement.width, renderer.domElement.height);
     stats.record(
       cpuStartMs >= 0 ? preRender - cpuStartMs : -1,
-      cpuStartMs >= 0 ? end - preRender : -1
+      cpuStartMs >= 0 ? end - preRender : -1,
+      od,
+      fx.particles.active,
+      Math.min(fx.decals.cursor, fx.decals.capacity)
     );
-    fx.endFrame(); // 플레이스홀더 마커는 프레임 종료 시 즉시 제거 (P2A §6)
   }
 
   /** realtime 루프가 매 프레임 호출 — 프로파일 스크립트 재생 */
@@ -93,7 +115,10 @@ export function installHarness(ctx) {
       const shot = shotsByName.get(name);
       if (!shot) throw new Error(`unknown shot: ${name}`);
       state.cameraOverride = true;
-      applyShot(shot, { runActions: true }); // 샷 actions(결정적 사격)는 하네스 경로에서만
+      state.shotFrame = 0;
+      // atFrame 지정 액션은 지연 실행 (muzzle_interior — 캡처 프레임 정렬, P2B §4)
+      state.pendingActions = (shot.actions ?? []).filter((a) => Number.isInteger(a.atFrame) && a.atFrame > 0);
+      applyShot(shot, { runActions: true }); // 즉시 액션(atFrame 없음)은 여기서
       return { ok: true, shot: name };
     },
 
@@ -106,10 +131,18 @@ export function installHarness(ctx) {
       state.busy = true;
       try {
         for (let i = 0; i < n; i++) {
+          // atFrame 지연 액션 (P2B) — 프레임 진행 전 실행, 결정적
+          if (state.pendingActions.length) {
+            for (const act of state.pendingActions) {
+              if (act.atFrame === state.shotFrame) runShotAction(act);
+            }
+            state.pendingActions = state.pendingActions.filter((a) => a.atFrame > state.shotFrame);
+          }
           const t0 = clock.wallNowMs();
           clock.tickFixed();
           stepSim();
           renderFrame(t0);
+          state.shotFrame++;
           if ((i & 31) === 31) await new Promise((r) => setTimeout(r, 0));
         }
       } finally {
@@ -140,6 +173,8 @@ export function installHarness(ctx) {
       stats.reset();
       state.cameraOverride = false;
       state.script = null;
+      state.shotFrame = 0;
+      state.pendingActions = [];
       applyDefaultView();
       return { ok: true };
     },
@@ -236,6 +271,11 @@ export function installHarness(ctx) {
     /** 무기·사격 계수·HANJI 상태 스냅샷 (playtest 소비) */
     getWeaponState() {
       return { ...fire.snapshot(), hanji: hanji.snapshot() };
+    },
+
+    /** FX 풀 상태 스냅샷 (P2B — playtest 복원 검증·디버그) */
+    getFxState() {
+      return fx.snapshot();
     },
 
     /** 무기 교체 (playtest·디버그) */

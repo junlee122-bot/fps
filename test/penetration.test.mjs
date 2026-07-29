@@ -45,8 +45,12 @@ test('B-2. DECAL 2종 — path에 나타나지 않고 에너지에 영향 없음
   }
 });
 
-/* ---- PATCH-001-B 3. 다층 순서 의존성 — path 순서·stoppedAt 귀속 ---- */
-test('B-3. 순서 의존성 — path가 진입 순서를 보존하고 stoppedAt 귀속이 순서를 따름', () => {
+/* ---- PATCH-001-B 3 부활 (P2B §3-4 — CONTRACT-NOTES P2A-2 대체) ----
+ * 순서 의존성 테스트의 대상은 잔여값이 아니라 stoppedAt이다: 총곱이 정지 임계
+ * 미만인 2층 체인을 정순·역순으로 통과시켜 정지 층 인덱스가 다름을 검증한다.
+ * 데칼은 path 마지막 항목의 진입면에 찍히므로(§3-4), 이 귀속이 틀리면
+ * 탄흔이 벽 반대쪽에 나타난다. */
+test('B-3. 순서 의존성 (P2B §3-4 부활) — stoppedAt 귀속이 순서를 따르고, 잔여는 순서 불변', () => {
   // 잔여는 가환 곱이라 순서 불변 (케이스 3 판정 — 파일 머리주석). 그 성질 자체를 고정:
   const ab = computePenetration(E0, [L('HANJI', 0.03), L('WOOD_LATTICE', 2.4)]);
   const ba = computePenetration(E0, [L('WOOD_LATTICE', 2.4), L('HANJI', 0.03)]);

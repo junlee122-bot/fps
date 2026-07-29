@@ -217,6 +217,11 @@
   BLOCKER-001 §5로 보고된 가정을 PATCH-002·003이 정정하지 않았으므로 채택.
   THATCH는 킷 상수 THATCH_T=200mm를 그대로 사용(단일 출처).
 
+- **P2B §3-4에 의한 P2A-2 대체**: PATCH-001-B 케이스 3은 P2B-BRIEF §3-4가
+  재정의했다 — 검증 대상은 잔여값(가환 곱이라 순서 불변, P2A-2의 증명 유지)이
+  아니라 **stoppedAt 귀속**이다. 데칼이 path 마지막 항목의 진입면에 찍히므로
+  이 귀속이 데칼 위치의 정합성을 결정한다. test/penetration.test.mjs B-3이
+  정순·역순 stoppedAt 상이(0 vs 1)를 고정한다.
 - **P2A-3. `weapon:fire` 의미 판정**: 어휘의 weapon:fire를 **격발당 1건**으로
   해석한다 (탄자당 아님). 산탄 1격발에 총구화염 9개가 그려지는 것을 막는다.
   탄자별 관측은 ballistic:* 이벤트가 담당. muzzleWorldPos는 눈 위치(논리 총구)로,

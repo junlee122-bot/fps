@@ -31,7 +31,7 @@ const DPR = Number(args.dpr ?? CONTRACT.dpr);
 const RUNS = Number(args.runs ?? CONTRACT.runs);
 const W = Number(args.w ?? CONTRACT.w);
 const H = Number(args.h ?? CONTRACT.h);
-const PHASE = String(args.phase ?? 'p15');
+const PHASE = String(args.phase ?? 'p2b');
 /** 워밍업 제외 프레임 (조작 인계 + 첫 섀도 캐스케이드 맞춤은 1회성 비용) */
 const WARMUP_FRAMES = Number(args.warmup ?? CONTRACT.warmup);
 const HITCH_MS = 50;
@@ -48,7 +48,15 @@ const NON_CONTRACT =
  */
 const BUDGETS = Object.freeze({
   p15: { trisScene: 600_000, trisFrameP95: 250_000, drawCalls: 900, programs: 40, cpuFrameMsP95: 6 },
-  final: { trisScene: 6_000_000, trisFrameP95: 2_000_000, drawCalls: 1500, programs: 120, cpuFrameMsP95: 8 },
+  // [P2B §6·§7] 프로그램 상향(fx 변형) + 필레이트 선행지표 신설
+  p2b: {
+    trisScene: 600_000, trisFrameP95: 250_000, drawCalls: 900, programs: 90, cpuFrameMsP95: 6,
+    overdrawP95: 2.5, particlesMax: 4000, decalsMax: 512,
+  },
+  final: {
+    trisScene: 6_000_000, trisFrameP95: 2_000_000, drawCalls: 1500, programs: 120, cpuFrameMsP95: 8,
+    overdrawP95: 4.0, particlesMax: 8000, decalsMax: 512,
+  },
 });
 const budget = BUDGETS[PHASE];
 if (!budget) {
@@ -70,12 +78,27 @@ if (args['print-config']) {
   process.exit(0);
 }
 
-/** P1 게임플레이 스크립트: 이동/시점/점프 사이클 (사격은 P2, AI는 P4에서 추가) */
+/**
+ * P2B 게임플레이 스크립트 — §7 최악 시나리오 포함:
+ * 지붕 카빈 연사(기와 파편 낙하 + ceramic_shatter 다발) → 근접 산탄 연사
+ * (펌프 에지 — fire 토글 세그먼트) → 장전 → 이동/점프 커버리지.
+ */
 function buildScript(duration) {
   const cycle = [
-    { dur: 2.0, input: { forward: 1, right: 0, sprint: true }, tag: 'sprint_north' },
-    { dur: 1.0, input: { forward: 1, right: 0, sprint: false }, yawRate: 1.6, tag: 'turn_left' },
-    { dur: 1.5, input: { forward: 0, right: 1 }, tag: 'strafe_right' },
+    { dur: 1.5, input: { forward: 1, right: 0, sprint: true, fire: false, reload: false, pitch: 0 }, tag: 'sprint_north' },
+    // 동헌 지붕 조준 카빈 연사 — 기와 낙하 + 파편 + 예광 + 데칼 누적 (최악 필레이트).
+    // pitch 0.15: 마당(z≈14)에서 동헌 지붕면(처마 5.2~용마루 7.35m) 앙각 실측치
+    { dur: 2.4, input: { forward: 0, sprint: false, weaponSwitch: 'CARBINE', pitch: 0.15, fire: true }, tag: 'fire_roof_debris' },
+    { dur: 2.4, input: { fire: false, reload: true, pitch: 0.1 }, tag: 'reload_carbine' },
+    // 근접 산탄 — 펌프는 트리거 에지라 on/off 토글 (1.0s 주기 > 0.857s 간격)
+    { dur: 0.5, input: { reload: false, weaponSwitch: 'SHOTGUN', pitch: 0.05, fire: true }, tag: 'shotgun_1' },
+    { dur: 0.5, input: { fire: false }, tag: 'pump_1' },
+    { dur: 0.5, input: { fire: true }, tag: 'shotgun_2' },
+    { dur: 0.5, input: { fire: false }, tag: 'pump_2' },
+    { dur: 0.5, input: { fire: true }, tag: 'shotgun_3' },
+    { dur: 0.5, input: { fire: false }, tag: 'pump_3' },
+    { dur: 4.4, input: { forward: 1, right: 0, reload: true }, yawRate: 0.8, tag: 'reload_shotgun_walk' },
+    { dur: 1.0, input: { forward: 1, right: 0, sprint: false, reload: false, weaponSwitch: 'CARBINE' }, yawRate: 1.6, tag: 'turn_left' },
     { dur: 1.2, input: { forward: 1, right: 0 }, jumpPulse: true, tag: 'jump_forward' },
     { dur: 1.0, input: { forward: 0, right: 0 }, yawRate: -3.1, tag: 'turn_around' },
     { dur: 2.0, input: { forward: 1, right: 0, sprint: true }, tag: 'sprint_back' },
@@ -139,6 +162,9 @@ for (let run = 0; run < RUNS; run++) {
   const tris = stats.trianglesPerFrame.slice(WARMUP_FRAMES);
   const cpuSimRaw = stats.cpuSimMsPerFrame.slice(WARMUP_FRAMES);
   const cpuSubmitRaw = stats.cpuSubmitMsPerFrame.slice(WARMUP_FRAMES);
+  const odRaw = (stats.overdrawPerFrame ?? []).slice(WARMUP_FRAMES).filter((v) => v >= 0);
+  const pcRaw = (stats.particlesPerFrame ?? []).slice(WARMUP_FRAMES).filter((v) => v >= 0);
+  const dcRaw = (stats.decalsPerFrame ?? []).slice(WARMUP_FRAMES).filter((v) => v >= 0);
   const cpuSim = sortedAsc(cpuSimRaw.filter((v) => v >= 0));
   const cpuSubmit = sortedAsc(cpuSubmitRaw.filter((v) => v >= 0));
   // 프레임별 합(sim+submit)의 분포 — p95(sim)+p95(submit)는 합의 p95가 아니다 (감사 B3)
@@ -191,6 +217,13 @@ for (let run = 0; run < RUNS; run++) {
         p95: +percentile(cpuTotal, 0.95).toFixed(2),
         worst: +(cpuTotal[cpuTotal.length - 1] ?? NaN).toFixed(2),
       },
+      // [P2B §7] 필레이트 선행지표 — CPU 산출, 환경 무관
+      overdraw: {
+        p95: +percentile(sortedAsc(odRaw), 0.95).toFixed(3),
+        worst: +(odRaw.length ? Math.max(...odRaw) : -1).toFixed(3),
+      },
+      particlesMax: pcRaw.length ? Math.max(...pcRaw) : 0,
+      decalsMax: dcRaw.length ? Math.max(...dcRaw) : 0,
     },
     gpu: {
       frameMs: { p50: +p50.toFixed(2), p95: +p95.toFixed(2), p99: +p99.toFixed(2), worst: +worst.toFixed(1) },
@@ -267,6 +300,17 @@ const leading = {
     submitP95_reference: +Math.max(...runs.map((r) => r.leading.cpuSubmitMs.p95)).toFixed(2),
   },
 };
+// [P2B §7] 필레이트 선행지표 — 예산이 정의된 단계에서만 게이트 (p2b·final)
+if (budget.overdrawP95 !== undefined) {
+  leading.overdrawP95 = {
+    value: +Math.max(...runs.map((r) => r.leading.overdraw.p95)).toFixed(3),
+    budget: budget.overdrawP95,
+    basis: '(활성 파티클+데칼 화면 투영 면적)/화면 픽셀 — 사격 시나리오 포함, run 간 max',
+    worst: +Math.max(...runs.map((r) => r.leading.overdraw.worst)).toFixed(3),
+  };
+  leading.particlesMax = { value: Math.max(...runs.map((r) => r.leading.particlesMax)), budget: budget.particlesMax };
+  leading.decalsMax = { value: Math.max(...runs.map((r) => r.leading.decalsMax)), budget: budget.decalsMax };
+}
 for (const k of Object.keys(leading)) leading[k].pass = leading[k].value <= leading[k].budget;
 const leadingPass = Object.values(leading).every((v) => v.pass);
 

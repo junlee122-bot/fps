@@ -29,7 +29,7 @@ import { Player } from './player/player.js';
 import { FireControl } from './weapons/firecontrol.js';
 import { Viewmodel, setupViewmodelAudit } from './weapons/viewmodel.js';
 import { HanjiState } from './materials/hanji.js';
-import { FxPlaceholder } from './fx/placeholder.js';
+import { FxSystem } from './fx/index.js';
 import { SHOTS, SHOTS_BY_NAME, DEFAULT_VIEW } from '../tools/shots.js';
 
 const params = new URLSearchParams(location.search);
@@ -67,8 +67,10 @@ const stats = new StatsRecorder(renderer);
 // 카메라가 씬에 있어야 카메라 자식(뷰모델)이 월드 조명으로 렌더된다 (§3 리그)
 scene.add(camera);
 
-const fire = new FireControl((ox, oy, oz, dx, dy, dz, maxDist) =>
-  collectRayChain(physics.static, ox, oy, oz, dx, dy, dz, maxDist));
+const fire = new FireControl(
+  (ox, oy, oz, dx, dy, dz, maxDist) => collectRayChain(physics.static, ox, oy, oz, dx, dy, dz, maxDist),
+  (ox, oy, oz, dx, dy, dz, maxDist) => physics.raycastBodies(ox, oy, oz, dx, dy, dz, maxDist),
+);
 const viewmodel = new Viewmodel(camera);
 viewmodel.setVisible(mode === 'realtime'); // 캡처는 샷 데이터가 명시할 때만 표시
 
@@ -82,7 +84,36 @@ scene.traverse((o) => {
 const hanji = new HanjiState();
 for (const id of hanjiPanes.keys()) hanji.register(id);
 const opacityApplier = new OpacityApplier(hanjiPanes);
-const fx = new FxPlaceholder(scene);
+
+// P2B FX — 기와 낙하 강체는 콜백 주입 (fx는 physics를 import하지 않는다)
+const debrisGeo = new THREE.BoxGeometry(0.18, 0.024, 0.13);
+// 킷 GREY_DARK와 동일 파라미터 — 같은 프로그램 순열 (컴파일 0 유지)
+const debrisMaterial = new THREE.MeshStandardMaterial({ color: 0x585b5f, roughness: 0.92, metalness: 0 });
+debrisMaterial.name = 'FX_DEBRIS_TILE';
+const fx = new FxSystem(scene, {
+  spawnBody: (opts) => {
+    const mesh = new THREE.Mesh(debrisGeo, debrisMaterial);
+    mesh.name = 'fx_debris_tile';
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+    mesh.userData.surface = opts.surface;
+    scene.add(mesh);
+    return physics.addRigidBody({
+      shape: 'box',
+      halfExtents: opts.halfExtents,
+      position: opts.position,
+      velocity: opts.velocity,
+      angularVelocity: opts.angularVelocity,
+      mass: opts.mass,
+      surface: opts.surface,
+      object3D: mesh,
+    });
+  },
+  despawnBody: (body) => {
+    physics.rigid.remove(body);
+    body.object3D?.parent?.remove(body.object3D);
+  },
+});
 
 // surface:damage → HANJI 상태 어댑터 (콜라이더 이름 → 판 이름, 월드 → 판 로컬 UV)
 const _uvVec = new THREE.Vector3();
@@ -120,6 +151,7 @@ function applyShot(shot, opts = {}) {
 
   if (opts.runActions && shot.actions) {
     for (const act of shot.actions) {
+      if (Number.isInteger(act.atFrame) && act.atFrame > 0) continue; // 지연 액션은 하네스 stepFrames가 실행 (P2B)
       if (act.type !== 'fire') throw new Error(`unknown shot action: ${act.type}`);
       fire.switchTo(act.weapon);
       for (let i = 0; i < (act.rounds ?? 1); i++) fire.fire(act.eye);
@@ -156,6 +188,7 @@ const harness = installHarness({
 });
 
 /* ------------------------------------------------------------- 부팅 */
+fx.prewarmSpawn(camera); // fx 머티리얼 전 종 컴파일 보증 (P2B §6)
 const warm = await prewarmShaders({
   renderer, scene, camera,
   shots: SHOTS,
@@ -166,6 +199,7 @@ console.info(`[boot] prewarm programs=${warm.programsAfter} (+${warm.compiled}) 
 window.__prewarm = warm;
 
 fire.reset();             // 프리웜의 applyShot(viewmodel 샷)이 만진 무기 상태를 부팅 초기로
+fx.reset();               // 프리웜 대표 fx 인스턴스 정리 (부팅 = 무상태)
 physics.markBootBodies(); // 부팅 로스터 스냅샷 — resetState가 런타임 스폰만 걷어낸다 (감사 A1)
 bus.markBoot();           // 구독 스냅샷 (감사 A4)
 clock.markBootDone();

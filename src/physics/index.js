@@ -5,6 +5,7 @@
  * P2에서 다층 관통(core/surfaces.js computePenetration 배선)이 추가된다.
  */
 
+import * as THREE from 'three';
 import { StaticWorld } from './bvh.js';
 import { RigidBody, RigidBodyWorld } from './rigidbody.js';
 import { CharacterController } from './character.js';
@@ -96,5 +97,59 @@ export class PhysicsWorld {
 
   raycastAny(ox, oy, oz, dx, dy, dz, maxDist, mask = MASK.BULLET) {
     return this.static.raycastAny(ox, oy, oz, dx, dy, dz, maxDist, mask);
+  }
+
+  /**
+   * 동적 강체 레이 질의 (P2B §8 — 탄자→강체 임펄스의 근거).
+   * 박스 강체를 로컬 슬랩 테스트로 검사해 진입/출구 t와 진입면 노멀을 준다.
+   * 반환은 tEnter 오름차순 — 순서 결정적 (bodies 배열 순회 + 정렬 키 고정).
+   */
+  raycastBodies(ox, oy, oz, dx, dy, dz, maxDist = 120) {
+    const hits = [];
+    const o = new THREE.Vector3(), d = new THREE.Vector3(), q = new THREE.Quaternion();
+    for (const b of this.rigid.bodies) {
+      if (b.shape !== 'box') continue;
+      // 레이를 강체 로컬로
+      q.copy(b.quaternion).invert();
+      o.set(ox - b.position.x, oy - b.position.y, oz - b.position.z).applyQuaternion(q);
+      d.set(dx, dy, dz).applyQuaternion(q);
+      let tMin = 0, tMax = maxDist;
+      let nAxis = -1, nSign = 1;
+      let ok = true;
+      const he = [b.hx, b.hy, b.hz];
+      const oc = [o.x, o.y, o.z], dc = [d.x, d.y, d.z];
+      for (let a = 0; a < 3; a++) {
+        if (Math.abs(dc[a]) < 1e-9) {
+          if (Math.abs(oc[a]) > he[a]) { ok = false; break; }
+          continue;
+        }
+        const inv = 1 / dc[a];
+        let t1 = (-he[a] - oc[a]) * inv;
+        let t2 = (he[a] - oc[a]) * inv;
+        let sign = -1; // t1이 -면(음의 면) 진입이면 노멀은 -축
+        if (t1 > t2) { const t = t1; t1 = t2; t2 = t; sign = 1; }
+        if (t1 > tMin) { tMin = t1; nAxis = a; nSign = sign; }
+        if (t2 < tMax) tMax = t2;
+        if (tMin > tMax) { ok = false; break; }
+      }
+      if (!ok || tMin <= 0 || tMin >= maxDist) continue;
+      // 진입면 노멀 (로컬 → 월드)
+      const n = new THREE.Vector3();
+      if (nAxis >= 0) n.setComponent(nAxis, nSign);
+      else n.set(0, 1, 0);
+      n.applyQuaternion(b.quaternion);
+      // 노멀은 입사 반대 방향으로 (BVH raycast 규약과 동일)
+      if (n.x * dx + n.y * dy + n.z * dz > 0) n.multiplyScalar(-1);
+      hits.push({
+        body: b,
+        tEnter: tMin,
+        tExit: Math.min(tMax, maxDist),
+        nx: n.x, ny: n.y, nz: n.z,
+        surface: b.surface,
+        surfaceName: surfaceName(b.surface),
+      });
+    }
+    hits.sort((a, c) => a.tEnter - c.tEnter);
+    return hits;
   }
 }
