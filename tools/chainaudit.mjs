@@ -13,6 +13,7 @@
 
 import * as THREE from 'three';
 import { PhysicsWorld, MASK, surfaceName } from '../src/physics/index.js';
+import { collectRayChain } from '../src/physics/raychain.js';
 import { buildWorld } from '../src/world/level.js';
 import { parseArgs } from './lib/args.mjs';
 
@@ -31,20 +32,18 @@ physics.build();
 const S = physics.static;
 const hit = physics._hit;
 
-/** 레이 경로의 표면 시퀀스 (양면 히트 — 각 층의 진입/출구가 따로 잡힌다) */
+/**
+ * 레이 경로의 표면 시퀀스 — [P3 §2-5] 게임이 실제로 쓰는 수집기
+ * (collectRayChain: 패리티 페어링 + 공면 스윕)를 그대로 사용한다.
+ * 감사 전용 스테퍼(3mm 전진)는 공면에서 좌우 비대칭으로 교차를 잃어
+ * 거울 검증을 통과할 수 없었다 — 생산 코드를 검사하는 것이 목적에도 맞다.
+ * 반환: 레이어당 1항목 (진입 순서), thicknessCm 포함.
+ */
 function surfaceSequence(ox, oy, oz, dx, dy, dz, maxDist) {
-  const seq = [];
-  let t0 = 0;
-  for (let k = 0; k < 24; k++) {
-    if (!S.raycast(
-      ox + dx * t0, oy + dy * t0, oz + dz * t0,
-      dx, dy, dz, maxDist - t0, MASK.BULLET, hit
-    )) break;
-    t0 += hit.t + 0.003;
-    seq.push({ surface: surfaceName(hit.surface), t: +t0.toFixed(3) });
-    if (t0 >= maxDist) break;
-  }
-  let out = seq;
+  const chain = collectRayChain(S, ox, oy, oz, dx, dy, dz, maxDist, MASK.BULLET);
+  let out = chain.layers.map((l) => ({
+    surface: l.surface, t: +l.entryT.toFixed(3), thicknessCm: +l.thicknessCm.toFixed(2),
+  }));
   if (TEST_DROP) out = out.filter((s) => s.surface !== TEST_DROP);
   if (TEST_REVERSE) out = out.slice().reverse();
   return out;
@@ -119,6 +118,45 @@ expectChain('객사 팔작 합각하부면: TILE→보토', surfaceSequence(33.2
     name: '동헌 처마 체인: 기와→보토→서까래',
     ok: iTile >= 0 && iSoil > iTile && iWood > iSoil,
     got: seq.map((s) => s.surface).slice(0, 12),
+  });
+}
+
+/* 8. [P3 §2-5] 경로 대표성 보강 — P2B 와인딩 반전이 9경로를 전부 통과한 것은
+      경로 선정 결함이었다. 거울 대칭면·반전면·추녀 교차부·회랑 양단을 편입한다.
+      (좌표는 정확한 대칭 평면을 피한다 — 대칭면 수직 레이는 공유 모서리 퇴화로
+      교차가 소실될 수 있다: 회랑 x=39.1 실측, CONTRACT-NOTES P3 기록) */
+expectChain('동헌 동합각 상부: TILE→보토 (반전면)', surfaceSequence(8.8, 12, -22, 0, -1, 0, 12),
+  ['ROOF_TILE', 'ROOF_SOIL']);
+expectChain('동헌 서합각: TILE→보토 (거울)', surfaceSequence(-8.8, 12, -22, 0, -1, 0, 12),
+  ['ROOF_TILE', 'ROOF_SOIL']);
+expectChain('객사 북경사: TILE→보토 (반전면)', surfaceSequence(27, 12, -12.5, 0, -1, 0, 12),
+  ['ROOF_TILE', 'ROOF_SOIL']);
+expectChain('내아 서측 경사: TILE→보토 (동측 #2의 거울)', surfaceSequence(-33, 12, -8.5, 0, -1, 0, 12),
+  ['ROOF_TILE', 'ROOF_SOIL']);
+expectChain('동헌 추녀 교차부: TILE→보토→서까래', surfaceSequence(8.2, 12, -17.6, 0, -1, 0, 12),
+  ['ROOF_TILE', 'ROOF_SOIL', 'WOOD_COLUMN']);
+
+/* 회랑 양단 — 거울 배치의 체인 동일성까지 검증 */
+{
+  const south = surfaceSequence(38.6, 8, 14, 0, -1, 0, 12);
+  const north = surfaceSequence(38.6, 8, -26, 0, -1, 0, 12);
+  const sig = (seq) => seq.map((s) => s.surface).join('>');
+  const want = ['ROOF_TILE', 'ROOF_SOIL', 'WOOD_PLANK'];
+  const contains = (seq) => {
+    const names = seq.map((s) => s.surface);
+    let i = 0;
+    for (const w of want) { const f = names.indexOf(w, i); if (f < 0) return false; i = f + 1; }
+    return true;
+  };
+  checks.push({
+    name: '회랑 남단: TILE→보토→마루',
+    ok: contains(south),
+    got: south.map((s) => s.surface).slice(0, 8),
+  });
+  checks.push({
+    name: '회랑 북단: 남단과 동일 체인 (거울 대칭)',
+    ok: contains(north) && sig(north) === sig(south),
+    got: { north: sig(north), south: sig(south) },
   });
 }
 
