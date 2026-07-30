@@ -28,6 +28,7 @@ const KICK_PITCH = 0.9;     // recoilPitch → 뷰모델 회전 배율
 
 function mat(color) {
   const m = new THREE.MeshStandardMaterial({ color, roughness: 0.92, metalness: 0 });
+  m.name = color === GREY_MID ? 'VM_GREY_MID' : 'VM_GREY_DARK'; // albedoaudit 매니페스트 대조 대상
   return m;
 }
 

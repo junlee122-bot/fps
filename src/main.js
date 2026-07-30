@@ -21,6 +21,7 @@ import { prewarmShaders } from './core/prewarm.js';
 import { StatsRecorder } from './core/stats.js';
 import { createRenderer, createCamera, createLighting, applySunConfig, handleResize } from './render/renderer.js';
 import { OpacityApplier } from './render/opacity.js';
+import { setupAlbedoAudit } from './render/audit-cards.js';
 import { PhysicsWorld } from './physics/index.js';
 import { collectRayChain } from './physics/raychain.js';
 import { buildWorld } from './world/level.js';
@@ -184,6 +185,11 @@ const harness = installHarness({
     scene, camera, boost,
     // 순수 태양만 — applyDefaultView는 카메라도 움직여 카드 투영이 깨진다
     applySun: () => applySunConfig(lighting, DEFAULT_VIEW.sun, DEFAULT_VIEW.hemi),
+  }),
+  albedoAuditHook: ({ scaleAlbedo }) => setupAlbedoAudit({
+    scene, camera, renderer, scaleAlbedo,
+    extraMaterials: [debrisMaterial], // 런타임 스폰 전용 — 씬 순회에 안 잡힌다
+    applySunRaw: (sun, hemi) => applySunConfig(lighting, sun, hemi),
   }),
 });
 

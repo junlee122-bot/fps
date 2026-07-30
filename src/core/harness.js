@@ -20,7 +20,7 @@ export function installHarness(ctx) {
   const {
     renderer, scene, camera, player, input, physics, world,
     stats, shotsByName, applyShot, applyDefaultView, readyPromise, mode,
-    fire, viewmodel, hanji, fx, viewmodelAuditHook,
+    fire, viewmodel, hanji, fx, viewmodelAuditHook, albedoAuditHook,
   } = ctx;
 
   const errors = [];
@@ -282,6 +282,16 @@ export function installHarness(ctx) {
     setWeapon(id) {
       fire.switchTo(id);
       return fire.currentId;
+    },
+
+    /**
+     * albedoaudit 카드 리그 설치 (P3 §5 — 감사 전용 렌더 상태로 전환).
+     * scaleAlbedo≠1은 음성 테스트 전용이며 출력에 testOverride가 박힌다.
+     */
+    albedoAuditSetup({ scaleAlbedo = 1 } = {}) {
+      if (state.busy) throw new Error('albedoAuditSetup called while stepFrames in progress');
+      state.cameraOverride = true;
+      return albedoAuditHook({ scaleAlbedo });
     },
 
     /**

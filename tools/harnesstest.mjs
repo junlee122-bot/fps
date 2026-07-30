@@ -5,7 +5,7 @@
  * 배경: `--tolerance` 무값 → 1 게이트 약화 결함이 같은 자리에서 두 번 발생했다.
  * 같은 클래스의 세 번째를 막는 회귀 테스트. **모든 패스 종료 조건에 영구 포함.**
  *
- * 케이스 11종:
+ * 케이스 13종:
  *  1. imagediff — 1픽셀 변경 쌍 → 반드시 exit 1
  *  2. imagediff — 값 없는 --tolerance → 0 처리 또는 에러 (1로 새면 실패)
  *  3. profile — 무인자 실행 시 duration 30 / runs 3 / dpr 2
@@ -17,6 +17,8 @@
  *  9. chainaudit — 음성 훅 (레이어 제거·순서 뒤집기) → exit 1 (P2A §0-1)
  * 10. viewmodelaudit — 음성 훅 (조도 2배 부스트) → exit 1 (P2A §3)
  * 11. fxaudit — 음성 훅 (프로파일 복제 동일화) → exit 1 (P2B §2 / PATCH-003-B)
+ * 12. paletteaudit — 음성 훅 (자색 300° 패치 주입) → exit 1 (P3 §4)
+ * 13. albedoaudit — 음성 훅 (알베도 1/3 위조) → exit 1 (P3 §5)
  */
 
 import { spawnSync } from 'node:child_process';
@@ -215,6 +217,30 @@ function makePng(path, px) {
   const pass = cloned.code === 1 && marked && pairOk === false;
   record(11, 'fxaudit 음성 테스트 (soil_puff←dust_burst 복제)', pass,
     `exit=${cloned.code} 표식=${marked} 핵심쌍ok=${pairOk}`);
+}
+
+/* ---- 12. paletteaudit 음성 테스트 (P3 §4) ----
+ * 자색(300°) 패치를 합성 주입한 입력에서 반드시 exit 1. */
+{
+  const r = run('node', ['tools/paletteaudit.mjs', 'baseline', '--inject-patch']);
+  let marked = false;
+  try { marked = String(JSON.parse(r.out).testOverride ?? '').includes('inject-patch'); } catch { /* fail */ }
+  record(12, 'paletteaudit 음성 테스트 (자색 300° 주입)', r.code === 1 && marked,
+    `exit=${r.code} 표식=${marked}`);
+}
+
+/* ---- 13. albedoaudit 음성 테스트 (P3 §5) ----
+ * 알베도를 1/3로 깎은 입력(참조 레포의 위조 재현) — 매니페스트 대조가 잡아야 한다. */
+{
+  const r = run('node', ['tools/albedoaudit.mjs', '--test-scale-albedo', '0.333']);
+  let marked = false, devs = 0;
+  try {
+    const j = JSON.parse(r.out);
+    marked = String(j.testOverride ?? '').includes('scaleAlbedo');
+    devs = (j.manifestDeviations ?? []).length;
+  } catch { /* fail */ }
+  record(13, 'albedoaudit 음성 테스트 (알베도 1/3 위조)', r.code === 1 && marked && devs > 0,
+    `exit=${r.code} 표식=${marked} 편차=${devs}건`);
 }
 
 const ok = results.every((r) => r.pass);
