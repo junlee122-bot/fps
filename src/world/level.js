@@ -559,7 +559,7 @@ export function buildWorld(scene, physics) {
     A.group.add(post);
     physics.addStaticMesh(post, 'WOOD_COLUMN', A.LAYER_STATIC);
     A.box(`lantern_head_${side}`, 'FABRIC', 0.36, 0.36, 0.36, x, 2.35, z, { matKey: 'LANTERN' });
-    const light = new THREE.PointLight(0xffcf9e, 0, 18, 2);
+    const light = new THREE.PointLight(0xffdf8e, 0, 18, 2); // [P3 §4] 황 대역 앰버 (h≈43°)
     light.name = `lantern_light_${side}`;
     light.position.set(x, 2.45, z);
     A.group.add(light);

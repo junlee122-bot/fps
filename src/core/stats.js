@@ -21,8 +21,17 @@ export class StatsRecorder {
   reset() {
     this.frameTimes = [];          // ms, 벽시계 프레임 간격
     this.programCountPerFrame = [];
-    this.drawCallsPerFrame = [];
-    this.trianglesPerFrame = [];
+    /**
+     * P3 지표 의미 정정 (P1.5 선례 — CONTRACT-NOTES P3 판정):
+     * 멀티패스 파이프라인에서 renderer.info는 그림자 3캐스케이드·GTAO 프리패스·
+     * 후처리 쿼드까지 전 패스 합산이다. drawCalls/trisFrame 예산(900/250k)은
+     * "단일 씬 패스가 제출하는 지오메트리"로 정의됐으므로 게이트는 scene 계열
+     * (파이프라인 패스 분해)로 걸고, 합산은 정보용으로 병기한다.
+     */
+    this.drawCallsPerFrame = [];       // 전 패스 합산 (정보용)
+    this.trianglesPerFrame = [];       // 전 패스 합산 (정보용)
+    this.drawCallsScenePerFrame = [];  // 단일 씬 패스 (게이트) — 미계측 -1
+    this.trianglesScenePerFrame = []; // 단일 씬 패스 (게이트) — 미계측 -1
     /**
      * 프레임당 CPU 시간(ms), 2성분. 미계측 프레임 -1.
      * - sim    : 프레임 시작 → render() 직전 (입력·물리·플레이어·씬 갱신). 항상 환경 무관
@@ -41,7 +50,7 @@ export class StatsRecorder {
   }
 
   /** 렌더 직후 호출 */
-  record(cpuSimMs = -1, cpuSubmitMs = -1, overdraw = -1, particlesActive = -1, decalsUsed = -1) {
+  record(cpuSimMs = -1, cpuSubmitMs = -1, overdraw = -1, particlesActive = -1, decalsUsed = -1, sceneCalls = -1, sceneTris = -1) {
     if (this.programCountPerFrame.length >= MAX_SAMPLES) return;
     const now = clock.wallNowMs();
     if (this._lastWall !== null) this.frameTimes.push(now - this._lastWall);
@@ -50,6 +59,8 @@ export class StatsRecorder {
     this.programCountPerFrame.push(info.programs?.length ?? 0);
     this.drawCallsPerFrame.push(info.render.calls);
     this.trianglesPerFrame.push(info.render.triangles);
+    this.drawCallsScenePerFrame.push(sceneCalls);
+    this.trianglesScenePerFrame.push(sceneTris);
     this.cpuSimMsPerFrame.push(cpuSimMs);
     this.cpuSubmitMsPerFrame.push(cpuSubmitMs);
     this.overdrawPerFrame.push(overdraw);
@@ -73,6 +84,8 @@ export class StatsRecorder {
       // 확장 (CONTRACT-NOTES B2)
       drawCallsPerFrame: this.drawCallsPerFrame.slice(),
       trianglesPerFrame: this.trianglesPerFrame.slice(),
+      drawCallsScenePerFrame: this.drawCallsScenePerFrame.slice(),
+      trianglesScenePerFrame: this.trianglesScenePerFrame.slice(),
       cpuSimMsPerFrame: this.cpuSimMsPerFrame.slice(),
       cpuSubmitMsPerFrame: this.cpuSubmitMsPerFrame.slice(),
       overdrawPerFrame: this.overdrawPerFrame.slice(),

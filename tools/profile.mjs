@@ -53,6 +53,11 @@ const BUDGETS = Object.freeze({
     trisScene: 600_000, trisFrameP95: 250_000, drawCalls: 900, programs: 90, cpuFrameMsP95: 6,
     overdrawP95: 2.5, particlesMax: 4000, decalsMax: 512,
   },
+  // [P3 §7·§8] 프로그램 ≤110(CSM·후처리 변형 포함), overdraw ≤3.0 (안개·HANJI 편입 후에도 유지)
+  p3: {
+    trisScene: 600_000, trisFrameP95: 250_000, drawCalls: 900, programs: 110, cpuFrameMsP95: 6,
+    overdrawP95: 3.0, particlesMax: 4000, decalsMax: 512,
+  },
   final: {
     trisScene: 6_000_000, trisFrameP95: 2_000_000, drawCalls: 1500, programs: 120, cpuFrameMsP95: 8,
     overdrawP95: 4.0, particlesMax: 8000, decalsMax: 512,
@@ -158,8 +163,11 @@ for (let run = 0; run < RUNS; run++) {
   const FT_OFFSET = Math.max(0, WARMUP_FRAMES - 1);
   const ft = stats.frameTimes.slice(FT_OFFSET);
   const progs = stats.programCountPerFrame.slice(WARMUP_FRAMES);
-  const calls = stats.drawCallsPerFrame.slice(WARMUP_FRAMES);
-  const tris = stats.trianglesPerFrame.slice(WARMUP_FRAMES);
+  // P3 지표 판정: 게이트는 단일 씬 패스(scene 계열), 전 패스 합산은 정보용 병기
+  const calls = stats.drawCallsScenePerFrame.slice(WARMUP_FRAMES).filter((v) => v >= 0);
+  const tris = stats.trianglesScenePerFrame.slice(WARMUP_FRAMES).filter((v) => v >= 0);
+  const callsTotal = stats.drawCallsPerFrame.slice(WARMUP_FRAMES);
+  const trisTotal = stats.trianglesPerFrame.slice(WARMUP_FRAMES);
   const cpuSimRaw = stats.cpuSimMsPerFrame.slice(WARMUP_FRAMES);
   const cpuSubmitRaw = stats.cpuSubmitMsPerFrame.slice(WARMUP_FRAMES);
   const odRaw = (stats.overdrawPerFrame ?? []).slice(WARMUP_FRAMES).filter((v) => v >= 0);
@@ -198,6 +206,8 @@ for (let run = 0; run < RUNS; run++) {
     leading: {
       trianglesMax: Math.max(...tris),
       drawCallsMax: Math.max(...calls),
+      trianglesTotalMax: Math.max(...trisTotal), // 전 패스 합산 (정보용)
+      drawCallsTotalMax: Math.max(...callsTotal),
       programsEnd: progs.at(-1) ?? 0,
       // sim: 항상 환경 무관. submit: 실 GPU에서만 CPU 비용 (소프트웨어 GL은 라스터에 블록)
       cpuSimMs: {
@@ -262,8 +272,9 @@ for (const shot of SHOTS) {
 }
 const sweepStats = await gSweep.page.evaluate(() => window.__harness.getStats());
 await gSweep.close();
-const trisFrameSamples = sweepStats.trianglesPerFrame;
+const trisFrameSamples = sweepStats.trianglesScenePerFrame.filter((v) => v >= 0);
 const trisFrameP95 = percentile(sortedAsc(trisFrameSamples), 0.95);
+const trisFrameTotalP95 = percentile(sortedAsc(sweepStats.trianglesPerFrame), 0.95);
 
 await browser.close();
 await server.close();
@@ -288,10 +299,16 @@ const leading = {
   trisFrameP95: {
     value: Math.round(trisFrameP95),
     budget: budget.trisFrameP95,
-    basis: `11샷 × ${SWEEP_FRAMES}프레임 순회 (${trisFrameSamples.length}샘플)`,
+    basis: `11샷 × ${SWEEP_FRAMES}프레임 순회 (${trisFrameSamples.length}샘플), 단일 씬 패스 (P3 지표 판정)`,
     max: Math.max(...trisFrameSamples),
+    allPassesP95_reference: Math.round(trisFrameTotalP95), // 그림자 3캐스케이드+프리패스+포스트 합산
   },
-  drawCalls: { value: Math.max(...runs.map((r) => r.leading.drawCallsMax)), budget: budget.drawCalls },
+  drawCalls: {
+    value: Math.max(...runs.map((r) => r.leading.drawCallsMax)),
+    budget: budget.drawCalls,
+    basis: '단일 씬 패스 (P3 지표 판정)',
+    allPassesMax_reference: Math.max(...runs.map((r) => r.leading.drawCallsTotalMax)),
+  },
   programs: { value: Math.max(...runs.map((r) => r.leading.programsEnd)), budget: budget.programs },
   cpuFrameMsP95: {
     value: +cpuGatedP95.toFixed(2),

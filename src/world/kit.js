@@ -48,7 +48,9 @@ export function makeMaterials() {
     WATER: std(0x6e7a80, { transparent: true, opacity: 0.85, roughness: 0.25 }),
     BRONZE: std(0x6f6d62, { roughness: 0.5, metalness: 0.55 }),
     LANTERN: new THREE.MeshStandardMaterial({
-      color: 0xd8cba8, emissive: 0xffcf9e, emissiveIntensity: 1.1, roughness: 0.9,
+      // [P3 §4] 발광 0xffcf9e(h≈30°, s0.38)는 색역 밖 — 황 대역 앰버로 교정
+      // (paletteaudit 실측: lantern_night 위반 44.1%의 원인. 값 소유는 P3)
+      color: 0xd8cba8, emissive: 0xffdf8e, emissiveIntensity: 1.1, roughness: 0.9,
     }),
   };
   for (const [k, v] of Object.entries(m)) v.name = k;

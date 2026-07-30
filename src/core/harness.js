@@ -20,7 +20,7 @@ export function installHarness(ctx) {
   const {
     renderer, scene, camera, player, input, physics, world,
     stats, shotsByName, applyShot, applyDefaultView, readyPromise, mode,
-    fire, viewmodel, hanji, fx, viewmodelAuditHook, albedoAuditHook,
+    fire, viewmodel, hanji, fx, viewmodelAuditHook, albedoAuditHook, pipeline,
   } = ctx;
 
   const errors = [];
@@ -70,7 +70,7 @@ export function installHarness(ctx) {
     viewmodel.update(fire.current); // 카메라 확정 후 포즈 갱신 (fixed·realtime 공용)
     fx.writeInstances(camera);      // 빌보드·스트릭 행렬 (P2B)
     const preRender = clock.wallNowMs();
-    renderer.render(scene, camera);
+    pipeline.render();              // C1: HDR→GTAO→TAA→MB→AgX (P3)
     const end = clock.wallNowMs();
     // §7 overdraw_estimate — CPU 산출, GPU 타이밍 무관
     const od = fx.overdrawEstimate(camera, renderer.domElement.width, renderer.domElement.height);
@@ -79,7 +79,9 @@ export function installHarness(ctx) {
       cpuStartMs >= 0 ? end - preRender : -1,
       od,
       fx.particles.active,
-      Math.min(fx.decals.cursor, fx.decals.capacity)
+      Math.min(fx.decals.cursor, fx.decals.capacity),
+      pipeline.passStats.scenePass[0], // 단일 씬 패스 (게이트 지표 — P3 판정)
+      pipeline.passStats.scenePass[1]
     );
   }
 
@@ -168,6 +170,7 @@ export function installHarness(ctx) {
       fire.reset();                 // 무기 상태·탄약·계수 (P2A §7)
       hanji.reset();                // 피격 누적·불투명도 — 복원 이벤트 재발행
       fx.reset();                   // 이월 마커 방지
+      pipeline.reset();             // TAA 히스토리·이전 VP 무효화 (P3 C1)
       viewmodel.setVisible(mode === 'realtime');
       bus.resetToBoot();            // 부팅 이후 추가된 구독 해제 (감사 A4)
       stats.reset();
@@ -239,6 +242,11 @@ export function installHarness(ctx) {
 
     getErrors() {
       return errors.slice();
+    },
+
+    /** 직전 프레임 패스별 [콜, 삼각형] 분해 — P3 지표 판정의 실측 근거 */
+    getPassStats() {
+      return JSON.parse(JSON.stringify(pipeline.passStats));
     },
 
     /**

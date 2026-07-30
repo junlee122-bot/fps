@@ -20,6 +20,7 @@ import { installHarness } from './core/harness.js';
 import { prewarmShaders } from './core/prewarm.js';
 import { StatsRecorder } from './core/stats.js';
 import { createRenderer, createCamera, createLighting, applySunConfig, handleResize } from './render/renderer.js';
+import { RenderPipeline } from './render/pipeline.js';
 import { OpacityApplier } from './render/opacity.js';
 import { setupAlbedoAudit } from './render/audit-cards.js';
 import { PhysicsWorld } from './physics/index.js';
@@ -51,6 +52,9 @@ const renderer = createRenderer({
 const camera = createCamera();
 const scene = new THREE.Scene();
 const lighting = createLighting(scene);
+// P3 C1: HDR·CSM·GTAO·TAA·MB·AgX 파이프라인 — 태양은 CSM이 소유
+const pipeline = new RenderPipeline({ renderer, scene, camera });
+lighting.pipeline = pipeline;
 
 const physics = new PhysicsWorld();
 const world = buildWorld(scene, physics);
@@ -176,31 +180,44 @@ let readyResolve;
 const readyPromise = new Promise((r) => { readyResolve = r; });
 
 const harness = installHarness({
-  renderer, scene, camera, player, input, physics, world,
+  renderer, scene, camera, player, input, physics, world, pipeline,
   stats, shotsByName: SHOTS_BY_NAME, applyShot, applyDefaultView,
   readyPromise, mode,
   // P2A 배선
   fire, viewmodel, hanji, fx,
   viewmodelAuditHook: ({ boost }) => setupViewmodelAudit({
     scene, camera, boost,
+    patchMaterial: (m) => pipeline.patchMaterial(m), // CSM — 미패치 카드는 3중 수광
     // 순수 태양만 — applyDefaultView는 카메라도 움직여 카드 투영이 깨진다
     applySun: () => applySunConfig(lighting, DEFAULT_VIEW.sun, DEFAULT_VIEW.hemi),
   }),
   albedoAuditHook: ({ scaleAlbedo }) => setupAlbedoAudit({
     scene, camera, renderer, scaleAlbedo,
+    patchMaterial: (m) => pipeline.patchMaterial(m),
     extraMaterials: [debrisMaterial], // 런타임 스폰 전용 — 씬 순회에 안 잡힌다
     applySunRaw: (sun, hemi) => applySunConfig(lighting, sun, hemi),
   }),
 });
 
 /* ------------------------------------------------------------- 부팅 */
+pipeline.patchScene();   // CSM 재질 패치 — 클론·fx 포함 전 재질 (C1)
 fx.prewarmSpawn(camera); // fx 머티리얼 전 종 컴파일 보증 (P2B §6)
+// 프리웜은 저해상도로 — 프로그램 컴파일은 해상도 무관, 부팅 예산(§7 ≤4s)의
+// 지배 비용이 풀해상도 파이프라인 렌더 11회였다 (실측 7.1s → 축소로 회수)
+const _pw = renderer.getSize(new THREE.Vector2());
+renderer.setSize(256, 160, false);
+pipeline.setSize(renderer.domElement.width, renderer.domElement.height);
+pipeline.setShadowMapSize(256); // 그림자 해상도도 축소 — 프로그램 동일, 2048²×3 렌더 비용만 회수
 const warm = await prewarmShaders({
   renderer, scene, camera,
   shots: SHOTS,
   applyShot,
   restoreDefault: applyDefaultView,
+  renderFrame: () => pipeline.render(), // HDR 타깃·CSM 캐스케이드·후처리 순열까지 (P3 §7)
 });
+renderer.setSize(_pw.x, _pw.y, false);
+pipeline.setSize(renderer.domElement.width, renderer.domElement.height);
+pipeline.setShadowMapSize(2048);
 console.info(`[boot] prewarm programs=${warm.programsAfter} (+${warm.compiled}) ${warm.ms}ms`);
 window.__prewarm = warm;
 

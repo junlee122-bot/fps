@@ -33,44 +33,26 @@ export function createCamera() {
   return camera;
 }
 
-/** 조명 리그: 태양(그림자) + 반구 + 배경색. 등롱 포인트라이트는 world 소유 */
+/**
+ * 조명 리그: 반구 + 배경색. 태양은 P3부터 CSM 3캐스케이드(pipeline 소유)다 —
+ * lighting.pipeline은 main.js가 파이프라인 생성 후 주입한다.
+ * 등롱 포인트라이트는 world 소유.
+ */
 export function createLighting(scene) {
   scene.background = new THREE.Color(0x31353b);
-
-  const sun = new THREE.DirectionalLight(0xffffff, 3.0);
-  sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
-  sun.shadow.camera.left = -55;
-  sun.shadow.camera.right = 55;
-  sun.shadow.camera.top = 55;
-  sun.shadow.camera.bottom = -55;
-  sun.shadow.camera.near = 1;
-  sun.shadow.camera.far = 260;
-  sun.shadow.bias = -0.0004;
-  sun.shadow.normalBias = 0.02;
-  scene.add(sun);
-  scene.add(sun.target);
 
   const hemi = new THREE.HemisphereLight(0xcfd4da, 0x8a8478, 0.5);
   scene.add(hemi);
 
-  return { sun, hemi };
+  return { hemi, pipeline: null };
 }
 
 /**
  * 태양각 적용. azimuth: 0=북(-Z), 90=동(+X), 180=남(+Z). elevation: 도.
- * P0에서는 하네스/부팅이 직접 호출한다 — world:tod 이벤트 발행 주체는
- * P3의 sky다 (CONTRACT-NOTES B9).
+ * P3: CSM(pipeline)으로 위임 — 방향·강도. world:tod 발행 주체는 sky(C2).
  */
-export function applySunConfig(lighting, { elev, azim, intensity }, hemiIntensity) {
-  const el = THREE.MathUtils.degToRad(elev);
-  const az = THREE.MathUtils.degToRad(azim);
-  const x = Math.sin(az) * Math.cos(el);
-  const y = Math.sin(el);
-  const z = -Math.cos(az) * Math.cos(el);
-  lighting.sun.position.set(x * SUN_DISTANCE, y * SUN_DISTANCE, z * SUN_DISTANCE);
-  lighting.sun.target.position.set(0, 0, 0);
-  lighting.sun.intensity = intensity;
+export function applySunConfig(lighting, sun, hemiIntensity) {
+  lighting.pipeline.setSun(sun);
   lighting.hemi.intensity = hemiIntensity;
 }
 

@@ -16,7 +16,7 @@ import * as THREE from 'three';
 
 const CARD_ALBEDOS = [0.04, 0.18, 0.90];
 
-export function setupAlbedoAudit({ scene, camera, renderer, applySunRaw, extraMaterials = [], scaleAlbedo = 1 }) {
+export function setupAlbedoAudit({ scene, camera, renderer, applySunRaw, patchMaterial = () => {}, extraMaterials = [], scaleAlbedo = 1 }) {
   const DIST = 8, SIZE = 0.6, GAP = 0.8;
 
   camera.position.set(0, 1.7, 14);
@@ -33,6 +33,7 @@ export function setupAlbedoAudit({ scene, camera, renderer, applySunRaw, extraMa
     // 가산이라 0.04 카드 비율을 끌어올린다 (실측 3.59→3.83 — 순수 확산으로 격리).
     // 감사 목적은 "디퓨즈 체인의 알베도 선형성"이므로 Lambert가 정확한 측정계다.
     const m = new THREE.MeshLambertMaterial();
+    patchMaterial(m); // CSM 패치 (P3 C1)
     m.color.setRGB(albedo, albedo, albedo, THREE.LinearSRGBColorSpace);
     m.name = `albedo_card_${albedo}`;
     const mesh = new THREE.Mesh(geo, m);

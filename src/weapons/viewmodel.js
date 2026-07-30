@@ -83,7 +83,7 @@ function buildRig(id) {
  *
  * 반환 rects는 CSS px 화면 사각형 (카드 내접 60% 영역).
  */
-export function setupViewmodelAudit({ scene, camera, applySun, boost = 1 }) {
+export function setupViewmodelAudit({ scene, camera, applySun, patchMaterial = () => {}, boost = 1 }) {
   const DIST = 8;          // 카메라 전방 거리 (m)
   const SIZE = 0.6;        // 카드 한 변 (m)
   const GAP = 0.75;        // 카드 중심 간격 (m)
@@ -98,6 +98,7 @@ export function setupViewmodelAudit({ scene, camera, applySun, boost = 1 }) {
     const m = new THREE.MeshStandardMaterial({ roughness: 0.92, metalness: 0 });
     m.color.setRGB(v, v, v, THREE.LinearSRGBColorSpace);
     m.name = `audit_card_${v}`;
+    patchMaterial(m); // CSM — 미패치 카드는 캐스케이드 3중 수광 (P3 C1)
     return m;
   };
   const geo = new THREE.PlaneGeometry(SIZE, SIZE);

@@ -18,7 +18,10 @@
 
 import { clock } from './clock.js';
 
-export async function prewarmShaders({ renderer, scene, camera, shots, applyShot, restoreDefault }) {
+export async function prewarmShaders({ renderer, scene, camera, shots, applyShot, restoreDefault, renderFrame = null }) {
+  // P3: HDR 파이프라인이 있으면 renderFrame(파이프라인 전체 체인)으로 렌더한다 —
+  // HDR 타깃 바인딩 순열 + GTAO/TAA/MB/Output 패스 프로그램까지 커버 (머리주석 2항)
+  const draw = renderFrame ?? (() => renderer.render(scene, camera));
   const t0 = clock.wallNowMs();
   const before = renderer.info.programs?.length ?? 0;
 
@@ -29,16 +32,16 @@ export async function prewarmShaders({ renderer, scene, camera, shots, applyShot
     try { renderer.compile(scene, camera); } catch { /* 프리웜 실패가 부팅을 막으면 안 된다 */ }
   }
 
-  // 2) 샷 구성별 실제 1프레임 렌더 — 그림자 깊이·라이트 순열 커버
+  // 2) 샷 구성별 실제 1프레임 렌더 — 그림자 깊이(CSM 캐스케이드별)·라이트 순열 커버
   for (const shot of shots) {
     applyShot(shot);
-    renderer.render(scene, camera);
+    draw();
     // 프로토콜/메인스레드 양보 (렌더 결과에는 영향 없음)
     await new Promise((r) => setTimeout(r, 0));
   }
 
   restoreDefault();
-  renderer.render(scene, camera);
+  draw();
 
   const after = renderer.info.programs?.length ?? 0;
   return {
