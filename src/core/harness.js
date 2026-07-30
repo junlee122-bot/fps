@@ -255,10 +255,11 @@ export function installHarness(ctx) {
      * visible=false 콜라이더(창호지 0.3mm 박스 등)도 씬 복잡도이므로 포함하되
      * 분리 보고한다.
      */
-    getSceneTriangles() {
+    getSceneTriangles(detail = false) {
       let total = 0;
       let invisible = 0;
       const byName = [];
+      const invisibleByName = []; // §9 지오메트리 동결 감사용 — 비가시 전수 목록
       scene.traverse((o) => {
         if (!o.isMesh && !o.isInstancedMesh) return;
         const g = o.geometry;
@@ -267,11 +268,16 @@ export function installHarness(ctx) {
         const n = o.isInstancedMesh ? o.count : 1;
         const t = triPer * n;
         total += t;
-        if (!o.visible) invisible += t;
+        if (!o.visible) {
+          invisible += t;
+          if (detail) invisibleByName.push({ name: o.name || o.type, tris: Math.round(t), instances: n });
+        }
         if (t > 5000) byName.push({ name: o.name || o.type, tris: Math.round(t) });
       });
       byName.sort((a, b) => b.tris - a.tris);
-      return { total: Math.round(total), invisibleColliders: Math.round(invisible), top: byName.slice(0, 12) };
+      const out = { total: Math.round(total), invisibleColliders: Math.round(invisible), top: byName.slice(0, 12) };
+      if (detail) out.invisibleByName = invisibleByName.sort((a, b) => b.tris - a.tris);
+      return out;
     },
 
     /* ------------------------------- P2A 확장 ------------------------- */
