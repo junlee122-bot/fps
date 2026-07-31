@@ -273,8 +273,11 @@ export class RenderPipeline {
     this.mbRT.setSize(w, h);
     this._size.set(w, h);
     this.taaMat.uniforms.resolution.value.set(w, h);
-    this.historyValid = false;
     this.csm.updateFrustums();
+    // 히스토리·재투영·패리티 전부 리셋 — historyValid만 끄고 _hasPrev를 남기면
+    // 다음 첫 프레임의 MB가 stale _prevVP(프리웜 마지막 뷰)로 비항등 재투영을 만들어
+    // '부팅 직후 첫 시행'과 'reset 후 시행'의 상태가 갈라진다 (클램프가 이를 영구화)
+    this.reset();
   }
 
   /** resetState 경로 — GPU 누적 상태 무효화 (RT 내용·패리티까지 명시 복원) */
