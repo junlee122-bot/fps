@@ -220,6 +220,7 @@ pipeline.setSize(renderer.domElement.width, renderer.domElement.height);
 pipeline.setShadowMapSize(2048);
 console.info(`[boot] prewarm programs=${warm.programsAfter} (+${warm.compiled}) ${warm.ms}ms`);
 window.__prewarm = warm;
+window.__pipeline = pipeline; // 디버그·결정성 이분 전용 — 게이트 도구는 __harness만 쓴다
 
 fire.reset();             // 프리웜의 applyShot(viewmodel 샷)이 만진 무기 상태를 부팅 초기로
 fx.reset();               // 프리웜 대표 fx 인스턴스 정리 (부팅 = 무상태)
