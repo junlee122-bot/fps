@@ -309,7 +309,13 @@ export class RenderPipeline {
     this.csm.update();
     this.renderer.shadowMap.needsUpdate = true; // 프레임당 1회 (renderPass 내부에서 소비)
 
-    // 비지터 VP → 재투영 행렬 (현재 클립 → 이전 클립)
+    // 비지터 VP → 재투영 행렬 (현재 클립 → 이전 클립).
+    // aspect는 파이프라인이 소유한다: setViewOffset(fullW,fullH,…)가 camera.aspect를
+    // fullW/fullH로 덮어쓰므로(three 규약), 프리웜 저해상도 렌더가 aspect를 오염시킨 채
+    // 부팅이 끝나면 첫 프레임의 _curVP만 잘못된 aspect로 계산된다 — 실제 드로우는
+    // setViewOffset이 즉시 고쳐 scene은 정상이지만, 프레임 2의 정적 카메라 비교가
+    // 실패해 비항등 재투영이 TAA/MB에 유입된다 (부팅≠reset 상태 결함의 진범, E5b 실측)
+    cam.aspect = this._size.x / this._size.y;
     cam.updateProjectionMatrix();
     this._curVP.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
     if (this._hasPrev) {
