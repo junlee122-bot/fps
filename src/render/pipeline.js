@@ -32,6 +32,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { CSM } from 'three/addons/csm/CSM.js';
+import { SimplexNoise } from 'three/addons/math/SimplexNoise.js';
 import { clock } from '../core/clock.js';
 
 /** Halton(2,3) 8점 — TAA 서브픽셀 지터 (결정적 상수, 픽셀 단위 오프셋) */
@@ -154,8 +155,48 @@ export class RenderPipeline {
     this.gtao.output = GTAOPass.OUTPUT.Default;
     this.depthTexture = depthTexture;
 
+    // GTAOPass 생성자는 PD 디노이즈 노이즈를 SimplexNoise 기본 인자 r=Math로 만든다
+    // — Math.random 256회 소비 = 페이지 부팅마다 다른 텍스처 = 페이지 간 결정성 위반.
+    // ('Math.random' grep에 안 걸리는 r.random() 경로 — CONTRACT-NOTES P3 기록.)
+    // 고정 시드 mulberry32로 동일 형식(64² RGBA8, Repeat) 재생성해 교체한다.
+    {
+      let seed = 0x9e3779b9 | 0;
+      const rand = () => {
+        seed = (seed + 0x6D2B79F5) | 0;
+        let t = seed;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+      const simplex = new SimplexNoise({ random: rand });
+      const n = 64;
+      const data = new Uint8Array(n * n * 4);
+      for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+        const o = (i * n + j) * 4;
+        data[o] = (simplex.noise(i, j) * 0.5 + 0.5) * 255;
+        data[o + 1] = (simplex.noise(i + n, j) * 0.5 + 0.5) * 255;
+        data[o + 2] = (simplex.noise(i, j + n) * 0.5 + 0.5) * 255;
+        data[o + 3] = (simplex.noise(i + n, j + n) * 0.5 + 0.5) * 255;
+      }
+      const tex = new THREE.DataTexture(data, n, n, THREE.RGBAFormat, THREE.UnsignedByteType);
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      tex.needsUpdate = true;
+      this.gtao.pdNoiseTexture.dispose();
+      this.gtao.pdNoiseTexture = tex;
+      this.gtao.pdMaterial.uniforms.tNoise.value = tex;
+    }
+
     // ---- 명시적 후반부: TAA(핑퐁 = 히스토리) → MB → Output(AgX+sRGB) ----
-    const mkRT = () => new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType });
+    // NearestFilter: 히스토리·MB는 동해상도 재투영이라 정적 카메라(캡처)에선 정확
+    // 텍셀 페치가 맞다. LinearFilter는 텍셀 중심 경계에서 가중치가 나이프에지가 되어
+    // 소프트웨어 GL 비결정 시드로 작동했다 (E3 실측: 첫 히스토리 읽기 프레임에서 분기).
+    // 이동 카메라 서브픽셀 부드러움 소폭 손실 — 실기기(C4) 검증 시 재평가.
+    const mkRT = () => new THREE.WebGLRenderTarget(size.x, size.y, {
+      type: THREE.HalfFloatType,
+      magFilter: THREE.NearestFilter,
+      minFilter: THREE.NearestFilter,
+    });
     this.taaRT = [mkRT(), mkRT()];
     this.taaWrite = 0;
     this.historyValid = false;
@@ -236,10 +277,18 @@ export class RenderPipeline {
     this.csm.updateFrustums();
   }
 
-  /** resetState 경로 — GPU 누적 상태 무효화 */
+  /** resetState 경로 — GPU 누적 상태 무효화 (RT 내용·패리티까지 명시 복원) */
   reset() {
     this.historyValid = false;
     this._hasPrev = false;
+    this.taaWrite = 0;          // 핑퐁 패리티 — '짝수 프레임 수' 우연에 의존하지 않는다
+    this._prevVP.identity();
+    const prev = this.renderer.getRenderTarget();
+    for (const rt of [this.taaRT[0], this.taaRT[1], this.mbRT]) {
+      this.renderer.setRenderTarget(rt);
+      this.renderer.clear(true, false, false);
+    }
+    this.renderer.setRenderTarget(prev);
   }
 
   _blit(material, target) {
@@ -261,8 +310,18 @@ export class RenderPipeline {
     cam.updateProjectionMatrix();
     this._curVP.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
     if (this._hasPrev) {
-      this._invVP.copy(this._curVP).invert();
-      this._reproj.multiplyMatrices(this._prevVP, this._invVP);
+      // 정적 카메라(캡처): prevVP == curVP이면 정확한 항등으로 스냅 — 역행렬의
+      // fp 오차(~1e-7)가 prevUv를 텍셀 중심에서 밀어내 히스토리 샘플을 경계
+      // 민감하게 만드는 것을 차단한다 (결정성 시드 제거, E3 실측)
+      let staticCam = true;
+      const a = this._curVP.elements, b = this._prevVP.elements;
+      for (let i = 0; i < 16; i++) if (a[i] !== b[i]) { staticCam = false; break; }
+      if (staticCam) {
+        this._reproj.identity();
+      } else {
+        this._invVP.copy(this._curVP).invert();
+        this._reproj.multiplyMatrices(this._prevVP, this._invVP);
+      }
     } else {
       this._reproj.identity();
     }
