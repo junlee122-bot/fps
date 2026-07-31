@@ -292,12 +292,20 @@
   Math.random 256회 소비**로 페이지 부팅마다 다른 텍스처. `r.random()` 경로라
   'Math.random' grep에 잡히지 않았다 (감사 방법 한계 — 이후 addon 도입 시
   `random` 일반 패턴으로 확장 검사). 고정 시드 mulberry32 재생성으로 교체.
-  (2) **setSize()가 historyValid만 끄고 _hasPrev를 남김** — 부팅(프리웜 후
-  풀해상도 복원) 직후 첫 프레임의 모션블러가 프리웜 마지막 뷰의 stale _prevVP로
-  비항등 재투영 스미어를 만들어 부팅 상태 ≠ reset 상태. TAA 이웃 클램프의
-  히스테리시스(비선형 다중 고정점)가 이 1프레임 차이를 영구화한다 — mix 0.9는
-  수축 사상이라 클램프 없으면 0.9^k로 소멸함을 대조 실험으로 확인. setSize가
-  reset() 전체(RT 클리어·taaWrite=0·_prevVP 항등)를 호출하도록 수정.
+  (2) **setViewOffset의 camera.aspect 오염 (진범)** — three 규약상
+  setViewOffset(fullW, fullH, …)는 camera.aspect를 fullW/fullH로 덮어쓴다.
+  프리웜 저해상도(256×160) 렌더가 aspect=1.6을 남긴 채 부팅이 끝나, 부팅 직후
+  첫 시행만 프레임 1의 _curVP가 잘못된 aspect로 계산됐다 (실제 드로우는
+  setViewOffset이 즉시 고쳐 scene/ao 버퍼는 프레임별 CRC 일치 — 4버퍼 계측으로
+  분리 확인). 프레임 2의 정적 카메라 비교가 실패하며 비항등 재투영이 TAA/MB에
+  1프레임 유입되고, TAA 이웃 클램프의 히스테리시스(비선형 다중 고정점)가 이를
+  영구화 — mix 0.9는 수축 사상이라 클램프 없으면 0.9^k로 소멸함을 대조 실험으로
+  확인했다. "상태는 정확히 2개(부팅 vs reset)이고 각각 완전 재현"이라는 4시행
+  +교차 페이지 판별 결과와 정합. **수정: render()가 _curVP 계산 전
+  cam.aspect = _size.x/_size.y로 정규화 — 파이프라인이 자신이 그리는 aspect를
+  소유해 외부 오염에 무조건 자기 일관.** 보조 위생: setSize()가 reset() 전체
+  (RT 클리어·taaWrite=0·_prevVP 항등)를 호출하도록 수정. 최종 검증: 4시행
+  +교차 페이지 6캡처 전부 비트 동일.
   (3) 방어 조치: taaRT/mbRT NearestFilter(동해상도 히스토리는 정확 텍셀 페치가
   정답 — LinearFilter는 텍셀 중심 경계 가중치가 나이프에지), 정적 카메라 감지
   시 재투영 정확 항등 스냅(역행렬 fp 오차 ~1e-7 차단). 이동 카메라 히스토리
