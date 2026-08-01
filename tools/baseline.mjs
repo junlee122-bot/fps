@@ -33,7 +33,16 @@ const wanted = args.shots
 
 mkdirSync(OUTDIR, { recursive: true });
 const server = await startServer();
-const browser = await launchBrowser();
+// 장시간 실행 내성: 소프트웨어 GL의 GPU 프로세스 누적으로 브라우저가 수십 분 뒤
+// 죽는 사례(11샷 중 10~11번째) 재발 방지 — 4샷마다 선제 재기동 + 실패 샷 1회 재시도.
+// 샷마다 어차피 새 페이지이므로 브라우저 재기동은 캡처 픽셀에 영향이 없다.
+let browser = await launchBrowser();
+let shotsOnBrowser = 0;
+async function freshBrowser() {
+  await browser.close().catch(() => {});
+  browser = await launchBrowser();
+  shotsOnBrowser = 0;
+}
 
 // 비계약 조건 표식 (감사 B5 / PATCH-001-C 일반 원칙): 축소 해상도·부분 샷·짧은 settle로
 // 재생성한 쌍이 무표식으로 픽셀 게이트를 통과하는 것을 막는다.
@@ -48,7 +57,7 @@ const report = {
 };
 if (NON_CONTRACT) console.error(report.banner);
 
-for (const name of wanted) {
+async function captureShot(name) {
   let g = null;
   try {
     g = await openGamePage(browser, {
@@ -68,14 +77,30 @@ for (const name of wanted) {
       return { triangles: s.triangles, drawCalls: s.drawCalls, programs: s.programCountPerFrame.at(-1), bootMs: Math.round(s.bootMs) };
     });
     const sha = createHash('sha256').update(readFileSync(out)).digest('hex');
-    report.shots.push({ shot: name, sha256: sha, ...stats, errors: g.errors });
-    if (g.errors.length) report.ok = false;
-  } catch (e) {
-    report.ok = false;
-    report.shots.push({ shot: name, error: e.message });
+    return { shot: name, sha256: sha, ...stats, errors: g.errors };
   } finally {
-    await g?.close();
+    await g?.close().catch(() => {});
   }
+}
+
+for (const name of wanted) {
+  if (shotsOnBrowser >= 4) await freshBrowser();
+  let entry;
+  try {
+    entry = await captureShot(name);
+  } catch (e) {
+    console.error(`[retry] ${name}: ${e.message} — 브라우저 재기동 후 1회 재시도`);
+    await freshBrowser();
+    try {
+      entry = await captureShot(name);
+      entry.retried = true;
+    } catch (e2) {
+      entry = { shot: name, error: e2.message };
+    }
+  }
+  shotsOnBrowser++;
+  if (entry.error || entry.errors?.length) report.ok = false;
+  report.shots.push(entry);
 }
 
 await browser.close();
