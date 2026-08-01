@@ -559,7 +559,10 @@ export function buildWorld(scene, physics) {
     A.group.add(post);
     physics.addStaticMesh(post, 'WOOD_COLUMN', A.LAYER_STATIC);
     A.box(`lantern_head_${side}`, 'FABRIC', 0.36, 0.36, 0.36, x, 2.35, z, { matKey: 'LANTERN' });
-    const light = new THREE.PointLight(0xffdf8e, 0, 18, 2); // [P3 §4] 황 대역 앰버 (h≈43°)
+    // [P3 §4] 광원은 저채도 백황색 — 앰버 발광(LANTERN h≈43°)은 유지하되, 고채도
+    // 온광이 목재 회색과 곱해지면 조명된 목재가 30–40° 고채도로 대량 이탈한다
+    // (목재·흙 대역 sat≤0.35). 색 정체성은 발광 코어가, 조명은 낮은 채도가 맡는다.
+    const light = new THREE.PointLight(0xffeecc, 0, 18, 2);
     light.name = `lantern_light_${side}`;
     light.position.set(x, 2.45, z);
     A.group.add(light);
