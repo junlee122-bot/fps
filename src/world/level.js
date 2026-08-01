@@ -563,7 +563,7 @@ export function buildWorld(scene, physics) {
     // 온광이 목재 회색과 곱해지면 조명된 목재가 30–40° 고채도로 대량 이탈한다
     // (목재·흙 대역 sat≤0.35). 색 정체성은 발광 코어가, 조명은 낮은 채도가 맡는다.
     // s≈0.055: 결합 채도 1-(1-s_wood)(1-s_light) ≈ 0.26 < 0.35 (AgX 여유 포함)
-    const light = new THREE.PointLight(0xffeecc, 0, 18, 2);
+    const light = new THREE.PointLight(0xfff6e8, 0, 18, 2);
     light.name = `lantern_light_${side}`;
     light.position.set(x, 2.45, z);
     A.group.add(light);
