@@ -62,27 +62,38 @@ const shots = [];
 let anyFail = false;
 for (let fi = 0; fi < files.length; fi++) {
   const png = PNG.sync.read(readFileSync(join(DIR, files[fi])));
-  // 음성 훅: 첫 샷 중앙에 128×128 자색(300°) 패치 합성 주입
+  // 음성 훅: 첫 샷 중앙에 256×256 자색(300°) 패치 합성 주입.
+  // 크기 근거: 전체의 ~4.4% > LIMIT 1.5% — 기저 위반 0%인 깨끗한 샷에서도
+  // 패치 단독으로 확실히 초과해야 음성 테스트가 기저 상태에 의존하지 않는다
+  // (128×128=1.10%는 기저 위반에 얹혀서만 작동하던 설계 결함 — C1에서 교정)
   if (INJECT && fi === 0) {
     const cx = png.width >> 1, cy = png.height >> 1;
-    for (let y = cy - 64; y < cy + 64; y++) {
-      for (let x = cx - 64; x < cx + 64; x++) {
+    for (let y = cy - 128; y < cy + 128; y++) {
+      for (let x = cx - 128; x < cx + 128; x++) {
         const i = (y * png.width + x) * 4;
         png.data[i] = 200; png.data[i + 1] = 40; png.data[i + 2] = 200;
       }
     }
   }
   let violations = 0;
+  let violationsNoFloor = 0; // 하한 미적용 참조치 — 투명성 병기 (게이트 아님)
+  let darkExcluded = 0;
   const total = png.width * png.height;
   const histo = new Array(36).fill(0); // 위반 픽셀 색상 10° 버킷
   for (let i = 0; i < png.data.length; i += 4) {
-    const [h, s] = rgbToHsv(png.data[i], png.data[i + 1], png.data[i + 2]);
+    const [h, s, v] = rgbToHsv(png.data[i], png.data[i + 1], png.data[i + 2]);
     if (!allowed(h, s)) {
+      violationsNoFloor++;
+      // 무채색 암부 제외 (C1 판정 — CONTRACT-NOTES): V<0.10에선 채널 1양자(1/255)가
+      // 채도를 ≥4%p 흔들어 색상·채도가 양자화 잡음이다 (실측: 야간 샷 위반의 지배항이
+      // rgb(9,7,5)류 v≈0.04 픽셀). 지각적으로도 무채색. LIMIT(1.5%)는 불변.
+      if (v < 0.10) { darkExcluded++; continue; }
       violations++;
       histo[Math.min(35, Math.floor(h / 10))]++;
     }
   }
   const pct = (violations / total) * 100;
+  const pctNoFloor = (violationsNoFloor / total) * 100;
   const topHues = histo
     .map((n, b) => ({ hue: `${b * 10}–${b * 10 + 10}°`, n }))
     .filter((e) => e.n > 0)
@@ -90,7 +101,12 @@ for (let fi = 0; fi < files.length; fi++) {
     .slice(0, 5);
   const ok = pct <= LIMIT_PCT;
   if (!ok) anyFail = true;
-  shots.push({ shot: files[fi], violationPct: +pct.toFixed(4), ok, topViolationHues: topHues });
+  shots.push({
+    shot: files[fi], violationPct: +pct.toFixed(4), ok,
+    violationPctNoFloor_reference: +pctNoFloor.toFixed(4), // V<0.10 미제외 참조치
+    darkExcluded,
+    topViolationHues: topHues,
+  });
 }
 
 const report = {
