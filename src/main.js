@@ -205,7 +205,7 @@ fx.prewarmSpawn(camera); // fx 머티리얼 전 종 컴파일 보증 (P2B §6)
 // 프리웜은 저해상도로 — 프로그램 컴파일은 해상도 무관, 부팅 예산(§7 ≤4s)의
 // 지배 비용이 풀해상도 파이프라인 렌더 11회였다 (실측 7.1s → 축소로 회수)
 const _pw = renderer.getSize(new THREE.Vector2());
-renderer.setSize(256, 160, false);
+renderer.setSize(192, 120, false);
 pipeline.setSize(renderer.domElement.width, renderer.domElement.height);
 pipeline.setShadowMapSize(256); // 그림자 해상도도 축소 — 프로그램 동일, 2048²×3 렌더 비용만 회수
 const warm = await prewarmShaders({
