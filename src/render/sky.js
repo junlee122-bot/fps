@@ -49,6 +49,38 @@ export class SkySystem {
     this._sunDir = new THREE.Vector3(0, 1, 0);
     /** 현재 안개 구성 — 파이프라인 안개 패스가 읽는다 (world:weather와 동일 값) */
     this.fog = { density: 0, heightFalloff: 0.12, baseY: 0 };
+
+    /**
+     * 야간 전용 그라데이션 돔 — Preetham 박명은 지평선 자홍(330–350°)이 §4
+     * 색역 밖이고 우회 조정(청색 편이)이 역효과(5.1→11.2%)임을 실측했다.
+     * 청 대역(175–240°) 고정 2색 그라데이션은 구조적으로 색역 안이다.
+     * 주간 재질과 프로그램이 다르므로 프리웜 샷 순회(주간+야간)가 둘 다 컴파일한다.
+     */
+    this.dayMat = this.sky.material;
+    this.nightMat = new THREE.ShaderMaterial({
+      side: THREE.BackSide, depthWrite: false,
+      uniforms: {
+        horizonColor: { value: new THREE.Color(0.050, 0.072, 0.115) }, // h≈220°
+        zenithColor: { value: new THREE.Color(0.010, 0.016, 0.030) },
+      },
+      vertexShader: /* glsl */`
+        varying vec3 vDir;
+        void main() {
+          vDir = normalize((modelMatrix * vec4(position, 0.0)).xyz);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          gl_Position.z = gl_Position.w; // 최원면 고정 (Sky와 동일 규약)
+        }
+      `,
+      fragmentShader: /* glsl */`
+        varying vec3 vDir;
+        uniform vec3 horizonColor;
+        uniform vec3 zenithColor;
+        void main() {
+          float t = pow(clamp(normalize(vDir).y, 0.0, 1.0), 0.55);
+          gl_FragColor = vec4(mix(horizonColor, zenithColor, t), 1.0);
+        }
+      `,
+    });
   }
 
   /** 태양 방향 (월드, 태양을 향하는 단위 벡터) */
@@ -60,21 +92,15 @@ export class SkySystem {
    */
   apply(sun, fogCfg, hemi = 0.4) {
     const night = sun.intensity < 0.1;
-    // 스카이돔 유효 고도: 야간은 지평선 아래 박명 (CSM 방향은 샷 값 유지)
+    // 주간=Preetham, 야간=전용 그라데이션 돔 (§4 색역 구조 보장 — 생성자 주석)
+    this.sky.material = night ? this.nightMat : this.dayMat;
     const skyElev = night ? -14 : sun.elev;
-    // 야간 대기: 청색 편이 — Preetham 박명의 자홍(330–350°)은 §4 색역 밖이라
-    // rayleigh↑·mie↓로 잔광을 청 대역(175–240°)으로 밀어넣는다 (paletteaudit 실측 5.1%→)
-    const u = this.sky.material.uniforms;
-    u.turbidity.value = night ? 2.5 : 6;
-    u.rayleigh.value = night ? 3.2 : 1.6;
-    u.mieCoefficient.value = night ? 0.0006 : 0.004;
-    u.mieDirectionalG.value = 0.85;
     const el = THREE.MathUtils.degToRad(skyElev);
     const az = THREE.MathUtils.degToRad(sun.azim);
     const x = Math.sin(az) * Math.cos(el);
     const y = Math.sin(el);
     const z = -Math.cos(az) * Math.cos(el);
-    this.sky.material.uniforms.sunPosition.value.set(x, y, z);
+    if (!night) this.dayMat.uniforms.sunPosition.value.set(x, y, z); // 야간 돔은 태양 무관
     // 실제 태양 방향 (안개 위상함수·광선용 — 스카이돔 유효 고도가 아니라 샷 값)
     const elReal = THREE.MathUtils.degToRad(sun.elev);
     this._sunDir.set(
