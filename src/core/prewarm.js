@@ -24,31 +24,61 @@ export async function prewarmShaders({ renderer, scene, camera, shots, applyShot
   const draw = renderFrame ?? (() => renderer.render(scene, camera));
   const t0 = clock.wallNowMs();
   const before = renderer.info.programs?.length ?? 0;
+  const progs = () => renderer.info.programs?.length ?? 0;
 
-  // 1) 현재 씬 그래프의 포워드 패스 순열
+  /**
+   * PATCH-004-A: 변형군별 분해 계측 — 군별 프로그램 수·시간·프로그램당 평균.
+   * C3 부팅 사전 추정의 근거 (예상 프로그램 증가 × msPerProgram).
+   */
+  const groups = [];
+  const mark = (name, tStart, pStart) => {
+    const ms = Math.round(clock.wallNowMs() - tStart);
+    const programs = progs() - pStart;
+    groups.push({ group: name, programs, ms, msPerProgram: programs > 0 ? +(ms / programs).toFixed(1) : null });
+  };
+
+  // 1) 포워드 기본 변형 (머티리얼 기본 + CSM 패치 수광)
+  let tg = clock.wallNowMs(), pg = progs();
   try {
     await renderer.compileAsync(scene, camera);
   } catch {
     try { renderer.compile(scene, camera); } catch { /* 프리웜 실패가 부팅을 막으면 안 된다 */ }
   }
+  mark('forward_base(compileAsync)', tg, pg);
 
-  // 2) 샷 구성별 실제 1프레임 렌더 — 그림자 깊이(CSM 캐스케이드별)·라이트 순열 커버
-  for (const shot of shots) {
-    applyShot(shot);
+  // 2) 첫 샷 실렌더 — 그림자 깊이(CSM 캐스케이드) + 포스트 체인(GTAO·안개·TAA·MB·AgX)
+  //    + 스카이(주간) + PMREM 내부 블러 변형이 이 단계에서 온다
+  tg = clock.wallNowMs(); pg = progs();
+  applyShot(shots[0]);
+  draw();
+  await new Promise((r) => setTimeout(r, 0));
+  mark('first_shot(shadow+post+sky+pmrem)', tg, pg);
+
+  // 3) 나머지 샷 순회 — 잔여 순열 (야간 돔·라이트 순열·뷰모델 등)
+  tg = clock.wallNowMs(); pg = progs();
+  for (let i = 1; i < shots.length; i++) {
+    applyShot(shots[i]);
     draw();
     // 프로토콜/메인스레드 양보 (렌더 결과에는 영향 없음)
     await new Promise((r) => setTimeout(r, 0));
   }
+  mark('shot_sweep(rest)', tg, pg);
 
+  tg = clock.wallNowMs(); pg = progs();
   restoreDefault();
   draw();
+  mark('restore', tg, pg);
 
-  const after = renderer.info.programs?.length ?? 0;
+  const after = progs();
+  const totalMs = Math.round(clock.wallNowMs() - t0);
   return {
     ok: true,
-    ms: Math.round(clock.wallNowMs() - t0),
+    ms: totalMs,
     programsBefore: before,
     programsAfter: after,
     compiled: after - before,
+    /** PATCH-004-A 분해 — [{group, programs, ms, msPerProgram}] */
+    breakdown: groups,
+    msPerProgramOverall: after - before > 0 ? +(totalMs / (after - before)).toFixed(1) : null,
   };
 }

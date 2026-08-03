@@ -230,6 +230,7 @@ const _pw = renderer.getSize(new THREE.Vector2());
 renderer.setSize(192, 120, false);
 pipeline.setSize(renderer.domElement.width, renderer.domElement.height);
 pipeline.setShadowMapSize(256); // 그림자 해상도도 축소 — 프로그램 동일, 2048²×3 렌더 비용만 회수
+skySystem.prewarmSkipPmrem = true; // 커버리지 전용 — PMREM은 첫 1회만 (sky.js 주석)
 const warm = await prewarmShaders({
   renderer, scene, camera,
   shots: SHOTS,
@@ -237,9 +238,11 @@ const warm = await prewarmShaders({
   restoreDefault: applyDefaultView,
   renderFrame: () => pipeline.render(), // HDR 타깃·CSM 캐스케이드·후처리 순열까지 (P3 §7)
 });
+skySystem.prewarmSkipPmrem = false;
 renderer.setSize(_pw.x, _pw.y, false);
 pipeline.setSize(renderer.domElement.width, renderer.domElement.height);
 pipeline.setShadowMapSize(2048);
+applyDefaultView(); // 기본 뷰 환경광(PMREM) 전체 재생성 — 부팅 상태 확정
 // 그림자 맵(2048²×3)·지연 RT 재할당을 부팅에서 소진 — 시뮬 창은 무할당이어야
 // PATCH-004-B 트립와이어(창 내 Math.random=오류)가 순수하게 유지된다
 pipeline.render();

@@ -109,11 +109,17 @@ export class SkySystem {
       -Math.cos(az) * Math.cos(elReal),
     ).normalize();
 
-    // PMREM 재생성 — 스카이돔만 담은 임시 씬 (구성 변경 시 1회)
-    if (this._envRT) { this._envRT.dispose(); this._envRT = null; }
-    this._envScene.add(this.sky); // scene에서 잠시 이관
-    this._envRT = this.pmrem.fromScene(this._envScene, 0.04);
-    this.scene.add(this.sky);     // 복귀
+    // PMREM 재생성 — 스카이돔만 담은 임시 씬 (구성 변경 시 1회).
+    // 프리웜 중에는 첫 1회만 생성한다: PMREM 프로그램은 첫 생성에서 전부
+    // 컴파일되고, 프리웜의 목적은 커버리지다 — 샷마다 재생성하면 SwiftShader
+    // 실측 개당 ~1.1s × 12회 = 부팅 12.6s (PATCH-004-A 분해로 확인).
+    // 캡처·플레이의 setShot 경로는 항상 전체 재생성 (환경광 정확성).
+    if (!this.prewarmSkipPmrem || !this._envRT) {
+      if (this._envRT) { this._envRT.dispose(); this._envRT = null; }
+      this._envScene.add(this.sky); // scene에서 잠시 이관
+      this._envRT = this.pmrem.fromScene(this._envScene, 0.04);
+      this.scene.add(this.sky);     // 복귀
+    }
     this.scene.environment = this._envRT.texture;
     // 환경광 강도는 샷 주변광(hemi)에 종속 — 기본 1.0은 실내까지 하늘 IBL로
     // 침수시켜 역광·실내 무드를 파괴한다 (C2 실측: meanLum 39→156 백화)
