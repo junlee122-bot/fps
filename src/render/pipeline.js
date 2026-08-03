@@ -102,6 +102,83 @@ const MB_FRAG = /* glsl */`
   }
 `;
 
+/**
+ * C2 볼류메트릭 안개·광선 (P3-BRIEF §3 C2).
+ *  - 높이 안개: 지수 밀도 ρ(y)=ρ0·exp(-k(y-y0))의 시선 적분 **해석해** —
+ *    스텝 없음(밴딩 없음), 저비용. 색은 하늘 근사색 + 태양 전방산란(HG 위상).
+ *  - 광선(god rays): CSM 캐스케이드0 그림자를 시선상 12스텝 샘플 —
+ *    스텝 위상은 (픽셀, clock.frame%8) 결정적 디더 → TAA가 시간 수렴.
+ *  - depth=1(하늘)은 원거리 상한으로 처리해 하늘도 안개층을 통과해 보인다.
+ */
+const FOG_FRAG = /* glsl */`
+  varying vec2 vUv;
+  uniform sampler2D tDiffuse;
+  uniform sampler2D tDepth;
+  uniform sampler2D tShadow;
+  uniform mat4 invVP;
+  uniform mat4 shadowMatrix;
+  uniform vec3 camPos;
+  uniform vec3 sunDir;
+  uniform vec3 sunColor;
+  uniform vec3 skyColor;
+  uniform float density;
+  uniform float heightFalloff;
+  uniform float baseY;
+  uniform float jitterPhase;
+  uniform float shaftStrength;
+
+  float unpackDepth(vec4 rgba) {
+    return dot(rgba, vec4(1.0, 1.0/255.0, 1.0/65025.0, 1.0/16581375.0));
+  }
+  float shadowAt(vec3 wp) {
+    vec4 sc = shadowMatrix * vec4(wp, 1.0);
+    vec3 uvz = sc.xyz / sc.w;
+    if (uvz.x < 0.0 || uvz.x > 1.0 || uvz.y < 0.0 || uvz.y > 1.0) return 1.0;
+    float d = unpackDepth(texture2D(tShadow, uvz.xy));
+    return uvz.z - 0.003 > d ? 0.0 : 1.0;
+  }
+  // 지수 높이 안개의 시선 광학 두께 해석해
+  float opticalDepth(vec3 ro, vec3 rd, float len) {
+    float ky0 = heightFalloff * (ro.y - baseY);
+    float kdy = heightFalloff * rd.y * len;
+    float f = abs(kdy) > 1e-4 ? (1.0 - exp(-kdy)) / kdy : 1.0;
+    return density * exp(-ky0) * f * len;
+  }
+  void main() {
+    vec4 scene = texture2D(tDiffuse, vUv);
+    float depth = texture2D(tDepth, vUv).x;
+    vec4 clip = vec4(vUv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    vec4 wp4 = invVP * clip;
+    vec3 wp = wp4.xyz / wp4.w;
+    vec3 rd = wp - camPos;
+    float len = length(rd);
+    rd /= max(len, 1e-5);
+    if (depth >= 0.9999) len = 140.0; // 하늘 — 원거리 안개층 상한
+    len = min(len, 140.0);
+
+    float od = opticalDepth(camPos, rd, len);
+    float T = exp(-od);
+
+    // 인스캐터 색: 하늘 근사 + 태양 전방산란 (Henyey-Greenstein g=0.55)
+    float mu = dot(rd, sunDir);
+    float g = 0.55;
+    float phase = (1.0 - g*g) / (4.0 * 3.14159265 * pow(1.0 + g*g - 2.0*g*mu, 1.5));
+    // 광선: 시선 12스텝 그림자 가중 (전방산란 성분에만 적용)
+    float lit = 1.0;
+    if (shaftStrength > 0.0) {
+      float acc = 0.0;
+      float t0 = (jitterPhase + 0.5) / 12.0;
+      for (int i = 0; i < 12; i++) {
+        float t = (float(i) + t0) / 12.0;
+        acc += shadowAt(camPos + rd * (len * t * 0.6)); // 근거리 60% 구간이 주 기여
+      }
+      lit = acc / 12.0;
+    }
+    vec3 inscatter = skyColor + sunColor * phase * mix(1.0, lit, shaftStrength);
+    gl_FragColor = vec4(scene.rgb * T + inscatter * (1.0 - T), scene.a);
+  }
+`;
+
 function fsMaterial(frag, uniforms) {
   return new THREE.ShaderMaterial({
     uniforms, vertexShader: FS_VERT, fragmentShader: frag,
@@ -201,6 +278,7 @@ export class RenderPipeline {
     this.taaWrite = 0;
     this.historyValid = false;
     this.mbRT = mkRT();
+    this.fogRT = mkRT(); // C2 안개 출력 (GTAO 뒤·TAA 앞)
 
     this._fsScene = new THREE.Scene();
     this._fsCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -217,6 +295,20 @@ export class RenderPipeline {
       reproj: { value: new THREE.Matrix4() },
       strength: { value: 0.55 }, maxVelocity: { value: 0.02 },
     });
+    this.fogMat = fsMaterial(FOG_FRAG, {
+      tDiffuse: { value: null }, tDepth: { value: depthTexture }, tShadow: { value: null },
+      invVP: { value: new THREE.Matrix4() }, shadowMatrix: { value: new THREE.Matrix4() },
+      camPos: { value: new THREE.Vector3() },
+      sunDir: { value: new THREE.Vector3(0, 1, 0) },
+      sunColor: { value: new THREE.Color(0, 0, 0) },
+      skyColor: { value: new THREE.Color(0, 0, 0) },
+      density: { value: 0 }, heightFalloff: { value: 0.12 }, baseY: { value: 0 },
+      jitterPhase: { value: 0 }, shaftStrength: { value: 0.85 },
+    });
+    /** C2: main.js가 SkySystem 생성 후 주입 — 안개 구성·태양 방향의 소유자는 sky */
+    this.sky = null;
+    this._invVPFog = new THREE.Matrix4();
+    this._sunCfg = { elev: 55, azim: 205, intensity: 3.0 };
     this.outputPass = new OutputPass();
     this.outputPass.renderToScreen = true;
 
@@ -255,6 +347,19 @@ export class RenderPipeline {
     const z = -Math.cos(az) * Math.cos(el);
     this.csm.lightDirection.set(-x, -y, -z).normalize();
     for (const l of this.csm.lights) l.intensity = intensity;
+    this._sunCfg = { elev, azim, intensity };
+    // 안개 인스캐터 색 (샷 구성의 순수 함수 — CPU 산출, C2)
+    const t = THREE.MathUtils.clamp(elev / 60, 0, 1); // 저고도→온색
+    const day = intensity >= 0.1;
+    const sun = this.fogMat.uniforms.sunColor.value;
+    const sky = this.fogMat.uniforms.skyColor.value;
+    if (day) {
+      sun.setRGB(1.0, 0.72 + 0.2 * t, 0.5 + 0.4 * t).multiplyScalar(intensity * 0.16);
+      sky.setRGB(0.36 + 0.1 * t, 0.44 + 0.09 * t, 0.55 + 0.06 * t).multiplyScalar(0.5 + 0.5 * t);
+    } else {
+      sun.setRGB(0, 0, 0);
+      sky.setRGB(0.015, 0.02, 0.035); // 야간 박명 잔광
+    }
   }
 
   /** 프리웜 전용 — 그림자 맵 해상도 축소/복원 (프로그램 동일, 렌더 비용만 변화) */
@@ -271,6 +376,7 @@ export class RenderPipeline {
     this.gtao.setSize(w, h);
     for (const rt of this.taaRT) rt.setSize(w, h);
     this.mbRT.setSize(w, h);
+    this.fogRT.setSize(w, h);
     this._size.set(w, h);
     this.taaMat.uniforms.resolution.value.set(w, h);
     this.csm.updateFrustums();
@@ -353,7 +459,29 @@ export class RenderPipeline {
     // → 단일 씬 패스 지표. 한계: Points/Line/Sprite는 프리패스에서 숨겨져 미포함
     //   (FX 예산으로 별도 상한 — CONTRACT-NOTES P3 판정 참조)
     this.passStats.scenePass = [c2 - c1 - 4, t2 - t1 - 4];
-    const beauty = this.aoRT;
+    let beauty = this.aoRT;
+
+    // 1.5 C2 볼류메트릭 안개·광선 → fogRT (sky가 주입된 뒤 항상 실행 —
+    // 패스 구조를 프레임마다 동일하게 유지해 프로그램·계측 순열을 고정한다)
+    if (this.sky) {
+      const fu = this.fogMat.uniforms;
+      const fog = this.sky.fog;
+      fu.tDiffuse.value = beauty.texture;
+      fu.density.value = fog.density;
+      fu.heightFalloff.value = fog.heightFalloff;
+      fu.baseY.value = fog.baseY;
+      fu.camPos.value.copy(cam.position);
+      fu.sunDir.value.copy(this.sky.sunDir);
+      this._invVPFog.copy(this._curVP).invert();
+      fu.invVP.value.copy(this._invVPFog);
+      const s0 = this.csm.lights[0].shadow;
+      fu.tShadow.value = s0.map ? s0.map.texture : null;
+      fu.shadowMatrix.value.copy(s0.matrix);
+      fu.jitterPhase.value = clock.frame % 8;
+      fu.shaftStrength.value = this._sunCfg.intensity >= 0.1 ? 0.85 : 0.0;
+      this._blit(this.fogMat, this.fogRT);
+      beauty = this.fogRT;
+    }
 
     // 2. TAA 리졸브 → taaRT[write] (이 RT가 다음 프레임 히스토리)
     const readHist = this.taaRT[1 - this.taaWrite];

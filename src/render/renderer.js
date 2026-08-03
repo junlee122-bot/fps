@@ -8,6 +8,7 @@
  */
 
 import * as THREE from 'three';
+import { HEMI_SCALE_WITH_ENV } from './sky.js';
 
 export const SUN_DISTANCE = 90;
 
@@ -51,9 +52,11 @@ export function createLighting(scene) {
  * 태양각 적용. azimuth: 0=북(-Z), 90=동(+X), 180=남(+Z). elevation: 도.
  * P3: CSM(pipeline)으로 위임 — 방향·강도. world:tod 발행 주체는 sky(C2).
  */
-export function applySunConfig(lighting, sun, hemiIntensity) {
+export function applySunConfig(lighting, sun, hemiIntensity, fogCfg) {
   lighting.pipeline.setSun(sun);
-  lighting.hemi.intensity = hemiIntensity;
+  // C2: PMREM 환경광 도입 후 반구광은 잔여 바닥 보정으로 감쇠 (sky.js 참조)
+  lighting.hemi.intensity = hemiIntensity * (lighting.sky ? HEMI_SCALE_WITH_ENV : 1);
+  lighting.sky?.apply(sun, fogCfg, hemiIntensity);
 }
 
 export function handleResize(renderer, camera) {

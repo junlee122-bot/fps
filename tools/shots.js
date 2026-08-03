@@ -98,6 +98,8 @@ export const SHOTS = Object.freeze([
     sun: { elev: 18, azim: 250, intensity: 2.2 },
     hemi: 0.4,
     lantern: 0,
+    // C2: 짙은 저층 안개 — 담장 골목의 깊이 단서 + 광선. 미지정 샷은 sky 기본(0.006)
+    fog: { density: 0.055, heightFalloff: 0.35, baseY: 0 },
   },
   {
     name: 'muzzle_interior',

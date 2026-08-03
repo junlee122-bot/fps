@@ -22,6 +22,7 @@ import { prewarmShaders } from './core/prewarm.js';
 import { StatsRecorder } from './core/stats.js';
 import { createRenderer, createCamera, createLighting, applySunConfig, handleResize } from './render/renderer.js';
 import { RenderPipeline } from './render/pipeline.js';
+import { SkySystem } from './render/sky.js';
 import { OpacityApplier } from './render/opacity.js';
 import { setupAlbedoAudit } from './render/audit-cards.js';
 import { PhysicsWorld } from './physics/index.js';
@@ -60,6 +61,10 @@ const lighting = createLighting(scene);
 // P3 C1: HDR·CSM·GTAO·TAA·MB·AgX 파이프라인 — 태양은 CSM이 소유
 const pipeline = new RenderPipeline({ renderer, scene, camera });
 lighting.pipeline = pipeline;
+// C2: 하늘 서브시스템 — 스카이돔·PMREM 환경광·world:tod/weather 발행·안개 구성 소유
+const skySystem = new SkySystem({ scene, renderer, bus });
+lighting.sky = skySystem;
+pipeline.sky = skySystem;
 
 const physics = new PhysicsWorld();
 const world = buildWorld(scene, physics);
@@ -144,12 +149,23 @@ bus.on('surface:damage', (e) => {
  * 해석한다. actions는 opts.runActions=true(하네스 setShot 경로)에서만 실행 —
  * 프리웜의 applyShot이 부팅 중 사격 상태를 오염시키지 않게 한다.
  */
+/**
+ * 감사 리그 전용 원시 조명 — P2A 캘리브레이션 보존 (C2):
+ * 반구광 무스케일 + PMREM 환경광 차단 + 스카이 미적용. 감사 수치는 자체
+ * 조명의 순수 함수여야 하며 하늘 도입에 불변이다.
+ */
+function applySunRawForAudit(sun, hemi) {
+  pipeline.setSun(sun);
+  lighting.hemi.intensity = hemi;
+  skySystem.setEnvironmentEnabled(false);
+}
+
 function applyShot(shot, opts = {}) {
   camera.position.set(...shot.cam.pos);
   camera.lookAt(...shot.cam.target);
   camera.fov = shot.cam.fov;
   camera.updateProjectionMatrix();
-  applySunConfig(lighting, shot.sun, shot.hemi);
+  applySunConfig(lighting, shot.sun, shot.hemi, shot.fog);
   for (const l of world.lanternLights) l.intensity = shot.lantern;
 
   viewmodel.setVisible(!!shot.viewmodel);
@@ -190,17 +206,18 @@ const harness = installHarness({
   readyPromise, mode,
   // P2A 배선
   fire, viewmodel, hanji, fx,
+  hanjiPanes, // C2 §8: HANJI 반투과 화면 면적 → overdraw_estimate 편입
   viewmodelAuditHook: ({ boost }) => setupViewmodelAudit({
     scene, camera, boost,
     patchMaterial: (m) => pipeline.patchMaterial(m), // CSM — 미패치 카드는 3중 수광
     // 순수 태양만 — applyDefaultView는 카메라도 움직여 카드 투영이 깨진다
-    applySun: () => applySunConfig(lighting, DEFAULT_VIEW.sun, DEFAULT_VIEW.hemi),
+    applySun: () => applySunRawForAudit(DEFAULT_VIEW.sun, DEFAULT_VIEW.hemi),
   }),
   albedoAuditHook: ({ scaleAlbedo }) => setupAlbedoAudit({
     scene, camera, renderer, scaleAlbedo,
     patchMaterial: (m) => pipeline.patchMaterial(m),
     extraMaterials: [debrisMaterial], // 런타임 스폰 전용 — 씬 순회에 안 잡힌다
-    applySunRaw: (sun, hemi) => applySunConfig(lighting, sun, hemi),
+    applySunRaw: (sun, hemi) => applySunRawForAudit(sun, hemi),
   }),
 });
 
@@ -223,6 +240,10 @@ const warm = await prewarmShaders({
 renderer.setSize(_pw.x, _pw.y, false);
 pipeline.setSize(renderer.domElement.width, renderer.domElement.height);
 pipeline.setShadowMapSize(2048);
+// 그림자 맵(2048²×3)·지연 RT 재할당을 부팅에서 소진 — 시뮬 창은 무할당이어야
+// PATCH-004-B 트립와이어(창 내 Math.random=오류)가 순수하게 유지된다
+pipeline.render();
+pipeline.reset();
 console.info(`[boot] prewarm programs=${warm.programsAfter} (+${warm.compiled}) ${warm.ms}ms`);
 window.__prewarm = warm;
 window.__pipeline = pipeline; // 디버그·결정성 이분 전용 — 게이트 도구는 __harness만 쓴다

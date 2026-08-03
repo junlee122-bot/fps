@@ -22,7 +22,47 @@ export function installHarness(ctx) {
     renderer, scene, camera, player, input, physics, world,
     stats, shotsByName, applyShot, applyDefaultView, readyPromise, mode,
     fire, viewmodel, hanji, fx, viewmodelAuditHook, albedoAuditHook, pipeline,
+    hanjiPanes,
   } = ctx;
+
+  /**
+   * C2 §8: overdraw_estimate 확장 성분 — 안개 풀스크린 패스(상수 1.0) +
+   * HANJI 반투과 판의 화면 투영 면적 합. 판은 4모서리를 투영해 신발끈 공식
+   * 면적(뷰포트 클램프 근사)으로 계산한다. CPU 산출·GPU 무관 (P2B §7 계보).
+   * 합성 고부하 기준선(PATCH-004-C: 504/1512/3528 → 0.26/0.80/1.86)과
+   * 대조해 편입 후 수치의 타당성을 판정한다.
+   */
+  const _pc = [new (camera.position.constructor)(), new (camera.position.constructor)(),
+               new (camera.position.constructor)(), new (camera.position.constructor)()];
+  function overdrawExtras(w, h) {
+    let extra = 0;
+    if (pipeline.sky && pipeline.sky.fog.density > 0) extra += 1.0; // 안개 풀스크린 패스
+    if (hanjiPanes) {
+      let area = 0;
+      for (const mesh of hanjiPanes.values()) {
+        if (!mesh.visible) continue;
+        const { width, height } = mesh.geometry.parameters;
+        const hw = width / 2, hh = height / 2;
+        _pc[0].set(-hw, -hh, 0); _pc[1].set(hw, -hh, 0); _pc[2].set(hw, hh, 0); _pc[3].set(-hw, hh, 0);
+        let behind = false;
+        for (const p of _pc) {
+          p.applyMatrix4(mesh.matrixWorld).project(camera);
+          if (p.z > 1 || p.z < -1) { behind = true; break; }
+          p.x = Math.min(1, Math.max(-1, p.x)) * w * 0.5;
+          p.y = Math.min(1, Math.max(-1, p.y)) * h * 0.5;
+        }
+        if (behind) continue;
+        let a2 = 0;
+        for (let i = 0; i < 4; i++) {
+          const p = _pc[i], q = _pc[(i + 1) % 4];
+          a2 += p.x * q.y - q.x * p.y;
+        }
+        area += Math.abs(a2) / 2;
+      }
+      extra += area / (w * h);
+    }
+    return extra;
+  }
 
   const errors = [];
   addEventListener('error', (e) => errors.push(`[error] ${e.message}`));
@@ -74,7 +114,9 @@ export function installHarness(ctx) {
     pipeline.render();              // C1: HDR→GTAO→TAA→MB→AgX (P3)
     const end = clock.wallNowMs();
     // §7 overdraw_estimate — CPU 산출, GPU 타이밍 무관
-    const od = fx.overdrawEstimate(camera, renderer.domElement.width, renderer.domElement.height);
+    const _vw = renderer.domElement.width, _vh = renderer.domElement.height;
+    // C2 §8: fx(파티클·데칼) + 안개 풀스크린 + HANJI 반투과 화면 면적
+    const od = fx.overdrawEstimate(camera, _vw, _vh) + overdrawExtras(_vw, _vh);
     stats.record(
       cpuStartMs >= 0 ? preRender - cpuStartMs : -1,
       cpuStartMs >= 0 ? end - preRender : -1,
