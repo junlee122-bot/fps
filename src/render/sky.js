@@ -61,7 +61,14 @@ export class SkySystem {
   apply(sun, fogCfg, hemi = 0.4) {
     const night = sun.intensity < 0.1;
     // 스카이돔 유효 고도: 야간은 지평선 아래 박명 (CSM 방향은 샷 값 유지)
-    const skyElev = night ? -12 : sun.elev;
+    const skyElev = night ? -14 : sun.elev;
+    // 야간 대기: 청색 편이 — Preetham 박명의 자홍(330–350°)은 §4 색역 밖이라
+    // rayleigh↑·mie↓로 잔광을 청 대역(175–240°)으로 밀어넣는다 (paletteaudit 실측 5.1%→)
+    const u = this.sky.material.uniforms;
+    u.turbidity.value = night ? 2.5 : 6;
+    u.rayleigh.value = night ? 3.2 : 1.6;
+    u.mieCoefficient.value = night ? 0.0006 : 0.004;
+    u.mieDirectionalG.value = 0.85;
     const el = THREE.MathUtils.degToRad(skyElev);
     const az = THREE.MathUtils.degToRad(sun.azim);
     const x = Math.sin(az) * Math.cos(el);
