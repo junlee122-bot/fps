@@ -19,6 +19,7 @@
  * 11. fxaudit — 음성 훅 (프로파일 복제 동일화) → exit 1 (P2B §2 / PATCH-003-B)
  * 12. paletteaudit — 음성 훅 (자색 300° 패치 주입) → exit 1 (P3 §4)
  * 13. albedoaudit — 음성 훅 (알베도 1/3 위조) → exit 1 (P3 §5)
+ * 14. determinismaudit — 음성 훅 (Math.random 가상 주입) → exit 1 (PATCH-004-B)
  */
 
 import { spawnSync } from 'node:child_process';
@@ -241,6 +242,22 @@ function makePng(path, px) {
   } catch { /* fail */ }
   record(13, 'albedoaudit 음성 테스트 (알베도 1/3 위조)', r.code === 1 && marked && devs > 0,
     `exit=${r.code} 표식=${marked} 편차=${devs}건`);
+}
+
+/* ---- 14. determinismaudit 음성 테스트 (PATCH-004-B) ----
+ * Math.random 호출을 가상 주입한 입력 — 정적 게이트가 반드시 잡아야 한다. */
+{
+  const clean = run('node', ['tools/determinismaudit.mjs']);
+  const r = run('node', ['tools/determinismaudit.mjs', '--inject-test']);
+  let marked = false, viol = 0;
+  try {
+    const j = JSON.parse(r.out);
+    marked = String(j.testOverride ?? '').includes('inject-test');
+    viol = (j.srcViolations ?? []).length;
+  } catch { /* fail */ }
+  record(14, 'determinismaudit 음성 테스트 (Math.random 가상 주입)',
+    clean.code === 0 && r.code === 1 && marked && viol > 0,
+    `clean=${clean.code} inject=${r.code} 표식=${marked} 위반=${viol}건`);
 }
 
 const ok = results.every((r) => r.pass);

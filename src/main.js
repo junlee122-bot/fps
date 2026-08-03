@@ -14,6 +14,7 @@
 
 import * as THREE from 'three';
 import { clock, PHYSICS_DT } from './core/clock.js';
+import { armCaptureDeterminism } from './core/determinism.js';
 import { bus } from './core/events.js';
 import { setGlobalSeed, resetAllStreams, DEFAULT_SEED } from './core/rng.js';
 import { installHarness } from './core/harness.js';
@@ -38,6 +39,10 @@ const params = new URLSearchParams(location.search);
 const mode = params.get('mode') === 'fixed' ? 'fixed' : 'realtime';
 const seed = params.get('seed') ? Number(params.get('seed')) >>> 0 : DEFAULT_SEED;
 const dprParam = params.get('dpr') ? Number(params.get('dpr')) : undefined;
+
+// PATCH-004-B: 캡처 빌드 Math.random 구조 트랩 — 월드·파이프라인 생성 전 장착
+// (three UUID 등 부팅 소비자 포함 전 호출이 고정 시드 수열을 받는다)
+if (mode === 'fixed') armCaptureDeterminism();
 
 setGlobalSeed(seed);
 clock.setMode(mode);

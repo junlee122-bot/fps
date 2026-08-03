@@ -13,6 +13,7 @@
 import { clock, FIXED_DT, PHYSICS_DT } from './clock.js';
 import { resetAllStreams } from './rng.js';
 import { bus } from './events.js';
+import { markSimWindow, simWindowCalls, mathRandomStats } from './determinism.js';
 
 const PHYS_STEPS_PER_FRAME = Math.round(FIXED_DT / PHYSICS_DT); // = 2
 
@@ -131,6 +132,7 @@ export function installHarness(ctx) {
       if (!Number.isInteger(n) || n < 1) throw new Error(`stepFrames: n must be an integer >= 1 (got ${n})`);
       if (state.busy) throw new Error('stepFrames re-entered while stepping (감사 A2 가드)');
       state.busy = true;
+      markSimWindow(true); // PATCH-004-B: 시뮬 창 내 Math.random 소비는 오류로 승격
       try {
         for (let i = 0; i < n; i++) {
           // atFrame 지연 액션 (P2B) — 프레임 진행 전 실행, 결정적
@@ -148,7 +150,11 @@ export function installHarness(ctx) {
           if ((i & 31) === 31) await new Promise((r) => setTimeout(r, 0));
         }
       } finally {
+        markSimWindow(false);
         state.busy = false;
+      }
+      if (simWindowCalls() > 0) {
+        errors.push(`[determinism] stepFrames 창 내 Math.random ${simWindowCalls()}회 — 시드 수열이라 결정적이나 미지 소비자 존재 (PATCH-004-B)`);
       }
       // 컴포지터가 마지막 프레임을 집도록 rAF 2회 양보 (스크린샷 안정화)
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
@@ -242,6 +248,22 @@ export function installHarness(ctx) {
 
     getErrors() {
       return errors.slice();
+    },
+
+    /** PATCH-004-B 트랩 상태 — 장착 여부·총 호출 수 (툴 검증용) */
+    getDeterminism() {
+      return mathRandomStats();
+    },
+
+    /**
+     * PATCH-004-C 합성 고부하 — 파티클 n개 강제 방출 (overdraw_estimate 반응성
+     * 검증 전용). 시드 스트림 기반 emit이라 결정적. 계약 캡처에 쓰지 마라.
+     */
+    debugEmitParticles(profileKey, n, x, y, z) {
+      for (let i = 0; i < n; i++) {
+        fx.particles.emit(profileKey, x, y, z, 0, 1, 0);
+      }
+      return fx.particles.active;
     },
 
     /** 직전 프레임 패스별 [콜, 삼각형] 분해 — P3 지표 판정의 실측 근거 */

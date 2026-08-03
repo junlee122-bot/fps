@@ -327,6 +327,33 @@
   C1은 삼각형을 1개도 추가·이동하지 않았다. P2B 보고서의 tris_scene
   "134,730 (비가시 468)"은 P2B 마감 중간(마커 정리 전) 측정치가 재측정 없이
   표에 남은 것으로, 종료 커밋에서 재현되지 않는다. **동결 기준값은 134,542.**
+- **PATCH-004 이행 판정 3건.**
+  **(B) Math.random 트랩 — throw 원안의 실행 불가 증명과 대체 설계**: three
+  코어 MathUtils.generateUUID()가 Math.random ×4를 호출하고 모든 Object3D·
+  Material·BufferGeometry 생성자가 이를 소비한다 (ESM 내부 바인딩 — 외부 재지향
+  불가). 문자 그대로의 throw는 첫 Object3D에서 엔진이 죽어 PATCH-004-B 자체의
+  적용 확인(부팅 성공·identical)과 양립 불가. **대체: 캡처 빌드에서 고정 시드
+  mulberry32로 교체** — 미지의 서드파티 소비자(부팅 시점 포함)도 부팅마다 동일
+  수열 = 비결정성 자체가 구조적으로 소멸 (throw는 발견까지 비결정을 허용하나
+  시드는 발견 전에도 결정적 — 목표 등가 이상). 시끄러움 보존: stepFrames 시뮬
+  창 내 호출은 harness 오류로 승격되어 전 게이트 실패. **발주자 검토 요청:
+  본 대체가 계약 변경에 해당하면 재판정 바람.**
+  **(B-2) determinismaudit 스코프**: src/ 위반은 무조건 exit 1 (예외 스코프는
+  clock.js·determinism.js — API 소유자, 허용 목록 아님). 서드파티는 three/addons
+  전이 임포트 표면만 정적 스캔 (three 코어 전체를 스캔하면 generateUUID 등
+  도달 불가 정의에 영구 exit 1 — 런타임 트랩이 코어를 포함한 전 소비자를
+  구조적으로 커버하므로 정적 검사는 임포트 선택 표면의 조기 경보로 한정).
+  **(C) 미시험 지표 분류 기록**: paletteaudit 0.0815%는 "통과"가 아니라
+  "미시험" — C1 씬은 회색이라 고채도 픽셀이 구조적으로 없다 (최초 유효 실측
+  = C3 단청). overdraw 0.002도 동일 (최초 유효 = C2 안개·HANJI 편입 후).
+  tris_frame_p95·tris_scene은 이미 유효.
+  실측: src 위반 0, 서드파티 발견 1건(SimplexNoise r=Math — C1 진범 클래스)
+  + 트랩 장착 확인. harnesstest 케이스 14 (clean=0/inject=1) 신설.
+  **(C-미결) overdraw 합성 고부하 라이브 실측 (안개·HANJI 편입 전 기준선)**:
+  courtyard_noon 카메라 전방 1m 강제 방출 504/1512/3528개 →
+  overdraw_estimate 0.2618/0.7963/1.8642, 비율 3.04·7.12 (기대 3·7 — 선형),
+  상단 1.864 = 예산 3.0의 62% (최악 배치 기준 예산 작동 구간에서 지표 생존).
+  §8 편입 후 수치는 이 기준선과 대조 판정한다.
 - **C1 종료 스냅샷**: 비트 동일 ×2 = 11/11 (등롱 광원 확정 후 최종 픽셀,
   muzzle_interior 포함), npm test 22, harnesstest 13, surface·cover·chain(16)
   ·fx·palette(최악 0.0815%≤1.5)·albedo·viewmodel·playtest 전부 exit 0,
