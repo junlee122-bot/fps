@@ -158,6 +158,9 @@ function applySunRawForAudit(sun, hemi) {
   pipeline.setSun(sun);
   lighting.hemi.intensity = hemi;
   skySystem.setEnvironmentEnabled(false);
+  // 안개 인스캐터는 가산 오프셋이라 암카드 휘도를 들어 비율을 무너뜨린다
+  // (C2 실측: L018/L004 4.37→2.63 — 밀도 0.0022×14m ≈ +0.010 리니어와 일치)
+  skySystem.fog = { density: 0, heightFalloff: 0.12, baseY: 0 };
 }
 
 function applyShot(shot, opts = {}) {
