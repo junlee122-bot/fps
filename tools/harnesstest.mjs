@@ -45,6 +45,22 @@ function run(cmd, args, timeoutMs = 600000) {
   return { code: r.status, out: r.stdout ?? '', err: r.stderr ?? '' };
 }
 
+/**
+ * 브라우저 감사 도구 실행 + JSON 미출력(브라우저 사망) 시 1회 재시도.
+ * 소프트웨어 GL의 산발적 브라우저 크래시(baseline.mjs와 동일 클래스)가 도구
+ * 판정과 무관하게 케이스를 죽이는 것을 막는다 — 동일 검증의 재실행이므로
+ * 음성 테스트 원칙(PATCH-003-B)은 불변. 재시도 여부는 detail에 남긴다.
+ */
+function runAudit(cmd, args, timeoutMs = 600000) {
+  let r = run(cmd, args, timeoutMs);
+  const parseable = (x) => { try { JSON.parse(x.out); return true; } catch { return false; } };
+  if (!parseable(r)) {
+    r = run(cmd, args, timeoutMs);
+    r.retried = true;
+  }
+  return r;
+}
+
 function makePng(path, px) {
   const png = new PNG({ width: 8, height: 8 });
   for (let i = 0; i < png.data.length; i += 4) {
@@ -134,8 +150,8 @@ function makePng(path, px) {
 
 /* ---- 6. surfaceaudit: 미매핑 주입 → exit 1 ---- */
 {
-  const clean = run('node', ['tools/surfaceaudit.mjs']);
-  const injected = run('node', ['tools/surfaceaudit.mjs', '--inject-unmapped']);
+  const clean = runAudit('node', ['tools/surfaceaudit.mjs']);
+  const injected = runAudit('node', ['tools/surfaceaudit.mjs', '--inject-unmapped']);
   let names = '';
   try { names = JSON.parse(injected.out).unmapped.map((u) => u.name).join(','); } catch { /* fail */ }
   const pass = clean.code === 0 && injected.code === 1 && names.includes('harnesstest_rogue_untagged');
@@ -144,7 +160,7 @@ function makePng(path, px) {
 
 /* ---- 7. coveraudit: 임계 초과 조작 → exit 1 ---- */
 {
-  const r = run('node', ['tools/coveraudit.mjs', '--max-dist', '2', '--out', `${TMP}/cover_fail.png`]);
+  const r = runAudit('node', ['tools/coveraudit.mjs', '--max-dist', '2', '--out', `${TMP}/cover_fail.png`]);
   let marked = false;
   try { marked = String(JSON.parse(r.out).testOverride ?? '').includes('max-dist'); } catch { /* fail */ }
   record(7, 'coveraudit 임계 초과 실패 경로', r.code === 1 && marked, `exit=${r.code} override표식=${marked}`);
@@ -177,8 +193,8 @@ function makePng(path, px) {
  * 게이트 툴의 통과 케이스만으로는 툴이 작동한다는 증거가 되지 않는다.
  * (a) 레이어 제거 입력, (b) 순서 뒤집기 입력 — 둘 다 반드시 exit 1. */
 {
-  const dropped = run('node', ['tools/chainaudit.mjs', '--test-drop', 'ROOF_SOIL']); // 보토 재태깅 [PATCH-003-D]
-  const reversed = run('node', ['tools/chainaudit.mjs', '--test-reverse']);
+  const dropped = runAudit('node', ['tools/chainaudit.mjs', '--test-drop', 'ROOF_SOIL']); // 보토 재태깅 [PATCH-003-D]
+  const reversed = runAudit('node', ['tools/chainaudit.mjs', '--test-reverse']);
   let dropMarked = false, revMarked = false;
   try { dropMarked = String(JSON.parse(dropped.out).testOverride ?? '').includes('drop'); } catch { /* fail */ }
   try { revMarked = String(JSON.parse(reversed.out).testOverride ?? '').includes('reverse'); } catch { /* fail */ }
@@ -191,7 +207,7 @@ function makePng(path, px) {
  * 뷰모델 조도를 인위로 2배 부스트한 입력(리그 불일치 등가)에서 반드시 exit 1.
  * 통과 케이스만으로는 휘도 측정·비율 판정이 작동한다는 증거가 되지 않는다. */
 {
-  const boosted = run('node', ['tools/viewmodelaudit.mjs', '--test-boost', '2']);
+  const boosted = runAudit('node', ['tools/viewmodelaudit.mjs', '--test-boost', '2']);
   let marked = false, ratio = null;
   try {
     const j = JSON.parse(boosted.out);
@@ -208,7 +224,7 @@ function makePng(path, px) {
  * 반드시 exit 1 — PATCH-003-B "관측 불가능한 표면은 자유변수" 조항의 게이트가
  * 실제로 작동하는지 검증한다. */
 {
-  const cloned = run('node', ['tools/fxaudit.mjs', '--test-clone', 'soil_puff=dust_burst']);
+  const cloned = runAudit('node', ['tools/fxaudit.mjs', '--test-clone', 'soil_puff=dust_burst']);
   let marked = false, pairOk = null;
   try {
     const j = JSON.parse(cloned.out);
@@ -233,7 +249,7 @@ function makePng(path, px) {
 /* ---- 13. albedoaudit 음성 테스트 (P3 §5) ----
  * 알베도를 1/3로 깎은 입력(참조 레포의 위조 재현) — 매니페스트 대조가 잡아야 한다. */
 {
-  const r = run('node', ['tools/albedoaudit.mjs', '--test-scale-albedo', '0.333']);
+  const r = runAudit('node', ['tools/albedoaudit.mjs', '--test-scale-albedo', '0.333']);
   let marked = false, devs = 0;
   try {
     const j = JSON.parse(r.out);
