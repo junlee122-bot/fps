@@ -198,7 +198,7 @@ function applyDefaultView() {
   viewmodel.update(fire.current);
 }
 
-handleResize(renderer, camera);
+handleResize(renderer, camera, (r) => pipeline.setSize(r.domElement.width, r.domElement.height));
 
 let readyResolve;
 const readyPromise = new Promise((r) => { readyResolve = r; });

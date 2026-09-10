@@ -59,11 +59,14 @@ export function applySunConfig(lighting, sun, hemiIntensity, fogCfg) {
   lighting.sky?.apply(sun, fogCfg, hemiIntensity);
 }
 
-export function handleResize(renderer, camera) {
+export function handleResize(renderer, camera, afterResize = null) {
   const onResize = () => {
     camera.aspect = innerWidth / innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(innerWidth, innerHeight);
+    // C2: 파이프라인 RT(씬·AO·TAA·MB·안개·GTAO)도 드로잉 버퍼 크기를 따라야 한다 —
+    // 누락 시 실시간 창 크기 변경 후 포스트 체인이 구해상도로 늘어난다
+    afterResize?.(renderer);
   };
   addEventListener('resize', onResize);
   return onResize;

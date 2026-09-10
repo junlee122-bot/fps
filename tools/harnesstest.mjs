@@ -239,7 +239,9 @@ function makePng(path, px) {
 /* ---- 12. paletteaudit 음성 테스트 (P3 §4) ----
  * 자색(300°) 패치를 합성 주입한 입력에서 반드시 exit 1. */
 {
-  const r = run('node', ['tools/paletteaudit.mjs', 'baseline', '--inject-patch']);
+  // 입력은 케이스 5가 방금 캡처한 자급자족 디렉토리 — 기계-로컬 baseline/ 루트의
+  // 존재에 의존하지 않는다 (컨테이너 재생성으로 사라져 환경 실패를 낸 실측 후 교정)
+  const r = run('node', ['tools/paletteaudit.mjs', `${TMP}/base1`, '--inject-patch']);
   let marked = false;
   try { marked = String(JSON.parse(r.out).testOverride ?? '').includes('inject-patch'); } catch { /* fail */ }
   record(12, 'paletteaudit 음성 테스트 (자색 300° 주입)', r.code === 1 && marked,

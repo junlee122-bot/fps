@@ -155,6 +155,9 @@ for (let run = 0; run < RUNS; run++) {
   const script = buildScript(DURATION);
   await g.page.evaluate((s) => window.__harness.runScript(s), script);
   const stats = await g.page.evaluate(() => window.__harness.getStats());
+  // 플레이 중 생성된 프로그램의 정체 (harness 프로그램 생성 훅 — 부팅분 frame=-1 제외)
+  const compileLog = await g.page.evaluate(() =>
+    (window.__harness.getCompileLog?.() ?? []).filter((e) => e.frame >= 0));
   await g.close();
 
   // 인덱스 정렬: frameTimes[i]는 레코드 i ↔ i+1 사이의 간격이다.
@@ -253,6 +256,8 @@ for (let run = 0; run < RUNS; run++) {
       // 리셋 직후 첫 프레임들의 지연 컴파일이 §0(1)이 잡으라는 바로 그 실패다.
       compiledDuringPlay:
         (stats.programCountPerFrame.at(-1) ?? 0) - (stats.programCountPerFrame[0] ?? 0),
+      // 위반 시 범인: {name, tags(define 식별), frame, stack} — 하네스 생성 훅 기록
+      compileLog,
     },
   });
 }

@@ -298,6 +298,22 @@ export function installHarness(ctx) {
     },
 
     /**
+     * 컴파일된 프로그램 목록 — "플레이 중 컴파일 0" 위반 시 범인 특정용.
+     * cacheKey는 defines 나열이라 길다: 해시 + 식별 define 몇 개만 추린다.
+     */
+    getProgramList() {
+      const progs = renderer.info.programs ?? [];
+      return progs.map((p) => {
+        const key = String(p.cacheKey ?? '');
+        let h = 0x811c9dc5;
+        for (let i = 0; i < key.length; i++) { h = Math.imul(h ^ key.charCodeAt(i), 0x01000193) >>> 0; }
+        const tags = ['USE_ENVMAP', 'USE_SHADOWMAP', 'USE_FOG', 'TRANSPARENT', 'ALPHATEST', 'USE_INSTANCING',
+          'DEPTH_PACKING', 'USE_EMISSIVE', 'DOUBLE_SIDED', 'CSM_CASCADES'].filter((t) => key.includes(t));
+        return { name: p.name, usedTimes: p.usedTimes, keyHash: h.toString(16), tags };
+      });
+    },
+
+    /**
      * PATCH-004-C 합성 고부하 — 파티클 n개 강제 방출 (overdraw_estimate 반응성
      * 검증 전용). 시드 스트림 기반 emit이라 결정적. 계약 캡처에 쓰지 마라.
      */
@@ -392,6 +408,34 @@ export function installHarness(ctx) {
     /* 내부 배선 (main.js 전용) */
     _internal: { state, stepSim, simSubstep, renderFrame, scriptTick },
   };
+
+  /**
+   * 프로그램 생성 훅 — "플레이 중 컴파일 0" 위반의 범인 특정 (C2 실측: profile
+   * run 2에서 1건이 게임플레이 조건부로 발생, 사후 목록 diff로는 원인 불명).
+   * three WebGLPrograms.acquireProgram이 renderer.info.programs.push(program)를
+   * 호출하므로 push를 감싸 생성 시점의 이름·define 태그·프레임·스택을 남긴다.
+   * 픽셀·순열 무영향 (기록만). 부팅 중 생성분은 frame=-1로 구분한다.
+   */
+  const compileLog = [];
+  {
+    const progs = renderer.info.programs;
+    const origPush = progs.push.bind(progs);
+    progs.push = (p) => {
+      const key = String(p?.cacheKey ?? '');
+      compileLog.push({
+        name: p?.name ?? '?',
+        tags: ['USE_ENVMAP', 'USE_SHADOWMAP', 'TRANSPARENT', 'ALPHATEST', 'USE_INSTANCING',
+          'DEPTH_PACKING', 'DOUBLE_SIDED', 'FLIP_SIDED', 'USE_UV', 'USE_NORMALMAP', 'USE_MAP',
+          'USE_EMISSIVEMAP', 'USE_ROUGHNESSMAP', 'USE_METALNESSMAP', 'SKINNING', 'USE_MORPHTARGETS']
+          .filter((t) => key.includes(t)),
+        frame: clock.bootMs ? clock.frame : -1,
+        shotFrame: state.shotFrame,
+        stack: (new Error().stack ?? '').split('\n').slice(2, 9).map((s) => s.trim()).join(' | '),
+      });
+      return origPush(p);
+    };
+  }
+  harness.getCompileLog = () => compileLog.map((e) => ({ ...e }));
 
   window.__harness = harness;
   return harness;
