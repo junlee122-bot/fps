@@ -27,6 +27,9 @@ import { clock } from '../core/clock.js';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { FogPass } from './fog.js';
 
+/** 야간 돔 환경광 강도 (apply 주석 — 팔레트 §4 야간 암부 교정, C3) */
+export const NIGHT_ENV_INTENSITY = 0.5;
+
 export class SkySystem {
   constructor({ scene, renderer, bus }) {
     this.scene = scene;
@@ -153,7 +156,11 @@ export class SkySystem {
     this.scene.environment = this._envRT.texture;
     // 환경광 강도는 샷 주변광(hemi)에 종속 — 기본 1.0은 실내까지 하늘 IBL로
     // 침수시켜 역광·실내 무드를 파괴한다 (C2 실측: meanLum 39→156 백화)
-    this.scene.environmentIntensity = THREE.MathUtils.clamp(hemi * 0.7, 0.03, 0.5);
+    // 야간(C3 교정): hemi 0.05 → 0.035로는 야간 돔(0.01–0.05)의 조도가 ≈0.001 — 등롱 감쇠부·처마 밑이
+    // AgX 토(V<0.2)에 잠겨 온색 채도가 2–3배 증폭됐다(입력 sat .13 → 출력 .26–.40, 오프라인 AgX 포트 실측;
+    // lantern_night 팔레트 10.3% 위반). 야간 하늘광(청 220°)을 물리 수준 근처로 올려 암부를 토 밖으로 끌어올리고
+    // 온색을 중화한다 — 근거·수치는 CONTRACT-NOTES C3 기록.
+    this.scene.environmentIntensity = night ? NIGHT_ENV_INTENSITY : THREE.MathUtils.clamp(hemi * 0.7, 0.03, 0.5);
 
     // 안개 구성 (sky 소유 — 파이프라인이 this.fog를 읽는다)
     this.fog = {
