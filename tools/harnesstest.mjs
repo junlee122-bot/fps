@@ -20,6 +20,8 @@
  * 12. paletteaudit — 음성 훅 (자색 300° 패치 주입) → exit 1 (P3 §4)
  * 13. albedoaudit — 음성 훅 (알베도 1/3 위조) → exit 1 (P3 §5)
  * 14. determinismaudit — 음성 훅 (Math.random 가상 주입) → exit 1 (PATCH-004-B)
+ * 15. profile — 음성 훅 (--inject-noroof: 사격 앙각 지면) → SCENARIO-INVALID + exit 1 (C2 검토)
+ * 16. profile — 양성: 실제 동선이 ROOF_TILE 피격·기와 낙하를 실측 (축소 조건, 시나리오 유효성만)
  */
 
 import { spawnSync } from 'node:child_process';
@@ -285,6 +287,38 @@ function makePng(path, px) {
   record(14, 'determinismaudit 음성 테스트 (Math.random 가상 주입)',
     clean.code === 0 && r.code === 1 && marked && viol > 0,
     `clean=${clean.code} inject=${r.code} 표식=${marked} 위반=${viol}건`);
+}
+
+/* ---- 15. profile 시나리오 유효성 게이트 음성 테스트 (C2 검토) ----
+ * 사격 앙각을 지면으로 바꾼 입력(--inject-noroof) — ROOF_TILE 피격 0 → 반드시
+ * SCENARIO-INVALID 배너 + testOverride + exit 1. 축소 조건(14s/1run/DPR1 640×400)이라
+ * NON-CONTRACT 배너도 함께 나와야 한다. 동선 도달에 시뮬 시간 ≥12s가 필요해 14s. */
+const SHORT = ['--duration', '14', '--runs', '1', '--dpr', '1', '--w', '640', '--h', '400', '--phase', 'p3'];
+{
+  const r = runAudit('node', ['tools/profile.mjs', ...SHORT, '--inject-noroof']);
+  let marked = false, banner = false, valid = null, roof = null;
+  try {
+    const j = JSON.parse(r.out);
+    marked = String(j.testOverride ?? '').includes('inject-noroof');
+    banner = (j.banners ?? []).some((b) => b.startsWith('SCENARIO-INVALID')) && (j.banners ?? []).some((b) => b.startsWith('NON-CONTRACT'));
+    valid = j.scenario?.valid; roof = j.scenario?.roofTileHits_min;
+  } catch { /* fail */ }
+  record(15, 'profile 시나리오 유효성 음성 테스트 (--inject-noroof)', r.code === 1 && marked && banner && valid === false,
+    `exit=${r.code} 표식=${marked} 배너=${banner} valid=${valid} roofHits=${roof}`);
+}
+
+/* ---- 16. profile 시나리오 유효성 양성 — 실제 동선이 ROOF_TILE을 맞히고 기와가 떨어진다 ----
+ * 축소 조건이라 성능 판정은 무효(NON-CONTRACT)지만 시나리오 유효성은 동선의 함수다. */
+{
+  const r = runAudit('node', ['tools/profile.mjs', ...SHORT]);
+  let valid = null, roof = null, debris = null, banner = false;
+  try {
+    const j = JSON.parse(r.out);
+    valid = j.scenario?.valid; roof = j.scenario?.roofTileHits_min; debris = j.scenario?.debrisSpawned_min;
+    banner = (j.banners ?? []).some((b) => b.startsWith('SCENARIO-INVALID'));
+  } catch { /* fail */ }
+  record(16, 'profile 시나리오 유효성 양성 (동선 실측: ROOF_TILE 피격·기와 낙하)', valid === true && !banner && (roof ?? 0) > 0 && (debris ?? 0) > 0,
+    `exit=${r.code} valid=${valid} roofHits=${roof} debris=${debris}`);
 }
 
 const ok = results.every((r) => r.pass);

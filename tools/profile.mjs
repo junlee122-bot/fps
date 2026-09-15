@@ -85,18 +85,31 @@ if (args['print-config']) {
 
 /**
  * P2B 게임플레이 스크립트 — §7 최악 시나리오 포함:
- * 지붕 카빈 연사(기와 파편 낙하 + ceramic_shatter 다발) → 근접 산탄 연사
+ * 기와갓 카빈 근접 연사(기와 파편 낙하 + ceramic_shatter 다발) → 근접 산탄 연사
  * (펌프 에지 — fire 토글 세그먼트) → 장전 → 이동/점프 커버리지.
+ *
+ * C2 검토 교정: 종전 동선('sprint_north 1.5s → 동헌 지붕 pitch 0.15')은 spawn 정북의
+ * 석등(0,16) 갓에 막혀 사격 전부가 0.35m 앞 화강암에 박혔다(ROOF_TILE 0 — 하네스
+ * 히트 로그 실측). 지금 동선은 석등 앞에서 동쪽으로 꺾어 동측 담장까지 달려(벽에
+ * 눌려 정지 — 저 fps에서도 도달) 담장 기와갓(ROOF_TILE, 눈높이 1.7~1.9 어디서든
+ * pitch 0.15가 갓 판/용마루에 닿는다)을 근접 연사한다. 유효성은 의도가 아니라
+ * 실측(scenario.valid: ROOF_TILE 피격>0 ∧ 파편 스폰>0)으로 판정한다.
+ *
+ * --inject-noroof: harnesstest 전용 음성 입력 — 사격 앙각을 −0.6(지면)으로 바꿔
+ * 시나리오 게이트가 반드시 SCENARIO-INVALID + exit 1을 내야 한다.
  */
+const INJECT_NOROOF = args['inject-noroof'] === true;
 function buildScript(duration) {
+  const firePitch = INJECT_NOROOF ? -0.6 : 0.15;
   const cycle = [
-    { dur: 1.5, input: { forward: 1, right: 0, sprint: true, fire: false, reload: false, pitch: 0 }, tag: 'sprint_north' },
-    // 동헌 지붕 조준 카빈 연사 — 기와 낙하 + 파편 + 예광 + 데칼 누적 (최악 필레이트).
-    // pitch 0.15: 마당(z≈14)에서 동헌 지붕면(처마 5.2~용마루 7.35m) 앙각 실측치
-    { dur: 2.4, input: { forward: 0, sprint: false, weaponSwitch: 'CARBINE', pitch: 0.15, fire: true }, tag: 'fire_roof_debris' },
+    { dur: 0.8, input: { forward: 1, right: 0, sprint: true, fire: false, reload: false, pitch: 0, yaw: 0 }, tag: 'sprint_north' },
+    // 동측 담장까지 질주 — 벽에 눌려 멈추므로 fps·시뮬 시간 손실과 무관하게 도달
+    { dur: 9.0, input: { yaw: -Math.PI / 2 }, tag: 'sprint_east' },
+    // 담장 기와갓 근접 카빈 연사 — 기와 낙하 + 파편 + 예광 + 데칼 누적 (최악 필레이트)
+    { dur: 2.4, input: { forward: 0, sprint: false, weaponSwitch: 'CARBINE', pitch: firePitch, fire: true }, tag: 'fire_roof_debris' },
     { dur: 2.4, input: { fire: false, reload: true, pitch: 0.1 }, tag: 'reload_carbine' },
     // 근접 산탄 — 펌프는 트리거 에지라 on/off 토글 (1.0s 주기 > 0.857s 간격)
-    { dur: 0.5, input: { reload: false, weaponSwitch: 'SHOTGUN', pitch: 0.05, fire: true }, tag: 'shotgun_1' },
+    { dur: 0.5, input: { reload: false, weaponSwitch: 'SHOTGUN', pitch: firePitch, fire: true }, tag: 'shotgun_1' },
     { dur: 0.5, input: { fire: false }, tag: 'pump_1' },
     { dur: 0.5, input: { fire: true }, tag: 'shotgun_2' },
     { dur: 0.5, input: { fire: false }, tag: 'pump_2' },
@@ -162,6 +175,11 @@ for (let run = 0; run < RUNS; run++) {
   const harnessErrors = await g.page.evaluate(() => window.__harness.getErrors());
   const determinism = await g.page.evaluate(() => window.__harness.getDeterminism?.() ?? null);
   const prewarm = await g.page.evaluate(() => window.__prewarm ?? null);
+  // 시나리오 유효성 (C2 검토): "지붕 카빈 연사 → 기와 낙하"가 실제로 일어났는지를
+  // 계측(표면별 탄도 히트·파편 스폰)으로 판정한다 — 의도 태그가 아니라 실측이 기준.
+  // (P2B~C2의 스크립트는 spawn 북쪽 석등(0,16)에 막혀 화강암 갓을 근접 사격하고 있었다.)
+  const hitLog = await g.page.evaluate(() => window.__harness.getHitLog?.() ?? { bySurface: {} });
+  const fxState = await g.page.evaluate(() => window.__harness.getFxState?.() ?? null);
   await g.close();
 
   // 인덱스 정렬: frameTimes[i]는 레코드 i ↔ i+1 사이의 간격이다.
@@ -269,6 +287,13 @@ for (let run = 0; run < RUNS; run++) {
     },
     harnessErrors,
     determinism,
+    scenario: {
+      hitsBySurface: hitLog.bySurface,
+      roofTileHits: hitLog.bySurface.ROOF_TILE ?? 0,
+      debrisSpawned: fxState?.debris?.spawnedTotal ?? 0,
+      particlesEmitted: fxState?.particles?.emittedTotal ?? 0,
+      valid: (hitLog.bySurface.ROOF_TILE ?? 0) > 0 && (fxState?.debris?.spawnedTotal ?? 0) > 0,
+    },
     prewarm: prewarm ? { ms: prewarm.ms, programsAfter: prewarm.programsAfter, breakdown: prewarm.breakdown, msPerProgramOverall: prewarm.msPerProgramOverall } : null,
   });
 }
@@ -350,14 +375,18 @@ const leadingPass = Object.values(leading).every((v) => v.pass);
 const banners = [];
 if (NON_CONTRACT) banners.push('NON-CONTRACT MEASUREMENT — 계약 조건(30s/3runs/DPR2) 미달. 게이트 판정에 쓰지 마라');
 if (environment.softwareGL) banners.push('GPU-INVALID — 소프트웨어 렌더러. gpuDependent 섹션은 절대 성능 판정에 무효');
+const scenarioValid = runs.every((r) => r.scenario?.valid);
+if (!scenarioValid) banners.push('SCENARIO-INVALID — 최악 시나리오(ROOF_TILE 피격·기와 낙하)가 실측되지 않았다. 측정치는 최악 부하가 아니며 게이트 판정 무효');
 
 const summary = {
   banners,
+  ...(INJECT_NOROOF ? { testOverride: 'inject-noroof(앙각 −0.6) — harnesstest 전용, 계약 판정 무효' } : {}),
   contract: { duration: DURATION, runs: RUNS, dpr: DPR, w: W, h: H, warmup: WARMUP_FRAMES, nonContract: NON_CONTRACT },
   environment,
   phase: PHASE,
   /** 환경 무관 선행지표 — 이 섹션이 P1 이후 패스 게이트다 */
   leadingIndicators: { ...leading, pass: leadingPass },
+  scenario: { valid: scenarioValid, roofTileHits_min: Math.min(...runs.map((r) => r.scenario?.roofTileHits ?? 0)), debrisSpawned_min: Math.min(...runs.map((r) => r.scenario?.debrisSpawned ?? 0)), hitsBySurface_run0: runs[0]?.scenario?.hitsBySurface ?? null },
   shaderCompilesDuringPlay_max: Math.max(...runs.map((r) => r.programs.compiledDuringPlayStrict)),
   harnessErrors_total: runs.reduce((a, r) => a + (r.harnessErrors?.length ?? 0), 0),
   determinism_simWindowTotal_max: Math.max(...runs.map((r) => r.determinism?.simWindowTotal ?? 0)),
@@ -377,4 +406,4 @@ console.log(JSON.stringify(summary, null, 2));
 
 // 게이트: 선행지표 초과 또는 플레이 중 셰이더 컴파일 발생 시 실패
 const compileFail = summary.shaderCompilesDuringPlay_max > 0;
-process.exit(leadingPass && !compileFail ? 0 : 1);
+process.exit(leadingPass && !compileFail && scenarioValid ? 0 : 1);

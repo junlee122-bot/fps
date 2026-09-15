@@ -71,9 +71,11 @@ export function installHarness(ctx) {
 
   /** 탄도 히트 로그 (링 64) — 스크립트가 의도한 표면을 실제로 맞히는지의 계측 근거 (C2 검토) */
   const hitLog = [];
+  let hitCounts = {}; // 표면별 누적 (resetState로 비움) — 스크립트 시나리오 유효성 판정용
   bus.on('ballistic:hit', (e) => {
     hitLog.push({ frame: clock.frame, surfaceType: e.surfaceType, worldPos: e.worldPos.map((v) => +v.toFixed(2)) });
     if (hitLog.length > 64) hitLog.shift();
+    hitCounts[e.surfaceType] = (hitCounts[e.surfaceType] ?? 0) + 1;
   });
 
   const errors = [];
@@ -247,6 +249,7 @@ export function installHarness(ctx) {
       state.pendingActions = [];
       state.testOverride = null;
       hitLog.length = 0;
+      hitCounts = {};
       applyDefaultView();
       return { ok: true };
     },
@@ -309,9 +312,9 @@ export function installHarness(ctx) {
       };
     },
 
-    /** 최근 탄도 히트 [{frame, surfaceType, worldPos}] — resetState로 비움 */
+    /** 탄도 히트 — recent: 최근 64 [{frame, surfaceType, worldPos}], bySurface: 표면별 누적. resetState로 비움 */
     getHitLog() {
-      return hitLog.slice();
+      return { recent: hitLog.slice(), bySurface: { ...hitCounts } };
     },
 
     getErrors() {
