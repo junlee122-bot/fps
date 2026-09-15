@@ -206,11 +206,13 @@ function salmiGeometry(D = 0.15) {
 
 /** 공포 부재 인스턴스 계열 등록 (Assembler에 1회) */
 export function defineBracketParts(A) {
-  A.defineInstanced('judu', gupBlockGeometry(0.36, 0.24), 'WOOD_COLUMN', { collide: true });
-  A.defineInstanced('soro', gupBlockGeometry(0.15, 0.115), 'WOOD_COLUMN', { collide: false }); // 소단면 — 시각
-  A.defineInstanced('cheomcha', cheomchaGeometry(), 'WOOD_COLUMN', { collide: true });
-  A.defineInstanced('haenggong', haenggongGeometry(), 'WOOD_COLUMN', { collide: false });
-  A.defineInstanced('salmi', salmiGeometry(), 'WOOD_COLUMN', { collide: true });
+  // P3 C3 §10 단청 배치: 공포 부재는 목재(물성) 위 단청 시각층 — 재질 DANCHEONG, 관통 체인에 DECAL 층
+  const D = { decal: 'DANCHEONG' };
+  A.defineInstanced('judu', gupBlockGeometry(0.36, 0.24), 'WOOD_COLUMN', { collide: true, ...D });
+  A.defineInstanced('soro', gupBlockGeometry(0.15, 0.115), 'WOOD_COLUMN', { collide: false, ...D }); // 소단면 — 시각
+  A.defineInstanced('cheomcha', cheomchaGeometry(), 'WOOD_COLUMN', { collide: true, ...D });
+  A.defineInstanced('haenggong', haenggongGeometry(), 'WOOD_COLUMN', { collide: false, ...D });
+  A.defineInstanced('salmi', salmiGeometry(), 'WOOD_COLUMN', { collide: true, ...D });
 }
 
 /** 출목 기하 상수 */
@@ -291,11 +293,13 @@ const _scale = new THREE.Vector3(1, 1, 1);
 const _mat4 = new THREE.Matrix4();
 
 export class Assembler {
-  constructor(scene, physics, mats) {
+  constructor(scene, physics, mats, matOf = MAT_OF) {
     this.group = new THREE.Group();
     this.group.name = 'gwana';
     this.physics = physics;
     this.mats = mats;
+    /** 표면 → 재질 키. P3 C3부터 materials 세트가 주입한다(기본은 회색 규율 MAT_OF) */
+    this.matOf = matOf;
     this.geoCache = new Map();
     /** key → { geometry, matKey, surface, collide, layer, shadow, xforms: [] } */
     this.inst = new Map();
@@ -309,6 +313,12 @@ export class Assembler {
     let g = this.geoCache.get(key);
     if (!g) {
       g = new THREE.BoxGeometry(w, h, d);
+      // 박스 치수 속성 (P3 C3): 표면 셰이더의 에지 마모·단청 로컬 매핑이 읽는다.
+      // 정점 수·위치 불변(§9 동결) — 상수 속성만 추가. 치수가 없는 지오메트리는 0으로 읽힌다.
+      const n = g.attributes.position.count;
+      const dims = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) { dims[i * 3] = w; dims[i * 3 + 1] = h; dims[i * 3 + 2] = d; }
+      g.setAttribute('aBoxDims', new THREE.BufferAttribute(dims, 3));
       this.geoCache.set(key, g);
     }
     return g;
@@ -317,9 +327,11 @@ export class Assembler {
   /** 단일 메시 추가. visible=false면 렌더 제외(순수 콜라이더 — 얇은 창호지용) */
   mesh(name, surface, geometry, x, y, z, {
     rx = 0, ry = 0, rz = 0, collide = true, layer = this.LAYER_STATIC,
-    visible = true, matKey = null, shadow = true,
+    visible = true, matKey = null, shadow = true, decal = null,
   } = {}) {
-    const m = new THREE.Mesh(geometry, this.mats[matKey ?? MAT_OF[surface]]);
+    // decal(DANCHEONG/LACQUER): 시각 층 — 재질은 decal 키(세트에 있을 때), 물성은 surface 유지
+    const key = matKey ?? (decal && this.mats[decal] ? decal : this.matOf[surface]);
+    const m = new THREE.Mesh(geometry, this.mats[key]);
     m.name = name;
     m.position.set(x, y, z);
     m.rotation.set(rx, ry, rz);
@@ -327,8 +339,9 @@ export class Assembler {
     m.receiveShadow = visible;
     m.visible = visible;
     m.userData.surface = surface;
+    if (decal) m.userData.decal = decal;
     this.group.add(m);
-    if (collide) this.physics.addStaticMesh(m, surface, layer);
+    if (collide) this.physics.addStaticMesh(m, surface, layer, { decal });
     return m;
   }
 
@@ -337,9 +350,10 @@ export class Assembler {
   }
 
   /** 인스턴스 계열 정의 (같은 key로 place를 반복) */
-  defineInstanced(key, geometry, surface, { collide = true, layer = this.LAYER_STATIC, matKey = null, shadow = true } = {}) {
+  defineInstanced(key, geometry, surface, { collide = true, layer = this.LAYER_STATIC, matKey = null, shadow = true, decal = null } = {}) {
     if (this.inst.has(key)) throw new Error(`instanced key redefined: ${key}`);
-    this.inst.set(key, { geometry, matKey: matKey ?? MAT_OF[surface], surface, collide, layer, shadow, xforms: [] });
+    const mk = matKey ?? (decal && this.mats[decal] ? decal : this.matOf[surface]);
+    this.inst.set(key, { geometry, matKey: mk, surface, collide, layer, shadow, decal, xforms: [] });
   }
 
   place(key, x, y, z, rx = 0, ry = 0, rz = 0, s = 1) {
@@ -381,9 +395,10 @@ export class Assembler {
         im.castShadow = rec.shadow;
         im.receiveShadow = true;
         im.userData.surface = rec.surface;
+        if (rec.decal) im.userData.decal = rec.decal;
         im.computeBoundingSphere(); // 인스턴스 전개 기준 스피어 — 컬링의 근거
         this.group.add(im);
-        if (rec.collide) this.physics.addStaticMesh(im, rec.surface, rec.layer);
+        if (rec.collide) this.physics.addStaticMesh(im, rec.surface, rec.layer, { decal: rec.decal });
         batchCount++;
       }
       created.push({ key, count: rec.xforms.length, batches: batchCount });

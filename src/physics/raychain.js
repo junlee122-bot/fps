@@ -110,6 +110,17 @@ export function collectRayChain(staticWorld, ox, oy, oz, dx, dy, dz, maxDist = 1
         return true;
       }
       objOpen.set(h.object, { entryT: t });
+      // 시각 DECAL 층(단청·옻칠): 오브젝트에 decal 태그가 있으면 하부재 진입점에 두께 0 가상층을
+      // 먼저 넣는다 — 관통은 하부재가 결정(DECAL은 스킵), 히트 이벤트는 박리 데칼·오디오가 소비한다.
+      // 정점 추가 없이(§9 동결) 층 구조만 표현한다. entryT 동일 → 안정 정렬로 하부재 앞에 남는다.
+      const decal = staticWorld.objects[h.object]?.decal;
+      if (decal) {
+        layers.push({
+          surface: decal, thicknessCm: 0, entryT: t, exitT: t,
+          objectId: h.object, objectName: objName,
+          entry: [h.px, h.py, h.pz], normal: [h.nx, h.ny, h.nz],
+        });
+      }
       surfEnter(sIdx, t, h.object, objName, [h.px, h.py, h.pz], [h.nx, h.ny, h.nz]);
     } else {
       // 짝수 번째 교차 — 출구

@@ -1,0 +1,232 @@
+/**
+ * src/materials/index.js — 조선 표면 재질 세트 (P3 C3, ARCHITECTURE §4 14종 + 등롱·수면).
+ *
+ * 각 재질 = 합성 레시피(synth.js) + 표면 셰이더 모드(surface-shader.js) + 물리 파라미터.
+ * 색은 §4 팔레트 대역 안에서만 고른다 — 청·하늘 175–240°, 적 355–15°, 황 40–60°,
+ * 목재·흙 20–40°(채도 ≤0.35), 중성(채도 <0.10). 이 파일의 색 상수가 곧 팔레트 규율의 근거다.
+ *
+ * 매니페스트(albedo-manifest.json)는 "의도한 알베도 휘도"를 선언하고, albedoaudit이 합성
+ * 결과의 실측 평균(userData.albedoLum)과 대조한다 — 조명을 맞추려 알베도를 깎으면 diff에 남는다.
+ *
+ * 프로그램 수: 셰이더 모드 조합을 소수로 고정(TRI / TRI+POM / TRI+WEAR / TRI+POM+WEAR /
+ * LOCAL+WEAR / 무패치 UV). 재질이 달라도 조합이 같으면 프로그램을 공유한다.
+ *
+ * 크로스 서브시스템 import 없음: three + core만. renderer는 주입.
+ */
+
+import * as THREE from 'three';
+import { ProceduralSynth, PAT, V4 } from './synth.js';
+import { applySurfaceShader } from './surface-shader.js';
+
+// three r152+: Color.setHex는 sRGB 입력을 작업 색공간(선형)으로 변환한다 — 추가 변환 금지(이중 변환 실측: 알베도 1/4)
+const C = (hex) => new THREE.Color(hex);
+
+/**
+ * 레시피 필드 (유니폼 vec4 의미):
+ *  L0 [scale, octaves, seedOff, stretchY] 모틀 FBM      L1 [scale, octaves, seedOff, stretchY] 결 FBM(이방성)
+ *  L2 [scale, seedOff, mode(0균열/1반점/2셀무작위), width]  L3 [scale, seedOff, -, -] 미세 값노이즈
+ *  gate [scale, seedOff, thresh(0=없음), -]  remap [l0lo, l0hi, l1lo, l1hi] (hi>lo일 때 smoothstep 재매핑)
+ *  alb [spot→height, streak→colC 가중, spot→colD 가중, 균열 어둡기]
+ *  hgt [L0, streak, crack(−), L3]  rgh [base, dStreak, dCrack, dL0]  aom [aoCrack, metalA, metalB, patinaThresh(>1=없음)]
+ *  pat [type, a, b, c] — 패턴 연산 (synth.js PAT)
+ *  shader: { mode:'tri'|'local'|'uv', pom, wear, scale(1/m), pomScale(m), wearColor, wearWidth, wearAmount, localScale }
+ */
+export const RECIPES = Object.freeze({
+  GRANITE: {
+    size: 512, seed: 101, period: 4, intendedAlbedo: 0.30,
+    colA: C(0x9a9a97), colB: C(0x777775), colC: C(0xc8c8c4), colD: C(0xc8c8c4),
+    L0: V4(3, 5, 3, 1), L1: V4(1, 1, 9, 1), L2: V4(40, 5, 1, 0.12), L3: V4(48, 7, 0, 0), gate: V4(6, 5, 0.62, 0),
+    remap: V4(0, 0, 0, 0), alb: V4(0.03, 0, 0.5, 0), hgt: V4(0.18, 0, 0, 0.06), rgh: V4(0.9, 0, 0, 0.05), aom: V4(0, 0, 0, 2),
+    pat: V4(PAT.CHISEL, 14, 0.08, 0.62), normalStrength: 6,
+    shader: { mode: 'tri', pom: true, wear: true, scale: 0.9, pomScale: 0.015, wearColor: C(0xb9b9b5), wearWidth: 0.03, wearAmount: 0.5 },
+  },
+  WOOD_COLUMN: {
+    size: 512, seed: 202, period: 4, intendedAlbedo: 0.16,
+    colA: C(0x8c7660), colB: C(0x594b3c), colC: C(0x4a3d30), colD: C(0x3a2f25),
+    L0: V4(1, 3, 1, 1), L1: V4(1, 4, 2, 14), L2: V4(1, 0, 2, 0.9), L3: V4(60, 9, 0, 0), gate: V4(1, 0, 0, 0),
+    remap: V4(0, 0, 0.3, 0.7), alb: V4(0, 0.8, 0, 0), hgt: V4(0.04, 0.12, 0, 0.04), rgh: V4(0.82, -0.12, 0, 0), aom: V4(0, 0, 0, 2),
+    pat: V4(PAT.KNOTS, 2, 0.88, 0.3), normalStrength: 5,
+    shader: { mode: 'tri', pom: false, wear: true, scale: 1.2, wearColor: C(0xa89478), wearWidth: 0.02, wearAmount: 0.45 },
+  },
+  WOOD_PLANK: {
+    size: 512, seed: 203, period: 4, intendedAlbedo: 0.20,
+    colA: C(0x9c8468), colB: C(0x6b5a46), colC: C(0x55463a), colD: C(0x3a2f25),
+    L0: V4(1, 3, 4, 1), L1: V4(1, 4, 5, 18), L2: V4(1, 0, 2, 0.9), L3: V4(60, 9, 0, 0), gate: V4(1, 0, 0, 0),
+    remap: V4(0, 0, 0.3, 0.7), alb: V4(0, 0.8, 0, 0), hgt: V4(0.03, 0.1, 0, 0.03), rgh: V4(0.78, -0.12, 0, 0), aom: V4(0, 0, 0, 2),
+    pat: V4(PAT.KNOTS, 2, 0.85, 0.28), normalStrength: 4,
+    shader: { mode: 'tri', pom: false, wear: true, scale: 1.0, wearColor: C(0xb8a68a), wearWidth: 0.015, wearAmount: 0.4 },
+  },
+  WOOD_LATTICE: {
+    size: 256, seed: 204, period: 4, intendedAlbedo: 0.10,
+    colA: C(0x4a3d32), colB: C(0x382e27), colC: C(0x2d251f), colD: C(0x2d251f),
+    L0: V4(1, 3, 1, 1), L1: V4(1, 3, 2, 20), L2: V4(1, 0, 2, 0.99), L3: V4(60, 9, 0, 0), gate: V4(1, 0, 0, 0),
+    remap: V4(0, 0, 0.3, 0.7), alb: V4(0, 0.7, 0, 0), hgt: V4(0.02, 0.08, 0, 0.02), rgh: V4(0.8, -0.1, 0, 0), aom: V4(0, 0, 0, 2),
+    pat: V4(PAT.NONE, 0, 0, 0), normalStrength: 3,
+    shader: { mode: 'tri', pom: false, wear: false, scale: 2.0 },
+  },
+  DANCHEONG: {
+    size: 512, seed: 505, period: 4, intendedAlbedo: 0.26,
+    // 바탕(alb)은 박리 노출 목재, 패턴이 도장층: colA 청 · colB 적 · colC 황 · colD 백
+    colA: C(0x1d4f73), colB: C(0x8c2519), colC: C(0xd9b521), colD: C(0xe8e4dc),
+    L0: V4(2, 4, 1, 1), L1: V4(1, 4, 2, 12), L2: V4(1, 0, 2, 0.99), L3: V4(40, 3, 0, 0), gate: V4(1, 0, 0, 0),
+    remap: V4(0, 0, 0.35, 0.65), alb: V4(0, 0.3, 0, 0), hgt: V4(0.05, 0.06, 0, 0.02), rgh: V4(0.85, 0, 0, 0), aom: V4(0, 0, 0, 2),
+    pat: V4(PAT.DANCHEONG, 0.22, 6, 0.70), normalStrength: 4,
+    // 박리 바탕 목재색은 셰이더의 alb(mix(colA,colB,L0)) — 단청은 colA/colB가 도장색이라 바탕은 별도: peelBase
+    peelBase: [C(0x594b3c), C(0x4a3d30)],
+    shader: { mode: 'local', wear: true, wearColor: C(0x594b3c), wearWidth: 0.02, wearAmount: 0.7, localScale: 1 / 0.9 },
+  },
+  ROOF_TILE: {
+    size: 512, seed: 404, period: 4, intendedAlbedo: 0.07,
+    colA: C(0x3a3d42), colB: C(0x2b2e33), colC: C(0x59593a), colD: C(0x4a4d52),
+    L0: V4(6, 4, 1, 1), L1: V4(1, 1, 2, 1), L2: V4(1, 0, 2, 0.99), L3: V4(70, 2, 0, 0), gate: V4(2, 3, 0.58, 0),
+    remap: V4(0, 0, 0, 0), alb: V4(0, 0, 0, 0), hgt: V4(0.08, 0, 0, 0.03), rgh: V4(0.9, 0, 0, 0), aom: V4(0, 0, 0, 2),
+    pat: V4(PAT.WADANG, 0.08, 0, 0), normalStrength: 5,
+    moss: { gate: 0.6 }, // 이끼: 게이트 통과 영역을 colC(올리브 60°)로 — L0 재매핑 경로 사용
+    shader: { mode: 'tri', pom: true, wear: false, scale: 2.5, pomScale: 0.01 },
+  },
+  EARTH_WALL: {
+    size: 256, seed: 303, period: 4, intendedAlbedo: 0.25,
+    colA: C(0x948168), colB: C(0x7a6a55), colC: C(0xbfad73), colD: C(0x8f7d64),
+    L0: V4(4, 5, 1, 1), L1: V4(20, 3, 31, 0.08), L2: V4(5, 43, 0, 0.035), L3: V4(64, 4, 0, 0), gate: V4(2, 47, 0.45, 0),
+    remap: V4(0, 0, 0.56, 0.64), alb: V4(0, 0.8, 0, 0.45), hgt: V4(0.1, 0.05, 0.3, 0.04), rgh: V4(0.95, -0.1, 0, 0), aom: V4(0.35, 0, 0, 2),
+    pat: V4(PAT.NONE, 0, 0, 0), normalStrength: 6,
+    shader: { mode: 'tri', pom: true, wear: false, scale: 1.0, pomScale: 0.012 },
+  },
+  PLASTER: {
+    size: 256, seed: 304, period: 4, intendedAlbedo: 0.55,
+    colA: C(0xddd8ce), colB: C(0xc9c3b6), colC: C(0xc9c3b6), colD: C(0xc9c3b6),
+    L0: V4(3, 5, 1, 1), L1: V4(1, 1, 2, 1), L2: V4(3, 5, 0, 0.012), L3: V4(80, 2, 0, 0), gate: V4(1, 8, 0.6, 0),
+    remap: V4(0, 0, 0, 0), alb: V4(0, 0, 0, 0.3), hgt: V4(0.03, 0, 0.15, 0.03), rgh: V4(0.9, 0, 0, 0), aom: V4(0.2, 0, 0, 2),
+    pat: V4(PAT.NONE, 0, 0, 0), normalStrength: 4,
+    shader: { mode: 'tri', pom: false, wear: true, scale: 1.0, wearColor: C(0x948168), wearWidth: 0.03, wearAmount: 0.5 },
+  },
+  LACQUER: {
+    size: 256, seed: 606, period: 4, intendedAlbedo: 0.035,
+    colA: C(0x38110e), colB: C(0x1f0a08), colC: C(0x1f0a08), colD: C(0x1f0a08),
+    L0: V4(2, 4, 5, 1), L1: V4(1, 1, 2, 1), L2: V4(12, 3, 0, 0.015), L3: V4(40, 2, 0, 0), gate: V4(1, 0, 0, 0),
+    remap: V4(0, 0, 0, 0), alb: V4(0, 0, 0, 0.35), hgt: V4(0.01, 0, 0.06, 0), rgh: V4(0.12, 0, 0.25, 0), aom: V4(0, 0, 0, 2),
+    pat: V4(PAT.NONE, 0, 0, 0), normalStrength: 3,
+    shader: { mode: 'tri', pom: false, wear: false, scale: 1.0 },
+  },
+  FABRIC: {
+    size: 256, seed: 707, period: 4, intendedAlbedo: 0.45,
+    colA: C(0xccc0a3), colB: C(0xb5a98c), colC: C(0xb5a98c), colD: C(0xd8ccb0),
+    L0: V4(2, 4, 4, 1), L1: V4(1, 1, 2, 1), L2: V4(1, 0, 2, 0.99), L3: V4(90, 2, 0, 0), gate: V4(1, 0, 0, 0),
+    remap: V4(0, 0, 0, 0), alb: V4(0, 0, 0, 0), hgt: V4(0.02, 0, 0, 0.02), rgh: V4(0.95, 0, 0, 0), aom: V4(0, 0, 0, 2),
+    pat: V4(PAT.WEAVE, 48, 0.25, 0.08), normalStrength: 4,
+    shader: { mode: 'tri', pom: false, wear: false, scale: 1.0 },
+  },
+  THATCH: {
+    size: 256, seed: 808, period: 4, intendedAlbedo: 0.28,
+    colA: C(0x9e8c57), colB: C(0x615235), colC: C(0xbfad73), colD: C(0x615235),
+    L0: V4(1, 3, 1, 1), L1: V4(1, 4, 2, 40), L2: V4(1, 0, 2, 0.99), L3: V4(3, 6, 0, 0), gate: V4(1, 0, 0, 0),
+    remap: V4(0, 0, 0.3, 0.7), alb: V4(0, 0.5, 0, 0), hgt: V4(0.02, 0.06, 0, 0.06), rgh: V4(0.92, 0, 0, 0), aom: V4(0, 0, 0, 2),
+    pat: V4(PAT.ROWS, 6, 5, 0.2), normalStrength: 6,
+    shader: { mode: 'tri', pom: true, wear: false, scale: 1.0, pomScale: 0.02 },
+  },
+  BRONZE: {
+    size: 256, seed: 909, period: 4, intendedAlbedo: 0.12,
+    colA: C(0x524637), colB: C(0x4d807e), colC: C(0x4d807e), colD: C(0x6a9a97),
+    L0: V4(5, 5, 1, 1), L1: V4(1, 1, 2, 1), L2: V4(1, 0, 2, 0.99), L3: V4(60, 2, 0, 0), gate: V4(1, 0, 0, 0),
+    remap: V4(0.45, 0.7, 0, 0), alb: V4(0, 0, 0, 0), hgt: V4(0.05, 0, 0, 0.04), rgh: V4(0.55, 0, 0, 0.4), aom: V4(0, 0.85, 0.15, 0.45),
+    pat: V4(PAT.NONE, 0, 0, 0), normalStrength: 4,
+    shader: { mode: 'tri', pom: false, wear: false, scale: 1.5 },
+  },
+  PACKED_DIRT: {
+    size: 256, seed: 1010, period: 4, intendedAlbedo: 0.20,
+    colA: C(0x806f5c), colB: C(0x6b5d4c), colC: C(0x6b5d4c), colD: C(0xa39d92),
+    L0: V4(2, 5, 1, 1), L1: V4(1, 1, 2, 1), L2: V4(30, 5, 1, 0.06), L3: V4(90, 2, 0, 0), gate: V4(8, 9, 0.72, 0),
+    remap: V4(0, 0, 0, 0), alb: V4(0.1, 0, 0.7, 0), hgt: V4(0.08, 0, 0, 0.03), rgh: V4(0.96, 0, 0, 0), aom: V4(0, 0, 0, 2),
+    pat: V4(PAT.NONE, 0, 0, 0), normalStrength: 5,
+    shader: { mode: 'tri', pom: true, wear: false, scale: 0.7, pomScale: 0.01 },
+  },
+  HANJI: {
+    size: 256, seed: 1111, period: 4, intendedAlbedo: 0.72,
+    colA: C(0xe3e0d8), colB: C(0xd9cfb2), colC: C(0xf0ede6), colD: C(0xf0ede6),
+    L0: V4(1, 4, 7, 1), L1: V4(40, 3, 1, 0.04), L2: V4(1, 0, 2, 0.99), L3: V4(50, 2, 0, 0), gate: V4(1, 0, 0, 0),
+    remap: V4(0.5, 0.85, 0.55, 0.7), alb: V4(0, 0.5, 0, 0), hgt: V4(0, 0.03, 0, 0.01), rgh: V4(0.9, 0, 0, 0), aom: V4(0, 0, 0, 2),
+    pat: V4(PAT.NONE, 0, 0, 0), normalStrength: 2,
+    shader: { mode: 'uv' },
+  },
+  LANTERN: {
+    size: 256, seed: 1212, period: 4, intendedAlbedo: 0.55,
+    colA: C(0xd8cba8), colB: C(0xc9ba95), colC: C(0xc9ba95), colD: C(0xc9ba95),
+    L0: V4(2, 4, 3, 1), L1: V4(1, 1, 2, 1), L2: V4(1, 0, 2, 0.99), L3: V4(50, 1, 0, 0), gate: V4(1, 0, 0, 0),
+    remap: V4(0, 0, 0, 0), alb: V4(0, 0, 0, 0), hgt: V4(0.02, 0, 0, 0.02), rgh: V4(0.9, 0, 0, 0), aom: V4(0, 0, 0, 2),
+    pat: V4(PAT.RIBS, 8, 0.06, 0), normalStrength: 3,
+    emissive: C(0xffdf8e), emissiveIntensity: 1.1,
+    shader: { mode: 'uv' },
+  },
+  WATER: {
+    size: 256, seed: 1313, period: 4, intendedAlbedo: 0.19,
+    colA: C(0x6e7a80), colB: C(0x6e7a80), colC: C(0x6e7a80), colD: C(0x6e7a80),
+    L0: V4(3, 4, 1, 1), L1: V4(1, 1, 2, 1), L2: V4(1, 0, 2, 0.99), L3: V4(1, 0, 0, 0), gate: V4(1, 0, 0, 0),
+    remap: V4(0, 0, 0, 0), alb: V4(0, 0, 0, 0), hgt: V4(0.1, 0, 0, 0), rgh: V4(0.22, 0, 0, 0), aom: V4(0, 0, 0, 2),
+    pat: V4(PAT.NONE, 0, 0, 0), normalStrength: 2,
+    shader: { mode: 'uv' },
+  },
+});
+
+/** 표면 → 재질 키 (kit.MAT_OF를 C3에서 대체). 시각은 재질이, 물성은 표면 태그가 소유한다 */
+export const SURFACE_MAT = Object.freeze({
+  GRANITE: 'GRANITE', PACKED_DIRT: 'PACKED_DIRT', EARTH_WALL: 'EARTH_WALL', ROOF_SOIL: 'EARTH_WALL',
+  WOOD_COLUMN: 'WOOD_COLUMN', WOOD_PLANK: 'WOOD_PLANK', THATCH: 'THATCH', ROOF_TILE: 'ROOF_TILE',
+  WOOD_LATTICE: 'WOOD_LATTICE', HANJI: 'HANJI', WATER: 'WATER', BRONZE: 'BRONZE', FABRIC: 'FABRIC',
+});
+
+/**
+ * 재질 세트 생성. 반환 { mats, synth: { ms, breakdown }, textures: n }.
+ * mats: 킷 Assembler가 쓰는 키→재질 맵 (GREY_* 키는 호환용으로 남긴다 — 기존 물성 유지 재질).
+ * 셰이더 패치는 CSM 패치 이후여야 하므로 여기서는 하지 않는다 → finalizeSurfaceShaders(mats).
+ */
+export function createSurfaceMaterials({ renderer }) {
+  const synth = new ProceduralSynth({ renderer });
+  const mats = {};
+  for (const [key, r] of Object.entries(RECIPES)) {
+    const rc = { ...r, name: key };
+    if (key === 'DANCHEONG') { rc.colA = r.peelBase[0]; rc.colB = r.peelBase[1]; }
+    const tex = synth.generate(rc);
+    // 단청: 패턴 색은 도장 5색이지만 바탕(alb)은 목재 — 셰이더 uniform 순서상 colA/B가 바탕이므로
+    // 도장색은 colC/colD 자리로 넘길 수 없다 → 단청 레시피는 pat 분기에서 colA/colB/colC/colD를 도장색으로 쓴다.
+    // (합성 시 colA/colB = 도장 청/적, 바탕 목재는 remap 없이 mix(colA,colB,L0)… 아래 2차 생성으로 분리)
+    const m = new THREE.MeshStandardMaterial({
+      color: 0xffffff, roughness: 1.0, metalness: 1.0,
+      map: tex.map, normalMap: tex.normalMap, roughnessMap: tex.ormMap, metalnessMap: tex.ormMap, aoMap: tex.ormMap,
+      normalScale: new THREE.Vector2(1, 1),
+    });
+    if (r.emissive) { m.emissive = r.emissive; m.emissiveIntensity = r.emissiveIntensity; m.emissiveMap = tex.ormMap; /* R=산란 마스크 */ }
+    if (key === 'HANJI') { m.transparent = true; m.opacity = 0.62; m.side = THREE.DoubleSide; }
+    if (key === 'WATER') { m.transparent = true; m.opacity = 0.85; }
+    m.name = key;
+    m.userData.albedoLum = tex.albedoLum;
+    m.userData.surface = { mode: r.shader.mode, recipe: key };
+    m.userData.surfaceOpts = r.shader;
+    mats[key] = m;
+  }
+  // 곡면 기와 인스턴스용 UV 매핑 변형 — 텍스처 공유, 셰이더 무패치(원통 UV 그대로)
+  {
+    const t = mats.ROOF_TILE;
+    const m = t.clone(); m.name = 'ROOF_TILE_UV';
+    m.userData.albedoLum = t.userData.albedoLum;
+    m.userData.surfaceOpts = { mode: 'uv' };
+    mats.ROOF_TILE_UV = m;
+  }
+  // 호환 키: 뷰모델·감사 카드가 참조하는 회색 규율 재질은 유지 (P2A 캘리브레이션 불변)
+  const std = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.92, metalness: 0, ...extra });
+  mats.GREY_LIGHT = std(0x9a9a97); mats.GREY_MID = std(0x7b766f); mats.GREY_DARK = std(0x585b5f);
+  for (const k of ['GREY_LIGHT', 'GREY_MID', 'GREY_DARK']) mats[k].name = k;
+  synth.dispose();
+  return { mats, matOf: SURFACE_MAT, synth: { ms: +synth.totalMs.toFixed(0), breakdown: synth.breakdown } };
+}
+
+/** CSM 패치(pipeline.patchScene) 이후 호출 — 표면 셰이더 모드 적용 */
+export function finalizeSurfaceShaders(mats) {
+  let n = 0;
+  for (const m of Object.values(mats)) {
+    const o = m.userData.surfaceOpts;
+    if (!o || o.mode === 'uv') continue;
+    applySurfaceShader(m, o);
+    n++;
+  }
+  return n;
+}

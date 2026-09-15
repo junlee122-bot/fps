@@ -30,8 +30,8 @@ export class PhysicsWorld {
   }
 
   /** 월드 지오메트리 등록. 표면 태그 필수 (bakeMesh가 강제) */
-  addStaticMesh(mesh, surface, mask = LAYER.STATIC) {
-    return this.static.addMesh(mesh, surface, mask);
+  addStaticMesh(mesh, surface, mask = LAYER.STATIC, opts = {}) {
+    return this.static.addMesh(mesh, surface, mask, opts);
   }
 
   /** 등록 완료 후 1회 — BVH 빌드 */

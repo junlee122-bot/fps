@@ -28,6 +28,7 @@ import { setupAlbedoAudit } from './render/audit-cards.js';
 import { PhysicsWorld } from './physics/index.js';
 import { collectRayChain } from './physics/raychain.js';
 import { buildWorld } from './world/level.js';
+import { createSurfaceMaterials, finalizeSurfaceShaders } from './materials/index.js';
 import { PlayerInput } from './player/input.js';
 import { Player } from './player/player.js';
 import { FireControl } from './weapons/firecontrol.js';
@@ -69,7 +70,9 @@ lighting.sky = skySystem;
 pipeline.sky = skySystem;
 
 const physics = new PhysicsWorld();
-const world = buildWorld(scene, physics);
+// P3 C3: 절차 재질 세트 — 부팅 시 GPU 합성(이미지 에셋 0). 소요는 프리웜 분해에 편입(PATCH-004-A)
+const surfaceMaterials = createSurfaceMaterials({ renderer });
+const world = buildWorld(scene, physics, surfaceMaterials);
 const bvhInfo = physics.build();
 console.info(`[boot] bvh tris=${bvhInfo.tris} nodes=${bvhInfo.nodes} build=${bvhInfo.buildMs.toFixed(1)}ms`);
 console.info(`[boot] instanced: ${world.instanced.map((i) => `${i.key}×${i.count}`).join(' ')}`);
@@ -105,7 +108,10 @@ const opacityApplier = new OpacityApplier(hanjiPanes);
 // P2B FX — 기와 낙하 강체는 콜백 주입 (fx는 physics를 import하지 않는다)
 const debrisGeo = new THREE.BoxGeometry(0.18, 0.024, 0.13);
 // 킷 GREY_DARK와 동일 파라미터 — 같은 프로그램 순열 (컴파일 0 유지)
-const debrisMaterial = new THREE.MeshStandardMaterial({ color: 0x585b5f, roughness: 0.92, metalness: 0 });
+// C3: 낙하 기와는 지붕 기와 재질(텍스처 공유·같은 셰이더 모드) — 프로그램 공유로 컴파일 0 유지
+const debrisMaterial = surfaceMaterials.mats.ROOF_TILE.clone();
+debrisMaterial.userData.albedoLum = surfaceMaterials.mats.ROOF_TILE.userData.albedoLum;
+debrisMaterial.userData.surfaceOpts = surfaceMaterials.mats.ROOF_TILE.userData.surfaceOpts;
 debrisMaterial.name = 'FX_DEBRIS_TILE';
 // CSM 패치 — 런타임 스폰 재질은 patchScene 순회 밖이라 미패치 상태로 첫 파편 스폰
 // 프레임에 프로그램 +1(플레이 중 컴파일)과 3중 직사광 과노출을 냈다 (C2 검토 진범)
@@ -237,6 +243,9 @@ const harness = installHarness({
 
 /* ------------------------------------------------------------- 부팅 */
 pipeline.patchScene();   // CSM 재질 패치 — 클론·fx 포함 전 재질 (C1)
+// C3: 표면 셰이더(트라이플래너·POM·마모)는 CSM 훅을 체인하므로 CSM 패치 다음에 적용
+finalizeSurfaceShaders({ ...surfaceMaterials.mats, FX_DEBRIS_TILE: debrisMaterial });
+window.__materials = surfaceMaterials.synth; // { ms, breakdown } — 부팅 분해 계측 (profile 편입)
 fx.prewarmSpawn(camera); // fx 머티리얼 전 종 컴파일 보증 (P2B §6)
 // 프리웜은 저해상도로 — 프로그램 컴파일은 해상도 무관, 부팅 예산(§7 ≤4s)의
 // 지배 비용이 풀해상도 파이프라인 렌더 11회였다 (실측 7.1s → 축소로 회수)

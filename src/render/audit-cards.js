@@ -76,7 +76,11 @@ export function setupAlbedoAudit({ scene, camera, renderer, applySunRaw, patchMa
     // 판별 클론(HANJI@판이름 등)은 기본명으로 정규화 — 알베도 동일
     const base = mat.name.split('@')[0];
     if (!seen.has(base)) {
-      seen.set(base, +(0.2126 * mat.color.r + 0.7152 * mat.color.g + 0.0722 * mat.color.b).toFixed(4));
+      // C3: 절차 텍스처 재질은 합성 시 판독한 텍셀 평균 선형 휘도(userData.albedoLum)가 실제 알베도다
+      // (color=백색 × map). 무텍스처 재질은 종전대로 color 휘도.
+      const colorLum = 0.2126 * mat.color.r + 0.7152 * mat.color.g + 0.0722 * mat.color.b;
+      const lum = mat.userData?.albedoLum != null && mat.map ? mat.userData.albedoLum * colorLum : colorLum;
+      seen.set(base, +lum.toFixed(4));
     }
   };
   scene.traverse((o) => record(o.material));
@@ -87,7 +91,7 @@ export function setupAlbedoAudit({ scene, camera, renderer, applySunRaw, patchMa
     scene.traverse((o) => {
       const mat = o.material;
       if (mat?.isMeshStandardMaterial && !mat.name.startsWith('albedo_card')) {
-        mat.color.multiplyScalar(scaleAlbedo);
+        mat.color.multiplyScalar(scaleAlbedo); // 텍스처 재질도 color 승수라 동일하게 깎인다
       }
     });
     for (const [k] of seen) {

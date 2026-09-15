@@ -24,12 +24,14 @@ import {
 const CRATE_HALF = 0.35;
 const CRATE_MASS = 14;
 
-export function buildWorld(scene, physics) {
-  const mats = makeMaterials();
-  const A = new Assembler(scene, physics, mats);
+export function buildWorld(scene, physics, materials = null) {
+  // P3 C3: materials 세트({ mats, matOf })가 주입되면 절차 재질을, 아니면 회색 규율(P1) 재질을 쓴다
+  const mats = materials?.mats ?? makeMaterials();
+  const A = new Assembler(scene, physics, mats, materials?.matOf);
 
   /* ---------------------------------------------------- 공용 인스턴스 계열 */
-  A.defineInstanced('tile', tileGeometry(), 'ROOF_TILE', { collide: false, shadow: false });
+  // 곡면 기와 인스턴스는 원통 UV 매핑 재질(와당 무늬 정렬) — 주입 세트에 있을 때만
+  A.defineInstanced('tile', tileGeometry(), 'ROOF_TILE', { collide: false, shadow: false, matKey: mats.ROOF_TILE_UV ? 'ROOF_TILE_UV' : null });
   A.defineInstanced('rafter', rafterGeometry(2.6), 'WOOD_COLUMN', { collide: true });
   A.defineInstanced('choseok', new THREE.CylinderGeometry(T.CHOSEOK_D / 2, T.CHOSEOK_D / 2 + 0.04, T.CHOSEOK_H, 10), 'GRANITE', { collide: true });
   defineBracketParts(A); // 공포 부재 5종 (P1.5 §1-1)
@@ -38,7 +40,7 @@ export function buildWorld(scene, physics) {
   const doriGeoCache = new Map();
   function purlin(name, axis, x, y, z, len) {
     A.box(`${name}_jangyeo`, 'WOOD_COLUMN',
-      axis === 'x' ? len : 0.09, 0.15, axis === 'x' ? 0.09 : len, x, y + 0.075, z);
+      axis === 'x' ? len : 0.09, 0.15, axis === 'x' ? 0.09 : len, x, y + 0.075, z, { decal: 'DANCHEONG' });
     let g = doriGeoCache.get(`${axis}|${len}`);
     if (!g) {
       g = new THREE.CylinderGeometry(T.DORI_D, T.DORI_D, len, 10);
@@ -46,7 +48,7 @@ export function buildWorld(scene, physics) {
       else g.rotateX(Math.PI / 2);
       doriGeoCache.set(`${axis}|${len}`, g);
     }
-    A.mesh(`${name}_dori`, 'WOOD_COLUMN', g, x, y + 0.15 + T.DORI_D, z, {});
+    A.mesh(`${name}_dori`, 'WOOD_COLUMN', g, x, y + 0.15 + T.DORI_D, z, { decal: 'DANCHEONG' });
   }
 
   const colKeys = new Map(); // 높이별 기둥 인스턴스 계열
@@ -116,9 +118,11 @@ export function buildWorld(scene, physics) {
   }
 
   /** 심벽 베이 (100mm) */
-  function simBay(name, axis, cx, cy, cz, w, h) {
-    if (axis === 'x') A.box(name, 'EARTH_WALL', w, h, T.SIMBYEOK_T, cx, cy, cz);
-    else A.box(name, 'EARTH_WALL', T.SIMBYEOK_T, h, w, cx, cy, cz);
+  function simBay(name, axis, cx, cy, cz, w, h, matKey = null) {
+    // matKey 'PLASTER': 회벽 마감 심벽 (물성은 EARTH_WALL 그대로 — 시각만, P3 C3)
+    const opts = matKey && mats[matKey] ? { matKey } : {};
+    if (axis === 'x') A.box(name, 'EARTH_WALL', w, h, T.SIMBYEOK_T, cx, cy, cz, opts);
+    else A.box(name, 'EARTH_WALL', T.SIMBYEOK_T, h, w, cx, cy, cz, opts);
   }
 
   /** 판벽/판문 베이 (45mm) */
@@ -162,8 +166,8 @@ export function buildWorld(scene, physics) {
     A.box(`gate_jamb_${s}`, 'GRANITE', 1.1, 3.0, 1.4, s * (GATE_HW + 0.55), 1.5, WALL);
   }
   A.box('gate_lintel', 'WOOD_PLANK', 8.8, 0.4, 1.1, 0, 3.2, WALL);
-  A.box('gate_loft_front', 'WOOD_PLANK', 8.8, 1.3, T.PANBYEOK_T, 0, 4.05, WALL - 0.5);
-  A.box('gate_loft_back', 'WOOD_PLANK', 8.8, 1.3, T.PANBYEOK_T, 0, 4.05, WALL + 0.5);
+  A.box('gate_loft_front', 'WOOD_PLANK', 8.8, 1.3, T.PANBYEOK_T, 0, 4.05, WALL - 0.5, { decal: 'LACQUER' });
+  A.box('gate_loft_back', 'WOOD_PLANK', 8.8, 1.3, T.PANBYEOK_T, 0, 4.05, WALL + 0.5, { decal: 'LACQUER' });
   A.box('gate_loft_floor', 'WOOD_PLANK', 8.8, T.MARU_T, 1.1, 0, 3.42, WALL);
   addGableRoof(A, {
     namePrefix: 'gate', cx: 0, cz: WALL, axis: 'x',
@@ -191,12 +195,12 @@ export function buildWorld(scene, physics) {
     // 마루 (우물마루 40mm, 상면 1.0)
     A.box('dh_floor', 'WOOD_PLANK', 19.2, T.MARU_T, 11.2, cx, 1.0 - T.MARU_T / 2, cz);
     // 창방(퍼리미터) + 평방(다포)
-    A.box('dh_changbang_f', 'WOOD_COLUMN', 16.3, T.BEAM_H, T.BEAM_W, cx, colTop - T.BEAM_H / 2, -19.5);
-    A.box('dh_changbang_b', 'WOOD_COLUMN', 16.3, T.BEAM_H, T.BEAM_W, cx, colTop - T.BEAM_H / 2, -28.5);
-    A.box('dh_changbang_w', 'WOOD_COLUMN', T.BEAM_W, T.BEAM_H, 9.3, cx - 8, colTop - T.BEAM_H / 2, cz);
-    A.box('dh_changbang_e', 'WOOD_COLUMN', T.BEAM_W, T.BEAM_H, 9.3, cx + 8, colTop - T.BEAM_H / 2, cz);
-    A.box('dh_pyeongbang_f', 'WOOD_COLUMN', 16.6, 0.15, T.BEAM_H, cx, colTop + 0.075, -19.5);
-    A.box('dh_pyeongbang_b', 'WOOD_COLUMN', 16.6, 0.15, T.BEAM_H, cx, colTop + 0.075, -28.5);
+    A.box('dh_changbang_f', 'WOOD_COLUMN', 16.3, T.BEAM_H, T.BEAM_W, cx, colTop - T.BEAM_H / 2, -19.5, { decal: 'DANCHEONG' });
+    A.box('dh_changbang_b', 'WOOD_COLUMN', 16.3, T.BEAM_H, T.BEAM_W, cx, colTop - T.BEAM_H / 2, -28.5, { decal: 'DANCHEONG' });
+    A.box('dh_changbang_w', 'WOOD_COLUMN', T.BEAM_W, T.BEAM_H, 9.3, cx - 8, colTop - T.BEAM_H / 2, cz, { decal: 'DANCHEONG' });
+    A.box('dh_changbang_e', 'WOOD_COLUMN', T.BEAM_W, T.BEAM_H, 9.3, cx + 8, colTop - T.BEAM_H / 2, cz, { decal: 'DANCHEONG' });
+    A.box('dh_pyeongbang_f', 'WOOD_COLUMN', 16.6, 0.15, T.BEAM_H, cx, colTop + 0.075, -19.5, { decal: 'DANCHEONG' });
+    A.box('dh_pyeongbang_b', 'WOOD_COLUMN', 16.6, 0.15, T.BEAM_H, cx, colTop + 0.075, -28.5, { decal: 'DANCHEONG' });
     // 다포 3출목 — 기둥 위 + 주간포 실배치 (P1.5 §1-1: 출목 대비 동헌3 > 내아2 > 객사1)
     const brBase = colTop + 0.15; // 평방 위
     const CH_DH = 3;
@@ -283,13 +287,13 @@ export function buildWorld(scene, physics) {
       A.place(ck, cx + x, colBase, cz + z);
     }
     A.box('na_floor', 'WOOD_PLANK', w - 0.8, T.MARU_T, d - 0.8, cx, 1.0 - T.MARU_T / 2, cz);
-    A.box('na_changbang_f', 'WOOD_COLUMN', 10.2, T.BEAM_H, T.BEAM_W, cx, colTop - T.BEAM_H / 2, cz + 3);
-    A.box('na_changbang_b', 'WOOD_COLUMN', 10.2, T.BEAM_H, T.BEAM_W, cx, colTop - T.BEAM_H / 2, cz - 3);
-    A.box('na_changbang_w', 'WOOD_COLUMN', T.BEAM_W, T.BEAM_H, 6.2, cx - 5, colTop - T.BEAM_H / 2, cz);
-    A.box('na_changbang_e', 'WOOD_COLUMN', T.BEAM_W, T.BEAM_H, 6.2, cx + 5, colTop - T.BEAM_H / 2, cz);
+    A.box('na_changbang_f', 'WOOD_COLUMN', 10.2, T.BEAM_H, T.BEAM_W, cx, colTop - T.BEAM_H / 2, cz + 3, { decal: 'DANCHEONG' });
+    A.box('na_changbang_b', 'WOOD_COLUMN', 10.2, T.BEAM_H, T.BEAM_W, cx, colTop - T.BEAM_H / 2, cz - 3, { decal: 'DANCHEONG' });
+    A.box('na_changbang_w', 'WOOD_COLUMN', T.BEAM_W, T.BEAM_H, 6.2, cx - 5, colTop - T.BEAM_H / 2, cz, { decal: 'DANCHEONG' });
+    A.box('na_changbang_e', 'WOOD_COLUMN', T.BEAM_W, T.BEAM_H, 6.2, cx + 5, colTop - T.BEAM_H / 2, cz, { decal: 'DANCHEONG' });
     // 평방 (다포 필수 부재)
-    A.box('na_pyeongbang_f', 'WOOD_COLUMN', 10.4, 0.15, T.BEAM_H, cx, colTop + 0.075, cz + 3);
-    A.box('na_pyeongbang_b', 'WOOD_COLUMN', 10.4, 0.15, T.BEAM_H, cx, colTop + 0.075, cz - 3);
+    A.box('na_pyeongbang_f', 'WOOD_COLUMN', 10.4, 0.15, T.BEAM_H, cx, colTop + 0.075, cz + 3, { decal: 'DANCHEONG' });
+    A.box('na_pyeongbang_b', 'WOOD_COLUMN', 10.4, 0.15, T.BEAM_H, cx, colTop + 0.075, cz - 3, { decal: 'DANCHEONG' });
     // 다포 2출목
     const brBase = colTop + 0.15;
     const CH_NA = 2;
@@ -330,13 +334,13 @@ export function buildWorld(scene, physics) {
     }
     // 북면: 심벽
     for (const [x0, x1] of [[-5, -1.67], [-1.67, 1.67], [1.67, 5]]) {
-      simBay(`na_n_${x0}`, 'x', cx + (x0 + x1) / 2, (1.0 + colTop - T.BEAM_H) / 2, cz - 3, x1 - x0 - T.COL_D, colTop - T.BEAM_H - 1.0);
+      simBay(`na_n_${x0}`, 'x', cx + (x0 + x1) / 2, (1.0 + colTop - T.BEAM_H) / 2, cz - 3, x1 - x0 - T.COL_D, colTop - T.BEAM_H - 1.0, 'PLASTER');
     }
     // 동면: 문 개구(중앙) + 심벽
-    simBay('na_e_a', 'z', cx + 5, (1.0 + colTop - T.BEAM_H) / 2, cz - 1.95, 6 / 3 - T.COL_D + 0.4, colTop - T.BEAM_H - 1.0);
-    simBay('na_e_b', 'z', cx + 5, (1.0 + colTop - T.BEAM_H) / 2, cz + 1.95, 6 / 3 - T.COL_D + 0.4, colTop - T.BEAM_H - 1.0);
+    simBay('na_e_a', 'z', cx + 5, (1.0 + colTop - T.BEAM_H) / 2, cz - 1.95, 6 / 3 - T.COL_D + 0.4, colTop - T.BEAM_H - 1.0, 'PLASTER');
+    simBay('na_e_b', 'z', cx + 5, (1.0 + colTop - T.BEAM_H) / 2, cz + 1.95, 6 / 3 - T.COL_D + 0.4, colTop - T.BEAM_H - 1.0, 'PLASTER');
     // 실루엣 더미 (hanji_silhouette)
-    const dummy = new THREE.Mesh(new THREE.CapsuleGeometry(0.28, 1.1, 4, 12), mats.GREY_LIGHT);
+    const dummy = new THREE.Mesh(new THREE.CapsuleGeometry(0.28, 1.1, 4, 12), mats.FABRIC ?? mats.GREY_LIGHT);
     dummy.name = 'silhouette_dummy';
     dummy.position.set(cx - 2.5, 1.0 + 0.83, cz);
     dummy.castShadow = true;
@@ -360,10 +364,10 @@ export function buildWorld(scene, physics) {
       A.place(ck, cx + x, colBase, cz + z);
     }
     A.box('gs_floor', 'WOOD_PLANK', w - 0.8, T.MARU_T, d - 0.8, cx, 1.0 - T.MARU_T / 2, cz);
-    A.box('gs_changbang_f', 'WOOD_COLUMN', 12.2, T.BEAM_H, T.BEAM_W, cx, colTop - T.BEAM_H / 2, cz + 3.5);
-    A.box('gs_changbang_b', 'WOOD_COLUMN', 12.2, T.BEAM_H, T.BEAM_W, cx, colTop - T.BEAM_H / 2, cz - 3.5);
-    A.box('gs_changbang_w', 'WOOD_COLUMN', T.BEAM_W, T.BEAM_H, 7.2, cx - 6, colTop - T.BEAM_H / 2, cz);
-    A.box('gs_changbang_e', 'WOOD_COLUMN', T.BEAM_W, T.BEAM_H, 7.2, cx + 6, colTop - T.BEAM_H / 2, cz);
+    A.box('gs_changbang_f', 'WOOD_COLUMN', 12.2, T.BEAM_H, T.BEAM_W, cx, colTop - T.BEAM_H / 2, cz + 3.5, { decal: 'DANCHEONG' });
+    A.box('gs_changbang_b', 'WOOD_COLUMN', 12.2, T.BEAM_H, T.BEAM_W, cx, colTop - T.BEAM_H / 2, cz - 3.5, { decal: 'DANCHEONG' });
+    A.box('gs_changbang_w', 'WOOD_COLUMN', T.BEAM_W, T.BEAM_H, 7.2, cx - 6, colTop - T.BEAM_H / 2, cz, { decal: 'DANCHEONG' });
+    A.box('gs_changbang_e', 'WOOD_COLUMN', T.BEAM_W, T.BEAM_H, 7.2, cx + 6, colTop - T.BEAM_H / 2, cz, { decal: 'DANCHEONG' });
     // 주심포 1출목 — 기둥 위에만 (주간포 없음: 다포와의 대비가 목적)
     const brBase = colTop;
     const CH_GS = 1;
@@ -514,7 +518,7 @@ export function buildWorld(scene, physics) {
   stoneLantern(3, -5, 31);
   stoneLantern(4, 5, 31);
   // 우물 — 화강암 정호
-  const well = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 1.0, 0.95, 10), mats.GREY_LIGHT);
+  const well = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 1.0, 0.95, 10), mats.GRANITE ?? mats.GREY_LIGHT);
   well.name = 'well';
   well.position.set(14, 0.475, 22);
   well.castShadow = true;
@@ -550,7 +554,7 @@ export function buildWorld(scene, physics) {
   const lanternLights = [];
   for (const side of [-1, 1]) {
     const x = side * 5, z = 40;
-    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 2.3, 10), mats.GREY_MID);
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 2.3, 10), mats.WOOD_COLUMN ?? mats.GREY_MID);
     post.name = `lantern_post_${side}`;
     post.position.set(x, 1.15, z);
     post.castShadow = true;
@@ -579,7 +583,7 @@ export function buildWorld(scene, physics) {
   ];
   const crates = [];
   crateSpecs.forEach((spec, i) => {
-    const mesh = new THREE.Mesh(crateGeo, mats.GREY_MID);
+    const mesh = new THREE.Mesh(crateGeo, mats.WOOD_PLANK ?? mats.GREY_MID);
     mesh.name = `crate_${i}`;
     mesh.castShadow = true;
     mesh.receiveShadow = true;

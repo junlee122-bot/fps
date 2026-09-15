@@ -119,6 +119,8 @@ export class StaticWorld {
       triCount: baked.count,
       alive: true,
       userData: opts.userData ?? null,
+      /** 시각 DECAL 층(DANCHEONG/LACQUER) — 하부재 위 두께 0 가상층. raychain이 진입 시 삽입 (P3 C3 §10 단청 배치) */
+      decal: opts.decal ?? mesh.userData?.decal ?? null,
     };
     this.dirty = true;
     return id;
