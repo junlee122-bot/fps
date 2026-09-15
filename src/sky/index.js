@@ -28,7 +28,7 @@ import { Sky } from 'three/addons/objects/Sky.js';
 import { FogPass } from './fog.js';
 
 /** 야간 돔 환경광 강도 (apply 주석 — 팔레트 §4 야간 암부 교정, C3) */
-export const NIGHT_ENV_INTENSITY = 0.5;
+export const NIGHT_ENV_INTENSITY = 0.65;
 
 export class SkySystem {
   constructor({ scene, renderer, bus }) {
