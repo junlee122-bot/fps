@@ -292,8 +292,11 @@ function makePng(path, px) {
 /* ---- 15. profile 시나리오 유효성 게이트 음성 테스트 (C2 검토) ----
  * 사격 앙각을 지면으로 바꾼 입력(--inject-noroof) — ROOF_TILE 피격 0 → 반드시
  * SCENARIO-INVALID 배너 + testOverride + exit 1. 축소 조건(14s/1run/DPR1 640×400)이라
- * NON-CONTRACT 배너도 함께 나와야 한다. 동선 도달에 시뮬 시간 ≥12s가 필요해 14s. */
-const SHORT = ['--duration', '14', '--runs', '1', '--dpr', '1', '--w', '640', '--h', '400', '--phase', 'p3'];
+ * NON-CONTRACT 배너도 함께 나와야 한다. 사격 세그먼트가 시뮬 10.8s에 시작하므로 16s.
+ * duration은 시뮬 시간이라 fps가 낮으면 벽시계로 더 오래 걸릴 뿐 동선은 같다(서브스텝
+ * 상한이 프레임 dt 상한을 온전히 소화 — 종전 상한 5는 저 fps에서 이동을 42%만 소화해
+ * 캡처 병행 0.7fps 실측에서 히트 0이 났다). */
+const SHORT = ['--duration', '16', '--runs', '1', '--dpr', '1', '--w', '640', '--h', '400', '--phase', 'p3'];
 {
   const r = runAudit('node', ['tools/profile.mjs', ...SHORT, '--inject-noroof']);
   let marked = false, banner = false, valid = null, roof = null;

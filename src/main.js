@@ -13,7 +13,7 @@
  */
 
 import * as THREE from 'three';
-import { clock, PHYSICS_DT } from './core/clock.js';
+import { clock, PHYSICS_DT, MAX_FRAME_DT } from './core/clock.js';
 import { armCaptureDeterminism, markSimWindow } from './core/determinism.js';
 import { bus } from './core/events.js';
 import { setGlobalSeed, resetAllStreams, DEFAULT_SEED } from './core/rng.js';
@@ -277,7 +277,10 @@ readyResolve();
 
 /* --------------------------------------------------------- 메인 루프 */
 if (mode === 'realtime') {
-  const MAX_SUBSTEPS = 5;
+  // 서브스텝 상한 = 프레임 dt 상한을 온전히 소화하는 수(0.1s/(1/120)=12). 종전 5는
+  // 24fps 아래에서 시뮬 이동 시간을 버려(≤10fps에서 42%) 스크립트 동선이 fps 의존으로
+  // 짧아졌다(C2 검토 실측: profile 동선이 담장에 못 미침). 나선 방지는 dt 상한이 담당한다.
+  const MAX_SUBSTEPS = Math.ceil(MAX_FRAME_DT / PHYSICS_DT);
   let accum = 0;
   const loop = (ts) => {
     requestAnimationFrame(loop);

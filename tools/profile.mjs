@@ -106,7 +106,9 @@ function buildScript(duration) {
   const cycle = [
     { dur: 0.8, input: { forward: 1, right: 0, sprint: true, fire: false, reload: false, pitch: 0, yaw: 0 }, tag: 'sprint_north' },
     // 동측 담장까지 질주 — 벽에 눌려 멈추므로 fps·시뮬 시간 손실과 무관하게 도달
-    { dur: 9.0, input: { yaw: -Math.PI / 2 }, tag: 'sprint_east' },
+    // 10s: 7.5s면 도달(이후 벽에 눌림 — 무해). 세그먼트는 시뮬 시간 기준이고 서브스텝 상한이
+    // 프레임 dt 상한을 온전히 소화하므로(main.js) 저 fps에서도 이동 거리는 시뮬 시간의 함수다
+    { dur: 10.0, input: { yaw: -Math.PI / 2 }, tag: 'sprint_east' },
     // 담장 기와갓 근접 카빈 연사 — 기와 낙하 + 파편 + 예광 + 데칼 누적 (최악 필레이트)
     { dur: 2.4, input: { forward: 0, sprint: false, weaponSwitch: 'CARBINE', pitch: firePitch, fire: true }, tag: 'fire_roof_debris' },
     { dur: 2.4, input: { fire: false, reload: true, pitch: 0.1 }, tag: 'reload_carbine' },
