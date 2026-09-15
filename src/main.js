@@ -22,7 +22,7 @@ import { prewarmShaders } from './core/prewarm.js';
 import { StatsRecorder } from './core/stats.js';
 import { createRenderer, createCamera, createLighting, applySunConfig, handleResize } from './render/renderer.js';
 import { RenderPipeline } from './render/pipeline.js';
-import { SkySystem } from './render/sky.js';
+import { SkySystem } from './sky/index.js';
 import { OpacityApplier } from './render/opacity.js';
 import { setupAlbedoAudit } from './render/audit-cards.js';
 import { PhysicsWorld } from './physics/index.js';

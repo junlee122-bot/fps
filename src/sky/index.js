@@ -1,30 +1,30 @@
 /**
- * src/render/sky.js — C2 하늘 서브시스템 (P3-BRIEF §3 C2).
+ * src/sky/index.js — C2 하늘 서브시스템 (P3-BRIEF §3 C2, ARCHITECTURE §1 src/sky).
  *
  * 소유: 대기 산란 스카이돔(three addons Sky — Preetham, 셰이더 순수·무난수),
- * 시간대(world:tod)·날씨(world:weather) 이벤트 발행, PMREM 환경광.
+ * 시간대(world:tod)·날씨(world:weather) 이벤트 발행, PMREM 환경광,
+ * 볼류메트릭 안개·광선 패스(fog.js FogPass — 파이프라인에 주입, 블릿은 파이프라인).
  *
  * 결정성 규약:
  *  - 모든 출력은 샷 구성(sun/fog)의 순수 함수. 시간·난수 입력 없음.
  *  - PMREM은 태양 구성 적용 시에만 재생성 (프레임 경로에서 갱신 금지).
  *  - world:tod의 hours는 azim의 결정적 매핑 (동 90°=06시, 남 180°=12시,
- *    서 270°=18시 — 태양 시계각 근사). 야간(intensity<0.1)은 azim 매핑에
- *    +12h 반전 없이 그대로 두되 phase='night'로 구분한다.
+ *    서 270°=18시 — 태양 시계각 근사). 야간(intensity<0.1)도 같은 매핑의
+ *    hours로만 표현한다 (§3 어휘 — phase 필드 없음).
  *
  * 야간 하늘: Preetham은 태양 고도의 함수라 intensity를 모른다 — 야간 샷은
  * 스카이돔 전용 유효 고도를 지평선 아래(-12°)로 낮춰 박명 감쇠를 쓴다.
  * CSM(직사광) 방향은 샷 값을 유지한다 (월광 대용 — 그림자 방향 보존).
  *
- * 주변광 이관: P0 반구광은 environment(PMREM) 도입 후 0.4×로 감쇠 —
- * 하늘색 주변광이 주가 되고 반구광은 바닥 보정만 남는다 (C4에서 재조율).
+ * 주변광 이관: P0 반구광은 environment(PMREM) 도입 후 0.4×로 감쇠(계수는 조명
+ * 리그 소유 render/renderer.js HEMI_SCALE_WITH_ENV) — 하늘색 주변광이 주가 되고
+ * 반구광은 바닥 보정만 남는다 (C4에서 재조율).
  * 감사 리그(albedo/viewmodel)는 scene.environment를 끄고 자체 조명만 쓴다.
  */
 
 import * as THREE from 'three';
 import { Sky } from 'three/addons/objects/Sky.js';
-
-/** 반구광 감쇠 계수 — environment 도입 후 잔여 바닥 보정 (C4 재조율 대상) */
-export const HEMI_SCALE_WITH_ENV = 0.4;
+import { FogPass } from './fog.js';
 
 export class SkySystem {
   constructor({ scene, renderer, bus }) {
@@ -44,6 +44,8 @@ export class SkySystem {
     u.mieCoefficient.value = 0.004;
     u.mieDirectionalG.value = 0.85;
 
+    /** 볼류메트릭 안개·광선 패스 — 파이프라인이 주입받아 블릿 (ARCHITECTURE §1 src/sky 소유) */
+    this.fogPass = new FogPass();
     this.pmrem = new THREE.PMREMGenerator(renderer);
     this._envRT = null;
     this._envScene = new THREE.Scene();
@@ -109,6 +111,7 @@ export class SkySystem {
    */
   apply(sun, fogCfg, hemi = 0.4) {
     const night = sun.intensity < 0.1;
+    this.fogPass.setSun(sun); // 인스캐터 색·광선 강도 (샷 구성의 순수 함수)
     // 주간=Preetham, 야간=전용 그라데이션 돔 (§4 색역 구조 보장 — 생성자 주석)
     this.sky.material = night ? this.nightMat : this.dayMat;
     const skyElev = night ? -14 : sun.elev;
