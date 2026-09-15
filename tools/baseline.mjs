@@ -74,7 +74,9 @@ async function captureShot(name) {
     await capturePng(g.page, out);
     const stats = await g.page.evaluate(() => {
       const s = window.__harness.getStats();
-      return { triangles: s.triangles, drawCalls: s.drawCalls, programs: s.programCountPerFrame.at(-1), bootMs: Math.round(s.bootMs) };
+      const e = window.__harness.getExposure(); // C4: 샷별 적응 노출 (계측 기록 — 게이트는 픽셀 동일성)
+      return { triangles: s.triangles, drawCalls: s.drawCalls, programs: s.programCountPerFrame.at(-1), bootMs: Math.round(s.bootMs),
+        exposure: { ev100: e.ev100, evTarget: e.evTarget, avgLum: e.avgLum, exposure: e.exposure } };
     });
     const sha = createHash('sha256').update(readFileSync(out)).digest('hex');
     // 하네스 오류([determinism] 트립와이어 포함)와 트랩 상태를 게이트에 편입 —

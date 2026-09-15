@@ -358,6 +358,11 @@ export function installHarness(ctx) {
       return fx.particles.active;
     },
 
+    /** C4 노출 상태 — {ev100, evTarget, avgLum, ec, exposure} 직전 프레임 적응 1×1 판독 (계측 전용, 동기 readback) */
+    getExposure() {
+      return pipeline.exposure.read();
+    },
+
     /** 직전 프레임 패스별 [콜, 삼각형] 분해 — P3 지표 판정의 실측 근거 */
     getPassStats() {
       return JSON.parse(JSON.stringify(pipeline.passStats));
