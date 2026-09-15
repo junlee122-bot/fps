@@ -42,9 +42,18 @@ function record(id, name, pass, detail) {
   console.error(`[${pass ? 'PASS' : 'FAIL'}] ${id} ${name}${detail ? ` — ${detail}` : ''}`);
 }
 
-function run(cmd, args, timeoutMs = 600000) {
+/**
+ * 계약 조건(DPR2 1512×982·settle 90) 브라우저 감사의 소요는 환경 의존이다 — SwiftShader
+ * 유휴 기계에서 albedo/viewmodel 각 ≈12분(C2 실측). 종전 10분 상한은 두 케이스를
+ * SIGTERM으로 끊었고, Playwright의 종료 핸들러가 exit 1로 마감해 "도구가 exit 1을
+ * 냈다"처럼 보였다(stdout·stderr 공백, 표식 없음 → 음성 판정 실패로 오인). 상한을
+ * 30분으로 두고, 타임아웃은 exit 코드와 별도로 명시 기록한다(무기록 금지).
+ */
+const AUDIT_TIMEOUT_MS = 1800000;
+function run(cmd, args, timeoutMs = AUDIT_TIMEOUT_MS) {
   const r = spawnSync(cmd, args, { cwd: ROOT, encoding: 'utf8', timeout: timeoutMs });
-  return { code: r.status, out: r.stdout ?? '', err: r.stderr ?? '' };
+  const timedOut = r.error?.code === 'ETIMEDOUT';
+  return { code: r.status, signal: r.signal ?? null, timedOut, out: r.stdout ?? '', err: r.stderr ?? '' };
 }
 
 /**
@@ -54,13 +63,13 @@ function run(cmd, args, timeoutMs = 600000) {
  * 음성 테스트 원칙(PATCH-003-B)은 불변. 재시도 여부는 detail에 남긴다.
  */
 const retries = []; // 재시도 전수 기록 — 최상위 보고에 실린다 (무기록 재시도 금지)
-function runAudit(cmd, args, timeoutMs = 600000) {
+function runAudit(cmd, args, timeoutMs = AUDIT_TIMEOUT_MS) {
   let r = run(cmd, args, timeoutMs);
   const parseable = (x) => { try { JSON.parse(x.out); return true; } catch { return false; } };
   if (!parseable(r)) {
     // 브라우저 사망 서명일 때만 재시도 — 도구 로직의 exit/JSON 출력은 그대로 판정한다
     const sig = /Target (page, context or browser has been|closed)|Protocol error|browser has been closed|SIGSEGV|GPU process/i;
-    const first = { args: args.join(' '), exit: r.code, stderrTail: r.err.slice(-300) };
+    const first = { args: args.join(' '), exit: r.code, signal: r.signal, timedOut: r.timedOut, stdoutTail: r.out.slice(-200), stderrTail: r.err.slice(-300) };
     if (sig.test(r.err) || sig.test(r.out) || r.code === null) {
       r = run(cmd, args, timeoutMs);
       r.retried = true;
