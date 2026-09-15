@@ -565,7 +565,29 @@
     재실행: viewmodel --test-boost 2 → exit 1·표식·ratio 1.715, albedo --test-scale-albedo 0.333 →
     exit 1·표식·편차 다수 (각 ≈12분). 타임아웃 30분 + 명시 기록으로 교정 후 전체 재실행: (재실행 결과는 아래 최종 행에 기록)
   - 정적: npm test 22/22, determinismaudit ok(src 위반 0, 트랩 무장), surface/cover/chain/fx audit ok.
-  - harnesstest 재실행(타임아웃 교정 후, 16 케이스): **[재실행 결과 기입 대기]**
+  - harnesstest 재실행(타임아웃 교정 후, 16 케이스, 유휴 기계): **16/16 통과, 재시도 0** —
+    10(viewmodel 2배 부스트 → exit 1·표식·ratio 1.715), 13(알베도 1/3 → exit 1·표식·편차 10건),
+    15(--inject-noroof → SCENARIO-INVALID·표식·exit 1), 16(동선 양성 → ROOF_TILE 119·기와 낙하 119).
+- **C2 종료 — 게이트 노후화 3항 점검 (ARCHITECTURE §6, PATCH-004-D)**:
+  1. *전제가 바뀐 게이트*: (a) 픽셀 게이트(baseline/imagediff/palette) — 캡처가 CSS 해상도
+     박스평균이었다는 전제 붕괴 → 드로잉 버퍼 해상도로 교정, c1도 같은 도구로 재캡처해 전환
+     근거를 맞춤. (b) profile "최악 시나리오" — 스크립트 의도(지붕 사격)가 실제(석등 화강암
+     근접 사격)와 달랐다 → 히트 로그 계측 + 시나리오 유효성 게이트 신설. (c) cpuFrameMsP95 —
+     서브스텝 상한 교정으로 저 fps에서 프레임당 서브스텝이 5→12가 되어 원시 sim ms의 의미가
+     변질 → 60fps 등가 정규화(원시값 참조 병기). (d) §8 overdraw — 안개 패스 무조건 실행·HANJI
+     근평면을 반영하지 않으면 과소보고 → 산식 교정. (e) 플레이 컴파일 0 — 개수 차분만으론
+     일시 링크(PMREM.Background 생성+해제)를 못 봄 → 생성 로그 기반 strict 판정.
+  2. *측정 대상 일치*: 위 교정 후 각 게이트의 측정 대상은 의도와 일치한다. 남은 불일치는
+     기록: 인스캐터 skyColor(CPU 근사)와 돔 색의 차이(C4), palette의 20–40° 저채도 초과 판정이
+     등롱광 목재를 위반으로 세는 문제(현재 0.97% — C3 재질 도입 시 재검토).
+  3. *새 실패 모드의 관측 가능성*: (a) 실시간 시뮬 시간 굶주림(저 fps에서 이동 손실) — 기존
+     게이트 어디에도 안 잡혔다(playtest는 fixed, profile은 결과만 봄). 서브스텝 상한을 dt 상한에
+     묶어 구조적으로 제거했으나 **관측 게이트는 없다** → C3에서 profile에 "시뮬 시간 대비 이동
+     시간 소화율" 지표(substeps×PHYSICS_DT / Σdt) 추가를 권고. (b) 캡처 세션의 DPR 에뮬레이션
+     소실 — baseline은 페이지당 1캡처라 무증상이었고 shotset/다중 캡처 도구에서만 드러났다 →
+     capturePng가 세션을 유지하므로 재발 시 크기 불일치로 imagediff가 잡는다(관측 가능).
+     (c) 프리웜 사장 프로그램 — programs 예산(≤110)은 사장분을 못 가른다 → 프로그램 목록
+     (getProgramList)을 profile에 실어 실사용/사장을 분리 보고하는 것을 C3 항목으로 둔다.
 
 ## C. 표류 방지 메모 (충돌은 아니지만 오해 소지)
 
