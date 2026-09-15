@@ -30,7 +30,7 @@ if (!Number.isFinite(TOL) || TOL < 0) {
   console.error(`invalid --tolerance: ${flags.tolerance} (값을 명시하라, 예: --tolerance 0)`);
   process.exit(2);
 }
-/** 기본은 계약 11샷 전수 요구. --partial은 부분 비교 허용(비계약 — 게이트로 쓰지 말 것) */
+/** 기본은 계약 샷(tools/shots.js SHOTS 전수) 요구. --partial은 부분 비교 허용(비계약 — 게이트로 쓰지 말 것) */
 const PARTIAL = flags.partial === true;
 const DIFFDIR = resolve(flags.diffdir ?? 'tmp/diff');
 
@@ -39,7 +39,7 @@ const namesB = new Set(readdirSync(B).filter((f) => f.endsWith('.png')));
 const rows = [];
 let fail = false;
 
-// 공허 통과 차단 (감사 B4): 기본 모드에서는 계약 11샷이 양쪽에 전부 있어야 한다.
+// 공허 통과 차단 (감사 B4): 기본 모드에서는 계약 샷 전수가 양쪽에 전부 있어야 한다.
 if (!PARTIAL) {
   for (const s of SHOTS) {
     const f = `${s.name}.png`;

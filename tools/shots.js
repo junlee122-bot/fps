@@ -151,6 +151,20 @@ export const SHOTS = Object.freeze([
     // 이 필드가 없는 샷은 뷰모델을 표시하지 않는다 (씬 검사 샷의 시야 확보)
     viewmodel: { weapon: 'CARBINE', ads: 1 },
   },
+  {
+    // [P3 §10 이월] 낙하 기와 픽셀 게이트 — 동측 담장 기와갓 근접 카빈 3발(atFrame 72)로 프레임 90에
+    // 기와가 공중에 있다(스폰 후 18프레임 = 0.3s, 낙하 ≈0.44m). 파편 재질·강체 낙하·데칼이
+    // 픽셀 게이트(baseline ×2·imagediff)에 편입된다. 시드 스트림 산포라 2회 캡처 비트 동일.
+    name: 'tile_fall',
+    watch: '낙하 기와 (파편 재질·강체·데칼 — 픽셀 게이트 편입)',
+    cam: { pos: [40.4, 1.9, 18.0], target: [43.6, 1.55, 18.6], fov: 60 },
+    sun: { elev: 40, azim: 200, intensity: 3.0 },
+    hemi: 0.5,
+    lantern: 0,
+    actions: [
+      { type: 'fire', weapon: 'CARBINE', rounds: 3, atFrame: 72, eye: { pos: [43.0, 1.64, 18.6], yaw: -Math.PI / 2, pitch: 0.28 } },
+    ],
+  },
 ]);
 
 export const SHOTS_BY_NAME = new Map(SHOTS.map((s) => [s.name, s]));

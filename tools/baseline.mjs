@@ -52,7 +52,7 @@ const NON_CONTRACT =
 const report = {
   ok: true, outDir: OUTDIR, size: `${W}x${H}@${DPR}x`, settle: SETTLE, isolated: true,
   nonContract: NON_CONTRACT,
-  ...(NON_CONTRACT ? { banner: 'NON-CONTRACT CAPTURE — 계약 조건(DPR2/1512×982/settle90/11샷) 미달. 게이트 baseline으로 쓰지 마라' } : {}),
+  ...(NON_CONTRACT ? { banner: 'NON-CONTRACT CAPTURE — 계약 조건(DPR2/1512×982/settle90/전샷) 미달. 게이트 baseline으로 쓰지 마라' } : {}),
   shots: [],
 };
 if (NON_CONTRACT) console.error(report.banner);
