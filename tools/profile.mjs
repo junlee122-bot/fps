@@ -91,8 +91,8 @@ if (args['print-config']) {
  * C2 검토 교정: 종전 동선('sprint_north 1.5s → 동헌 지붕 pitch 0.15')은 spawn 정북의
  * 석등(0,16) 갓에 막혀 사격 전부가 0.35m 앞 화강암에 박혔다(ROOF_TILE 0 — 하네스
  * 히트 로그 실측). 지금 동선은 석등 앞에서 동쪽으로 꺾어 동측 담장까지 달려(벽에
- * 눌려 정지 — 저 fps에서도 도달) 담장 기와갓(ROOF_TILE, 눈높이 1.7~1.9 어디서든
- * pitch 0.15가 갓 판/용마루에 닿는다)을 근접 연사한다. 유효성은 의도가 아니라
+ * 눌려 정지 — 저 fps에서도 도달) 담장 기와갓(ROOF_TILE)을 근접 연사한다 — fixed 실측:
+ * 카빈 2.4s 연사 105 피격·기와 낙하 105(상한 24 FIFO), 산탄 3발 후 누적 134, 플레이 컴파일 0. 유효성은 의도가 아니라
  * 실측(scenario.valid: ROOF_TILE 피격>0 ∧ 파편 스폰>0)으로 판정한다.
  *
  * --inject-noroof: harnesstest 전용 음성 입력 — 사격 앙각을 −0.6(지면)으로 바꿔
@@ -100,7 +100,9 @@ if (args['print-config']) {
  */
 const INJECT_NOROOF = args['inject-noroof'] === true;
 function buildScript(duration) {
-  const firePitch = INJECT_NOROOF ? -0.6 : 0.15;
+  // 앙각 0.28: 벽에 눌린 위치(x≈43.0, 눈높이≈1.64)에서 fixed 스윕 실측 — 0.12~0.45 전 구간이
+  // 갓 판/용마루(ROOF_TILE)에 닿고 0.11 이하는 화강암 상단(1.70)에 걸린다. 중앙값으로 여유 ±0.15rad.
+  const firePitch = INJECT_NOROOF ? -0.6 : 0.28;
   const cycle = [
     { dur: 0.8, input: { forward: 1, right: 0, sprint: true, fire: false, reload: false, pitch: 0, yaw: 0 }, tag: 'sprint_north' },
     // 동측 담장까지 질주 — 벽에 눌려 멈추므로 fps·시뮬 시간 손실과 무관하게 도달
