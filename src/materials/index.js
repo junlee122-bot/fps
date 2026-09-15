@@ -172,6 +172,26 @@ export const RECIPES = Object.freeze({
 });
 
 /** 표면 → 재질 키 (kit.MAT_OF를 C3에서 대체). 시각은 재질이, 물성은 표면 태그가 소유한다 */
+/**
+ * §4 팔레트 규율 — 목재·흙 대역(20–40°) 채도 상한 0.35은 **조명 후 픽셀** 기준이다. 레시피 원색이 sRGB 채도
+ * 0.28–0.35(상한 근처)면 온색 광원(등롱 0xfff6e8 s≈0.055, 저고도 태양·반구 지면색)과 곱해져 0.4+로 이탈한다
+ * (C3 종료 캡처 실측: lantern_night 25.7% 위반 — 흙·목재 전면). C1의 등롱 광원 저채도화는 재질 채도 ~0.2를
+ * 전제했다(level.js 주석 "결합 채도 ≈0.26"). 휘도 보존 크로마 축소(선형 공간, 색상·평균 알베도 불변 →
+ * 매니페스트 무영향)로 원색을 sRGB 채도 ≈0.17–0.25로 내린다. 수묵 팔레트(저채도 목재·흙)의 의도이기도 하다.
+ */
+export const CHROMA_SCALE = Object.freeze({
+  WOOD_COLUMN: 0.6, WOOD_PLANK: 0.6, WOOD_LATTICE: 0.6, EARTH_WALL: 0.6, PACKED_DIRT: 0.6, THATCH: 0.6, BRONZE: 0.6,
+});
+for (const [name, k] of Object.entries(CHROMA_SCALE)) {
+  const r = RECIPES[name];
+  for (const key of ['colA', 'colB', 'colC', 'colD']) {
+    const c = r[key];
+    if (!c) continue;
+    const lum = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+    c.setRGB(lum + (c.r - lum) * k, lum + (c.g - lum) * k, lum + (c.b - lum) * k);
+  }
+}
+
 export const SURFACE_MAT = Object.freeze({
   GRANITE: 'GRANITE', PACKED_DIRT: 'PACKED_DIRT', EARTH_WALL: 'EARTH_WALL', ROOF_SOIL: 'EARTH_WALL',
   WOOD_COLUMN: 'WOOD_COLUMN', WOOD_PLANK: 'WOOD_PLANK', THATCH: 'THATCH', ROOF_TILE: 'ROOF_TILE',

@@ -46,6 +46,8 @@ export const ENV_PER_HEMI = 2.0;
 /** 지평선 헤이즈 가산 (선형, domeScale 적용 후 단위): 지평선에서 hazeAmount·hazeColor, (1−y)^hazePower 감쇠 */
 export const HAZE_AMOUNT = 0.3;
 export const HAZE_POWER = 1.5;
+/** 야간 돔 환경광 강도 (apply 주석 — 팔레트 §4 야간 암부 교정, C3) */
+export const NIGHT_ENV_INTENSITY = 0.65;
 
 export class SkySystem {
   constructor({ scene, renderer, bus }) {
@@ -235,8 +237,9 @@ export class SkySystem {
     this._readHorizon(); // C4: 인스캐터 색 = 돔 지평선 실측 (큐브는 위에서 갱신됨 — 프리웜 스킵 시 직전 돔)
     // 환경광 강도는 샷 주변광(hemi)에 종속. C2의 clamp(hemi·0.7, 0.03, 0.5)는 과대 돔(지평선 2.5)에 대한
     // 억제였다 — C4에서 돔을 선형 복사휘도 × DOME_SCALE로 물리 비율에 맞추고 계수를 ENV_PER_HEMI로 재정의
-    // (noon hemi 0.55 → 1.0 = 돔 그대로, 실내 0.15 → 0.3, 야간 0.05 → 0.1)
-    this.scene.environmentIntensity = THREE.MathUtils.clamp(hemi * this.envPerHemi, 0.05, 1.0);
+    // (noon hemi 0.55 → 1.0 = 돔 그대로, 실내 0.15 → 0.3). 야간은 C3 교정 NIGHT_ENV_INTENSITY 유지(야간 돔은
+    // 스케일 대상이 아니므로 C3와 동일 조도): 암부가 AgX 토에 잠겨 온색 채도가 증폭되는 것을 하늘광으로 중화.
+    this.scene.environmentIntensity = night ? NIGHT_ENV_INTENSITY : THREE.MathUtils.clamp(hemi * this.envPerHemi, 0.05, 1.0);
 
     // 안개 구성 (sky 소유 — 파이프라인이 this.fog를 읽는다)
     this.fog = {
