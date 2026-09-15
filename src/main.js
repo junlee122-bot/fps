@@ -14,7 +14,7 @@
 
 import * as THREE from 'three';
 import { clock, PHYSICS_DT } from './core/clock.js';
-import { armCaptureDeterminism } from './core/determinism.js';
+import { armCaptureDeterminism, markSimWindow } from './core/determinism.js';
 import { bus } from './core/events.js';
 import { setGlobalSeed, resetAllStreams, DEFAULT_SEED } from './core/rng.js';
 import { installHarness } from './core/harness.js';
@@ -41,9 +41,11 @@ const mode = params.get('mode') === 'fixed' ? 'fixed' : 'realtime';
 const seed = params.get('seed') ? Number(params.get('seed')) >>> 0 : DEFAULT_SEED;
 const dprParam = params.get('dpr') ? Number(params.get('dpr')) : undefined;
 
-// PATCH-004-B: 캡처 빌드 Math.random 구조 트랩 — 월드·파이프라인 생성 전 장착
-// (three UUID 등 부팅 소비자 포함 전 호출이 고정 시드 수열을 받는다)
-if (mode === 'fixed') armCaptureDeterminism();
+// PATCH-004-B: Math.random 구조 트랩 — 월드·파이프라인 생성 전, **두 모드 모두** 장착.
+// HARNESS §2-2가 게임 코드의 Math.random을 금지하므로 진난수 소비자는 정의상 없고,
+// 동일 시드 수열이면 realtime 픽셀 == capture 픽셀이 구조적으로 성립한다 (C2 검토:
+// fixed 전용 장착은 실플레이 게이트(profile)가 난수 소비를 못 보는 사각지대였다)
+armCaptureDeterminism();
 
 setGlobalSeed(seed);
 clock.setMode(mode);
@@ -105,12 +107,21 @@ const debrisGeo = new THREE.BoxGeometry(0.18, 0.024, 0.13);
 // 킷 GREY_DARK와 동일 파라미터 — 같은 프로그램 순열 (컴파일 0 유지)
 const debrisMaterial = new THREE.MeshStandardMaterial({ color: 0x585b5f, roughness: 0.92, metalness: 0 });
 debrisMaterial.name = 'FX_DEBRIS_TILE';
+// CSM 패치 — 런타임 스폰 재질은 patchScene 순회 밖이라 미패치 상태로 첫 파편 스폰
+// 프레임에 프로그램 +1(플레이 중 컴파일)과 3중 직사광 과노출을 냈다 (C2 검토 진범)
+pipeline.patchMaterial(debrisMaterial);
+// 파편 메시 풀 — Object3D 생성(UUID → Math.random)이 시뮬 창에서 일어나지 않게 부팅에
+// 선할당. 씬에는 스폰 시에만 add/remove (tris_scene 불변)
+const DEBRIS_POOL = [];
+for (let i = 0; i < 24; i++) {
+  const m = new THREE.Mesh(debrisGeo, debrisMaterial);
+  m.name = 'fx_debris_tile'; m.castShadow = false; m.receiveShadow = false;
+  DEBRIS_POOL.push(m);
+}
 const fx = new FxSystem(scene, {
   spawnBody: (opts) => {
-    const mesh = new THREE.Mesh(debrisGeo, debrisMaterial);
-    mesh.name = 'fx_debris_tile';
-    mesh.castShadow = false;
-    mesh.receiveShadow = false;
+    const mesh = DEBRIS_POOL.pop();
+    if (!mesh) throw new Error('debris pool exhausted — fx DEBRIS_CAP과 풀 크기 불일치'); // PATCH-001-D 계열: 조용한 축소 금지
     mesh.userData.surface = opts.surface;
     scene.add(mesh);
     return physics.addRigidBody({
@@ -126,7 +137,7 @@ const fx = new FxSystem(scene, {
   },
   despawnBody: (body) => {
     physics.rigid.remove(body);
-    body.object3D?.parent?.remove(body.object3D);
+    if (body.object3D) { body.object3D.parent?.remove(body.object3D); DEBRIS_POOL.push(body.object3D); }
   },
 });
 
@@ -236,6 +247,7 @@ pipeline.setShadowMapSize(256); // 그림자 해상도도 축소 — 프로그�
 skySystem.prewarmSkipPmrem = true; // 커버리지 전용 — PMREM은 첫 1회만 (sky.js 주석)
 const warm = await prewarmShaders({
   renderer, scene, camera,
+  compileTarget: pipeline.sceneRT, // 뷰티 패스와 같은 타깃 바인딩으로 컴파일 (캔버스 키의 사장 프로그램 방지)
   shots: SHOTS,
   applyShot,
   restoreDefault: applyDefaultView,
@@ -271,6 +283,7 @@ if (mode === 'realtime') {
     requestAnimationFrame(loop);
     const cpuT0 = clock.wallNowMs(); // CPU 프레임 시간(GPU 제외) 계측 시작
     clock.tickRealtime(ts);
+    markSimWindow(true); // 시뮬 창 개방 — realtime 프레임도 Math.random 소비를 계측 (PATCH-004-B)
     harness._internal.scriptTick();
     accum += clock.dt;
     let steps = 0;
@@ -281,6 +294,7 @@ if (mode === 'realtime') {
     }
     if (steps === MAX_SUBSTEPS) accum = 0; // 백로그 폐기 — 나선 방지
     harness._internal.renderFrame(cpuT0);
+    markSimWindow(false);
   };
   requestAnimationFrame(loop);
 }

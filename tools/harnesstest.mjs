@@ -51,12 +51,21 @@ function run(cmd, args, timeoutMs = 600000) {
  * 판정과 무관하게 케이스를 죽이는 것을 막는다 — 동일 검증의 재실행이므로
  * 음성 테스트 원칙(PATCH-003-B)은 불변. 재시도 여부는 detail에 남긴다.
  */
+const retries = []; // 재시도 전수 기록 — 최상위 보고에 실린다 (무기록 재시도 금지)
 function runAudit(cmd, args, timeoutMs = 600000) {
   let r = run(cmd, args, timeoutMs);
   const parseable = (x) => { try { JSON.parse(x.out); return true; } catch { return false; } };
   if (!parseable(r)) {
-    r = run(cmd, args, timeoutMs);
-    r.retried = true;
+    // 브라우저 사망 서명일 때만 재시도 — 도구 로직의 exit/JSON 출력은 그대로 판정한다
+    const sig = /Target (page, context or browser has been|closed)|Protocol error|browser has been closed|SIGSEGV|GPU process/i;
+    const first = { args: args.join(' '), exit: r.code, stderrTail: r.err.slice(-300) };
+    if (sig.test(r.err) || sig.test(r.out) || r.code === null) {
+      r = run(cmd, args, timeoutMs);
+      r.retried = true;
+      retries.push({ ...first, retryExit: r.code });
+    } else {
+      retries.push({ ...first, retryExit: null, note: '브라우저 사망 서명 아님 — 재시도 안 함' });
+    }
   }
   return r;
 }
@@ -279,5 +288,5 @@ function makePng(path, px) {
 }
 
 const ok = results.every((r) => r.pass);
-console.log(JSON.stringify({ ok, cases: results }, null, 2));
+console.log(JSON.stringify({ ok, retries, cases: results }, null, 2));
 process.exit(ok ? 0 : 1);

@@ -36,7 +36,9 @@ export function installHarness(ctx) {
                new (camera.position.constructor)(), new (camera.position.constructor)()];
   function overdrawExtras(w, h) {
     let extra = 0;
-    if (pipeline.sky && pipeline.sky.fog.density > 0) extra += 1.0; // 안개 풀스크린 패스
+    // 안개 풀스크린 패스 — 파이프라인은 밀도와 무관하게 무조건 실행한다 (밀도 0도 셰이더 경로는 동일).
+    // 밀도 조건부 가산은 fog=0 샷의 오버드로우를 1.0 과소보고했다 (C2 검토)
+    if (pipeline.sky) extra += 1.0;
     if (hanjiPanes) {
       let area = 0;
       for (const mesh of hanjiPanes.values()) {
@@ -44,14 +46,17 @@ export function installHarness(ctx) {
         const { width, height } = mesh.geometry.parameters;
         const hw = width / 2, hh = height / 2;
         _pc[0].set(-hw, -hh, 0); _pc[1].set(hw, -hh, 0); _pc[2].set(hw, hh, 0); _pc[3].set(-hw, hh, 0);
-        let behind = false;
+        // 근평면 처리는 보수적으로: 4모서리 전부 카메라 뒤/근평면 앞이면 0, 일부만이면
+        // 투영이 무의미하므로 전화면(+1.0)으로 과대 계상한다 — 과소보고 금지 (C2 검토).
+        let behind = 0;
         for (const p of _pc) {
           p.applyMatrix4(mesh.matrixWorld).project(camera);
-          if (p.z > 1 || p.z < -1) { behind = true; break; }
+          if (p.z > 1 || p.z < -1) { behind++; continue; }
           p.x = Math.min(1, Math.max(-1, p.x)) * w * 0.5;
           p.y = Math.min(1, Math.max(-1, p.y)) * h * 0.5;
         }
-        if (behind) continue;
+        if (behind === 4) continue;
+        if (behind > 0) { area += w * h; continue; }
         let a2 = 0;
         for (let i = 0; i < 4; i++) {
           const p = _pc[i], q = _pc[(i + 1) % 4];
@@ -77,6 +82,8 @@ export function installHarness(ctx) {
     shotFrame: 0,
     /** atFrame 지정 샷 액션 대기열 */
     pendingActions: [],
+    /** 비계약 표식 — 합성 부하 주입 시 설정, getStats 출력에 박힘. resetState로 해제 */
+    testOverride: null,
   };
 
   /** 샷 액션 실행 — 즉시(applyShot)·지연(stepFrames) 공용 (P2B) */
@@ -196,7 +203,9 @@ export function installHarness(ctx) {
         state.busy = false;
       }
       if (simWindowCalls() > 0) {
-        errors.push(`[determinism] stepFrames 창 내 Math.random ${simWindowCalls()}회 — 시드 수열이라 결정적이나 미지 소비자 존재 (PATCH-004-B)`);
+        const msg = `[determinism] stepFrames 창 내 Math.random ${simWindowCalls()}회 — 시드 수열이라 결정적이나 미지 소비자 존재 (PATCH-004-B)`;
+        errors.push(msg);
+        console.error(msg); // 페이지 콘솔 수집기(g.errors)에도 도달 — getErrors 미조회 도구의 사각 제거
       }
       // 컴포지터가 마지막 프레임을 집도록 rAF 2회 양보 (스크린샷 안정화)
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
@@ -204,7 +213,10 @@ export function installHarness(ctx) {
     },
 
     getStats() {
-      return stats.snapshot();
+      const snap = stats.snapshot();
+      // 비계약 상태 표식 — debugEmitParticles 등 합성 부하가 걸린 페이지의 통계는 계약 판정 무효
+      if (state.testOverride) snap.testOverride = state.testOverride;
+      return snap;
     },
 
     resetState() {
@@ -226,6 +238,7 @@ export function installHarness(ctx) {
       state.script = null;
       state.shotFrame = 0;
       state.pendingActions = [];
+      state.testOverride = null;
       applyDefaultView();
       return { ok: true };
     },
@@ -318,6 +331,9 @@ export function installHarness(ctx) {
      * 검증 전용). 시드 스트림 기반 emit이라 결정적. 계약 캡처에 쓰지 마라.
      */
     debugEmitParticles(profileKey, n, x, y, z) {
+      if (mode !== 'fixed') throw new Error('debugEmitParticles requires fixed mode');
+      if (state.busy) throw new Error('debugEmitParticles called while stepFrames in progress');
+      state.testOverride = `debugEmitParticles(${profileKey}×${n}) — 합성 고부하, 계약 판정 무효`;
       for (let i = 0; i < n; i++) {
         fx.particles.emit(profileKey, x, y, z, 0, 1, 0);
       }
@@ -406,7 +422,7 @@ export function installHarness(ctx) {
     },
 
     /* 내부 배선 (main.js 전용) */
-    _internal: { state, stepSim, simSubstep, renderFrame, scriptTick },
+    _internal: { state, stepSim, simSubstep, renderFrame, scriptTick, pipeline }, // pipeline: 프로브 전용 (A/B 계측)
   };
 
   /**

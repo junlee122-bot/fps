@@ -32,7 +32,12 @@ const SRC = join(ROOT, 'src');
 /** 시간·난수 직접 호출 패턴 (주석 행 제외 후 매칭) */
 const PATTERNS = [
   { re: /Math\.random\s*\(/, tag: 'Math.random' },
+  { re: /\bMath\s*\[\s*['"]random['"]\s*\]/, tag: "Math['random']" },
+  { re: /\{[^}]*\brandom\b[^}]*\}\s*=\s*Math\b/, tag: '구조분해 {random} = Math' },
+  { re: /\bMathUtils\.(rand\w*|generateUUID)\s*\(/, tag: 'MathUtils.rand*/generateUUID' },
+  { re: /\bcrypto\.(getRandomValues|randomUUID)\b/, tag: 'crypto 난수' },
   { re: /performance\.now\s*\(/, tag: 'performance.now' },
+  { re: /\bperformance\.timeOrigin\b/, tag: 'performance.timeOrigin' },
   { re: /\bDate\.now\s*\(/, tag: 'Date.now' },
   { re: /new\s+Date\s*\(/, tag: 'new Date' },
 ];
@@ -85,7 +90,7 @@ const srcHits = [];
 for (const f of walk(SRC)) {
   const rel = f.slice(SRC.length + 1).replaceAll('\\', '/');
   if (OWNER_SCOPES.has(rel)) continue;
-  srcHits.push(...scanSource(readFileSync(f, 'utf8'), `src/${rel}`, PATTERNS));
+  srcHits.push(...scanSource(readFileSync(f, 'utf8'), `src/${rel}`, [...PATTERNS, ALIAS_PATTERN]));
 }
 if (INJECT) {
   srcHits.push(...scanSource(
@@ -123,7 +128,9 @@ for (const p of addonFiles) {
 
 /* ---- 런타임 완화 장착 검증 (서드파티 발견이 있을 때 필수) ---- */
 const mainText = readFileSync(join(SRC, 'main.js'), 'utf8');
-const trapArmed = /armCaptureDeterminism\s*\(\s*\)/.test(mainText);
+// 주석을 걷어낸 본문에서 무조건 호출(앞에 if/&&/? 없음)을 요구 — 주석 처리·조건화 회귀 검출
+const mainCode = mainText.split('\n').map((l) => stripComments(l)).join('\n').replace(/\/\*[\s\S]*?\*\//g, '');
+const trapArmed = /(^|[;\n])\s*armCaptureDeterminism\s*\(\s*\)\s*;/.test(mainCode);
 
 const report = {
   ok: true,
@@ -136,9 +143,10 @@ const report = {
   },
 };
 if (srcHits.length > 0) report.ok = false;
-if (addonHits.length > 0 && !trapArmed) {
+if (!trapArmed) {
+  // 서드파티 발견 유무와 무관하게 무조건 요구 — 트랩은 three 코어(generateUUID)까지 덮는 유일한 구조 보증
   report.ok = false;
-  report.reason = '서드파티 난수·시간 사용 발견 + 런타임 트랩 미장착 (armCaptureDeterminism 배선 없음)';
+  report.reason = '런타임 트랩 미장착 (main.js 최상위 무조건 armCaptureDeterminism() 호출 없음)';
 }
 
 console.log(JSON.stringify(report, null, 2));

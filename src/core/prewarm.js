@@ -18,7 +18,7 @@
 
 import { clock } from './clock.js';
 
-export async function prewarmShaders({ renderer, scene, camera, shots, applyShot, restoreDefault, renderFrame = null }) {
+export async function prewarmShaders({ renderer, scene, camera, shots, applyShot, restoreDefault, renderFrame = null, compileTarget = null }) {
   // P3: HDR 파이프라인이 있으면 renderFrame(파이프라인 전체 체인)으로 렌더한다 —
   // HDR 타깃 바인딩 순열 + GTAO/TAA/MB/Output 패스 프로그램까지 커버 (머리주석 2항)
   const draw = renderFrame ?? (() => renderer.render(scene, camera));
@@ -37,20 +37,27 @@ export async function prewarmShaders({ renderer, scene, camera, shots, applyShot
     groups.push({ group: name, programs, ms, msPerProgram: programs > 0 ? +(ms / programs).toFixed(1) : null });
   };
 
-  // 1) 포워드 기본 변형 (머티리얼 기본 + CSM 패치 수광)
+  // 1) 포워드 기본 변형 (머티리얼 기본 + CSM 패치 수광).
+  //    프로그램 키는 바인딩된 타깃(색공간·톤매핑)과 scene.environment를 포함하므로
+  //    (a) 첫 샷을 먼저 적용해 환경광을 확정하고 (b) 뷰티 패스와 같은 타깃을 바인딩한 채
+  //    컴파일한다 — 캔버스 바인딩·환경광 없음 상태의 컴파일은 파이프라인이 절대 쓰지 않는
+  //    사장 프로그램 10개를 만들었다 (C2 검토 실측: 35 = 실사용 25 + 사장 10)
   let tg = clock.wallNowMs(), pg = progs();
+  applyShot(shots[0]);
+  if (compileTarget) renderer.setRenderTarget(compileTarget);
   try {
     await renderer.compileAsync(scene, camera);
   } catch {
     try { renderer.compile(scene, camera); } catch { /* 프리웜 실패가 부팅을 막으면 안 된다 */ }
+  } finally {
+    if (compileTarget) renderer.setRenderTarget(null);
   }
-  mark('forward_base(compileAsync)', tg, pg);
+  mark('forward_base(compileAsync@sceneRT+env)', tg, pg);
 
   // 2) 첫 샷 실렌더 — 그림자 깊이(CSM 캐스케이드) + 포스트 체인(GTAO·안개·TAA·MB·AgX)
   //    + 스카이(주간) + PMREM 내부 블러 변형이 이 단계에서 온다
   tg = clock.wallNowMs(); pg = progs();
-  applyShot(shots[0]);
-  draw();
+  draw(); // shots[0]은 1)에서 적용됨
   await new Promise((r) => setTimeout(r, 0));
   mark('first_shot(shadow+post+sky+pmrem)', tg, pg);
 

@@ -39,7 +39,7 @@ function rgbToHsv(r, g, b) {
     h *= 60;
     if (h < 0) h += 360;
   }
-  return [h, s, v];
+  return [h, s, v, d];
 }
 
 /** 허용 판정 — §4 표 그대로 */
@@ -62,32 +62,34 @@ const shots = [];
 let anyFail = false;
 for (let fi = 0; fi < files.length; fi++) {
   const png = PNG.sync.read(readFileSync(join(DIR, files[fi])));
-  // 음성 훅: 첫 샷 중앙에 256×256 자색(300°) 패치 합성 주입.
-  // 크기 근거: 전체의 ~4.4% > LIMIT 1.5% — 기저 위반 0%인 깨끗한 샷에서도
-  // 패치 단독으로 확실히 초과해야 음성 테스트가 기저 상태에 의존하지 않는다
-  // (128×128=1.10%는 기저 위반에 얹혀서만 작동하던 설계 결함 — C1에서 교정)
+  // 음성 훅: 첫 샷 중앙에 자색(300°) 패치 합성 주입 — 픽셀 수의 3% (해상도 무관:
+  // 고정 256²는 DPR2 드로잉 버퍼 캡처(3024×1964)에서 1.1%로 LIMIT 미만이 된다).
+  // 기저 위반 0%인 깨끗한 샷에서도 패치 단독으로 LIMIT(1.5%)을 확실히 초과해야 한다.
   if (INJECT && fi === 0) {
+    const half = Math.ceil(Math.sqrt(0.03 * png.width * png.height)) >> 1;
     const cx = png.width >> 1, cy = png.height >> 1;
-    for (let y = cy - 128; y < cy + 128; y++) {
-      for (let x = cx - 128; x < cx + 128; x++) {
+    for (let y = cy - half; y < cy + half; y++) {
+      for (let x = cx - half; x < cx + half; x++) {
         const i = (y * png.width + x) * 4;
         png.data[i] = 200; png.data[i + 1] = 40; png.data[i + 2] = 200;
       }
     }
   }
   let violations = 0;
-  let violationsNoFloor = 0; // 하한 미적용 참조치 — 투명성 병기 (게이트 아님)
-  let darkExcluded = 0;
+  let violationsNoFloor = 0; // 제외 미적용 참조치 — 투명성 병기 (게이트 아님)
+  let quantExcluded = 0;
   const total = png.width * png.height;
   const histo = new Array(36).fill(0); // 위반 픽셀 색상 10° 버킷
   for (let i = 0; i < png.data.length; i += 4) {
-    const [h, s, v] = rgbToHsv(png.data[i], png.data[i + 1], png.data[i + 2]);
+    const [h, s, , d] = rgbToHsv(png.data[i], png.data[i + 1], png.data[i + 2]);
     if (!allowed(h, s)) {
       violationsNoFloor++;
-      // 무채색 암부 제외 (C1 판정 — CONTRACT-NOTES): V<0.10에선 채널 1양자(1/255)가
-      // 채도를 ≥4%p 흔들어 색상·채도가 양자화 잡음이다 (실측: 야간 샷 위반의 지배항이
-      // rgb(9,7,5)류 v≈0.04 픽셀). 지각적으로도 무채색. LIMIT(1.5%)는 불변.
-      if (v < 0.10) { darkExcluded++; continue; }
+      // 양자화 잡음 제외 (C2 교정 — CONTRACT-NOTES): 제외 기준은 명도(V)가 아니라
+      // **크로마 d=max−min ≤ 2양자**다. 크로마 ≤2/255에선 색상·채도가 반올림 산물이라
+      // 무의미하고, 크로마 ≥3인 어두운 픽셀(암부 자홍 등)은 실색이므로 검사한다.
+      // (C1의 V<0.10 하한은 야간 프레임 13%를 색상 무관 블라인드스팟으로 만들었다.)
+      // LIMIT(1.5%)는 불변.
+      if (d <= 2) { quantExcluded++; continue; }
       violations++;
       histo[Math.min(35, Math.floor(h / 10))]++;
     }
@@ -103,8 +105,9 @@ for (let fi = 0; fi < files.length; fi++) {
   if (!ok) anyFail = true;
   shots.push({
     shot: files[fi], violationPct: +pct.toFixed(4), ok,
-    violationPctNoFloor_reference: +pctNoFloor.toFixed(4), // V<0.10 미제외 참조치
-    darkExcluded,
+    violationPctNoFloor_reference: +pctNoFloor.toFixed(4), // 양자화 제외 미적용 참조치
+    quantExcluded,
+    examinedPct: +((100 * (total - quantExcluded)) / total).toFixed(2),
     topViolationHues: topHues,
   });
 }

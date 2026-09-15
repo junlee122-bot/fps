@@ -77,7 +77,11 @@ async function captureShot(name) {
       return { triangles: s.triangles, drawCalls: s.drawCalls, programs: s.programCountPerFrame.at(-1), bootMs: Math.round(s.bootMs) };
     });
     const sha = createHash('sha256').update(readFileSync(out)).digest('hex');
-    return { shot: name, sha256: sha, ...stats, errors: g.errors };
+    // 하네스 오류([determinism] 트립와이어 포함)와 트랩 상태를 게이트에 편입 —
+    // 페이지 이벤트(g.errors)만 보면 시뮬 창 난수 소비가 픽셀 게이트에 도달하지 않는다 (C2 검토)
+    const harnessErrors = await g.page.evaluate(() => window.__harness.getErrors());
+    const determinism = await g.page.evaluate(() => window.__harness.getDeterminism());
+    return { shot: name, sha256: sha, ...stats, determinism, errors: [...g.errors, ...harnessErrors] };
   } finally {
     await g?.close().catch(() => {});
   }

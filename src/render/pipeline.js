@@ -126,21 +126,24 @@ const FOG_FRAG = /* glsl */`
   uniform float baseY;
   uniform float jitterPhase;
   uniform float shaftStrength;
+  uniform float shadowBias; // 광원 깊이창 정규화값 — CPU가 0.03m/(far-near)로 환산
 
+  // three r180 packDepthToRGBA 역변환 (packing.glsl UnpackFactors4) — 구식 1/255 계열
+  // 상수는 깊이를 ~0.8m 멀리 오독해 차폐를 놓쳤다 (C2 검토 실측)
   float unpackDepth(vec4 rgba) {
-    return dot(rgba, vec4(1.0, 1.0/255.0, 1.0/65025.0, 1.0/16581375.0));
+    return dot(rgba, vec4(255.0/256.0, 255.0/256.0/256.0, 255.0/256.0/65536.0, 1.0/16777216.0));
   }
   float shadowAt(vec3 wp) {
     vec4 sc = shadowMatrix * vec4(wp, 1.0);
     vec3 uvz = sc.xyz / sc.w;
     if (uvz.x < 0.0 || uvz.x > 1.0 || uvz.y < 0.0 || uvz.y > 1.0) return 1.0;
     float d = unpackDepth(texture2D(tShadow, uvz.xy));
-    return uvz.z - 0.003 > d ? 0.0 : 1.0;
+    return uvz.z - shadowBias > d ? 0.0 : 1.0;
   }
   // 지수 높이 안개의 시선 광학 두께 해석해
   float opticalDepth(vec3 ro, vec3 rd, float len) {
     float ky0 = heightFalloff * (ro.y - baseY);
-    float kdy = heightFalloff * rd.y * len;
+    float kdy = clamp(heightFalloff * rd.y * len, -60.0, 60.0);
     float f = abs(kdy) > 1e-4 ? (1.0 - exp(-kdy)) / kdy : 1.0;
     return density * exp(-ky0) * f * len;
   }
@@ -167,10 +170,11 @@ const FOG_FRAG = /* glsl */`
     float lit = 1.0;
     if (shaftStrength > 0.0) {
       float acc = 0.0;
-      float t0 = (jitterPhase + 0.5) / 12.0;
+      float t0 = (jitterPhase + 0.5) / 8.0;            // 8상 스트라텀 전체 커버
+      float ml = min(len, 24.0);                        // 캐스케이드0 도달거리 안에서만 행진
       for (int i = 0; i < 12; i++) {
         float t = (float(i) + t0) / 12.0;
-        acc += shadowAt(camPos + rd * (len * t * 0.6)); // 근거리 60% 구간이 주 기여
+        acc += shadowAt(camPos + rd * (ml * t));
       }
       lit = acc / 12.0;
     }
@@ -303,12 +307,13 @@ export class RenderPipeline {
       sunColor: { value: new THREE.Color(0, 0, 0) },
       skyColor: { value: new THREE.Color(0, 0, 0) },
       density: { value: 0 }, heightFalloff: { value: 0.12 }, baseY: { value: 0 },
-      jitterPhase: { value: 0 }, shaftStrength: { value: 0.85 },
+      jitterPhase: { value: 0 }, shaftStrength: { value: 0.85 }, shadowBias: { value: 1.5e-5 },
     });
     /** C2: main.js가 SkySystem 생성 후 주입 — 안개 구성·태양 방향의 소유자는 sky */
     this.sky = null;
     this._invVPFog = new THREE.Matrix4();
     this._sunCfg = { elev: 55, azim: 205, intensity: 3.0 };
+    this._csmFov = -1; this._csmAspect = -1;
     this.outputPass = new OutputPass();
     this.outputPass.renderToScreen = true;
 
@@ -423,6 +428,12 @@ export class RenderPipeline {
     // 실패해 비항등 재투영이 TAA/MB에 유입된다 (부팅≠reset 상태 결함의 진범, E5b 실측)
     cam.aspect = this._size.x / this._size.y;
     cam.updateProjectionMatrix();
+    // CSM 캐스케이드 절두체는 fov/aspect의 함수 — setSize 시점(프리웜 잔여 1.6·fov 70)에
+    // 고정되면 샷 fov와 무관한 분할이 그림자 텍셀 밀도를 결정한다 (C2 검토)
+    if (cam.fov !== this._csmFov || cam.aspect !== this._csmAspect) {
+      this.csm.updateFrustums();
+      this._csmFov = cam.fov; this._csmAspect = cam.aspect;
+    }
     this._curVP.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
     if (this._hasPrev) {
       // 정적 카메라(캡처): prevVP == curVP이면 정확한 항등으로 스냅 — 역행렬의
@@ -477,6 +488,7 @@ export class RenderPipeline {
       const s0 = this.csm.lights[0].shadow;
       fu.tShadow.value = s0.map ? s0.map.texture : null;
       fu.shadowMatrix.value.copy(s0.matrix);
+      fu.shadowBias.value = 0.03 / (s0.camera.far - s0.camera.near); // 3cm (자유공간 시료 — 아크네 없음)
       fu.jitterPhase.value = clock.frame % 8;
       fu.shaftStrength.value = this._sunCfg.intensity >= 0.1 ? 0.85 : 0.0;
       this._blit(this.fogMat, this.fogRT);

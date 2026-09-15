@@ -27,6 +27,7 @@ const state = {
   totalCalls: 0,
   simWindow: false,
   simWindowCalls: 0,
+  simWindowTotal: 0, // 전 창 누적 (realtime profile 보고용)
   nativeRandom: Math.random,
 };
 
@@ -44,7 +45,7 @@ export function armCaptureDeterminism() {
   state.armed = true;
   Math.random = () => {
     state.totalCalls++;
-    if (state.simWindow) state.simWindowCalls++;
+    if (state.simWindow) { state.simWindowCalls++; state.simWindowTotal++; }
     return mulberry32();
   };
 }
@@ -60,5 +61,5 @@ export function simWindowCalls() {
 }
 
 export function mathRandomStats() {
-  return { armed: state.armed, totalCalls: state.totalCalls };
+  return { armed: state.armed, totalCalls: state.totalCalls, simWindowTotal: state.simWindowTotal };
 }

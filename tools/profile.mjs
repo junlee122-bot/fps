@@ -158,6 +158,10 @@ for (let run = 0; run < RUNS; run++) {
   // 플레이 중 생성된 프로그램의 정체 (harness 프로그램 생성 훅 — 부팅분 frame=-1 제외)
   const compileLog = await g.page.evaluate(() =>
     (window.__harness.getCompileLog?.() ?? []).filter((e) => e.frame >= 0));
+  // 하네스 오류·트랩 상태·프리웜 분해 (PATCH-004-A 산출물은 게이트 출력 기준)
+  const harnessErrors = await g.page.evaluate(() => window.__harness.getErrors());
+  const determinism = await g.page.evaluate(() => window.__harness.getDeterminism?.() ?? null);
+  const prewarm = await g.page.evaluate(() => window.__prewarm ?? null);
   await g.close();
 
   // 인덱스 정렬: frameTimes[i]는 레코드 i ↔ i+1 사이의 간격이다.
@@ -256,9 +260,16 @@ for (let run = 0; run < RUNS; run++) {
       // 리셋 직후 첫 프레임들의 지연 컴파일이 §0(1)이 잡으라는 바로 그 실패다.
       compiledDuringPlay:
         (stats.programCountPerFrame.at(-1) ?? 0) - (stats.programCountPerFrame[0] ?? 0),
-      // 위반 시 범인: {name, tags(define 식별), frame, stack} — 하네스 생성 훅 기록
+      // 위반 시 범인: {name, tags(define 식별), frame, stack} — 하네스 생성 훅 기록.
+      // 개수 차분은 일시 링크(생성+해제)를 못 보므로 생성 로그 건수와 max로 게이트한다
       compileLog,
+      compiledDuringPlayStrict: Math.max(
+        (stats.programCountPerFrame.at(-1) ?? 0) - (stats.programCountPerFrame[0] ?? 0),
+        compileLog.length),
     },
+    harnessErrors,
+    determinism,
+    prewarm: prewarm ? { ms: prewarm.ms, programsAfter: prewarm.programsAfter, breakdown: prewarm.breakdown, msPerProgramOverall: prewarm.msPerProgramOverall } : null,
   });
 }
 
@@ -347,7 +358,10 @@ const summary = {
   phase: PHASE,
   /** 환경 무관 선행지표 — 이 섹션이 P1 이후 패스 게이트다 */
   leadingIndicators: { ...leading, pass: leadingPass },
-  shaderCompilesDuringPlay_max: Math.max(...runs.map((r) => r.programs.compiledDuringPlay)),
+  shaderCompilesDuringPlay_max: Math.max(...runs.map((r) => r.programs.compiledDuringPlayStrict)),
+  harnessErrors_total: runs.reduce((a, r) => a + (r.harnessErrors?.length ?? 0), 0),
+  determinism_simWindowTotal_max: Math.max(...runs.map((r) => r.determinism?.simWindowTotal ?? 0)),
+  prewarmBreakdown: runs[0]?.prewarm ?? null,
   bootMs_median: med(runs.map((r) => r.bootMs)),
   /** GPU 의존 — softwareGL이면 참고치 */
   gpuDependent: {

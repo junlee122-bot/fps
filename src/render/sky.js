@@ -35,6 +35,7 @@ export class SkySystem {
     this.sky = new Sky();
     this.sky.name = 'sky_dome';
     this.sky.scale.setScalar(290); // 카메라 far 300 안쪽
+    this.sky.renderOrder = 1;      // 불투명 목록 마지막 — z=w라 하늘 픽셀만 셰이딩 (풀스크린 Preetham 오버드로우 회피, 픽셀 불변)
     scene.add(this.sky);
 
     const u = this.sky.material.uniforms;
@@ -46,7 +47,17 @@ export class SkySystem {
     this.pmrem = new THREE.PMREMGenerator(renderer);
     this._envRT = null;
     this._envScene = new THREE.Scene();
+    /**
+     * 큐브 렌더 → fromCubemap 경로 (C2 교정): PMREMGenerator.fromScene은 호출마다
+     * 'PMREM.Background' 재질·박스를 새로 만들고 폐기해 매번 프로그램 링크+해제가 일어난다 —
+     * 프리웜 불가능한 구조적 컴파일이라 setShot마다 컴파일 로그(frame≥0)에 잡혔다.
+     * fromCubemap은 생성기 캐시 재질(_cubemapMaterial·_blurMaterial)만 쓰므로 첫 1회 이후
+     * 컴파일 0. 큐브 해상도 256은 fromScene 내부 큐브 크기와 동일.
+     */
+    this._cubeRT = new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType });
+    this._cubeCam = new THREE.CubeCamera(0.1, 100, this._cubeRT); // fromScene 기본 near/far와 동일 (돔은 z=w 고정이라 무관)
     this._sunDir = new THREE.Vector3(0, 1, 0);
+    this._pmremWarmed = new Set(); // 프리웜 중 PMREM을 재질(주간/야간)별 1회 보장
     /** 현재 안개 구성 — 파이프라인 안개 패스가 읽는다 (world:weather와 동일 값) */
     this.fog = { density: 0, heightFalloff: 0.12, baseY: 0 };
 
@@ -64,20 +75,26 @@ export class SkySystem {
         zenithColor: { value: new THREE.Color(0.010, 0.016, 0.030) },
       },
       vertexShader: /* glsl */`
-        varying vec3 vDir;
+        varying vec3 vWorldPos;
         void main() {
-          vDir = normalize((modelMatrix * vec4(position, 0.0)).xyz);
+          vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
           gl_Position.z = gl_Position.w; // 최원면 고정 (Sky와 동일 규약)
         }
       `,
       fragmentShader: /* glsl */`
-        varying vec3 vDir;
+        varying vec3 vWorldPos;
         uniform vec3 horizonColor;
         uniform vec3 zenithColor;
         void main() {
-          float t = pow(clamp(normalize(vDir).y, 0.0, 1.0), 0.55);
-          gl_FragColor = vec4(mix(horizonColor, zenithColor, t), 1.0);
+          // 시선 방향은 카메라 기준 (Sky.js 규약) — 돔 원점 기준이면 카메라 이동에 따라
+          // 그라데이션이 비대칭으로 늘어난다. 지평선 아래는 감쇠해 PMREM 바닥광 역전 방지.
+          vec3 d = normalize(vWorldPos - cameraPosition);
+          float y = d.y;
+          float t = pow(clamp(y, 0.0, 1.0), 0.55);
+          vec3 c = mix(horizonColor, zenithColor, t);
+          c *= mix(0.25, 1.0, smoothstep(-0.08, 0.0, y));
+          gl_FragColor = vec4(c, 1.0);
         }
       `,
     });
@@ -114,11 +131,15 @@ export class SkySystem {
     // 컴파일되고, 프리웜의 목적은 커버리지다 — 샷마다 재생성하면 SwiftShader
     // 실측 개당 ~1.1s × 12회 = 부팅 12.6s (PATCH-004-A 분해로 확인).
     // 캡처·플레이의 setShot 경로는 항상 전체 재생성 (환경광 정확성).
-    if (!this.prewarmSkipPmrem || !this._envRT) {
+    // 프리웜: 돔 재질(주간 Preetham / 야간 그라데이션)별 1회 — _envScene(광원 0)의
+    // 프로그램 키가 메인 씬과 다르므로 야간 PMREM 순열도 별도 컴파일 대상 (C2 검토)
+    if (!this.prewarmSkipPmrem || !this._envRT || !this._pmremWarmed.has(this.sky.material)) {
       if (this._envRT) { this._envRT.dispose(); this._envRT = null; }
       this._envScene.add(this.sky); // scene에서 잠시 이관
-      this._envRT = this.pmrem.fromScene(this._envScene, 0.04);
+      this._cubeCam.update(this.renderer, this._envScene);
+      this._envRT = this.pmrem.fromCubemap(this._cubeRT.texture);
       this.scene.add(this.sky);     // 복귀
+      this._pmremWarmed.add(this.sky.material);
     }
     this.scene.environment = this._envRT.texture;
     // 환경광 강도는 샷 주변광(hemi)에 종속 — 기본 1.0은 실내까지 하늘 IBL로
@@ -134,7 +155,8 @@ export class SkySystem {
 
     // 이벤트 발행 (ARCHITECTURE §3 — sky 소유 어휘)
     const hours = +(6 + ((sun.azim - 90) * 12) / 180).toFixed(2);
-    this.bus.emit('world:tod', { hours, phase: night ? 'night' : 'day' });
+    // 어휘 준수(§3): world:tod { hours }만 — 야간은 hours(예: 20.0)로 표현, phase 필드 제거
+    this.bus.emit('world:tod', { hours });
     this.bus.emit('world:weather', { fogDensity: this.fog.density, humidity: 0.5 });
   }
 
