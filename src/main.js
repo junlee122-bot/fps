@@ -70,9 +70,15 @@ lighting.sky = skySystem;
 pipeline.sky = skySystem;
 
 const physics = new PhysicsWorld();
+// 부팅 단계 계측 (PATCH-004-A 분해 — 프리웜 밖의 비용도 보고한다)
+const bootPhases = []; let _phaseT = clock.wallNowMs();
+const phase = (name) => { const t = clock.wallNowMs(); bootPhases.push({ phase: name, ms: Math.round(t - _phaseT) }); _phaseT = t; };
+phase('renderer+pipeline+sky');
 // P3 C3: 절차 재질 세트 — 부팅 시 GPU 합성(이미지 에셋 0). 소요는 프리웜 분해에 편입(PATCH-004-A)
 const surfaceMaterials = createSurfaceMaterials({ renderer });
+phase('materials_synth');
 const world = buildWorld(scene, physics, surfaceMaterials);
+phase('world_build');
 const bvhInfo = physics.build();
 console.info(`[boot] bvh tris=${bvhInfo.tris} nodes=${bvhInfo.nodes} build=${bvhInfo.buildMs.toFixed(1)}ms`);
 console.info(`[boot] instanced: ${world.instanced.map((i) => `${i.key}×${i.count}`).join(' ')}`);
@@ -246,6 +252,7 @@ pipeline.patchScene();   // CSM 재질 패치 — 클론·fx 포함 전 재질 (
 // C3: 표면 셰이더(트라이플래너·POM·마모)는 CSM 훅을 체인하므로 CSM 패치 다음에 적용
 finalizeSurfaceShaders({ ...surfaceMaterials.mats, FX_DEBRIS_TILE: debrisMaterial });
 window.__materials = surfaceMaterials.synth; // { ms, breakdown } — 부팅 분해 계측 (profile 편입)
+window.__bootPhases = bootPhases; // 부팅 단계별 ms (렌더러·합성·월드·프리웜·웜렌더) — clock.markBootDone 직전까지
 fx.prewarmSpawn(camera); // fx 머티리얼 전 종 컴파일 보증 (P2B §6)
 // 프리웜은 저해상도로 — 프로그램 컴파일은 해상도 무관, 부팅 예산(§7 ≤4s)의
 // 지배 비용이 풀해상도 파이프라인 렌더 11회였다 (실측 7.1s → 축소로 회수)
@@ -254,6 +261,7 @@ renderer.setSize(192, 120, false);
 pipeline.setSize(renderer.domElement.width, renderer.domElement.height);
 pipeline.setShadowMapSize(256); // 그림자 해상도도 축소 — 프로그램 동일, 2048²×3 렌더 비용만 회수
 skySystem.prewarmSkipPmrem = true; // 커버리지 전용 — PMREM은 첫 1회만 (sky.js 주석)
+phase('wiring_to_prewarm');
 const warm = await prewarmShaders({
   renderer, scene, camera,
   compileTarget: pipeline.sceneRT, // 뷰티 패스와 같은 타깃 바인딩으로 컴파일 (캔버스 키의 사장 프로그램 방지)
@@ -272,6 +280,7 @@ applyDefaultView(); // 기본 뷰 환경광(PMREM) 전체 재생성 — 부팅 �
 pipeline.render();
 pipeline.reset();
 console.info(`[boot] prewarm programs=${warm.programsAfter} (+${warm.compiled}) ${warm.ms}ms`);
+phase('prewarm');
 window.__prewarm = warm;
 window.__pipeline = pipeline; // 디버그·결정성 이분 전용 — 게이트 도구는 __harness만 쓴다
 
@@ -280,6 +289,7 @@ fx.reset();               // 프리웜 대표 fx 인스턴스 정리 (부팅 = �
 resetAllStreams();        // 프리웜이 소비한 fx 스트림 위상 원점 복원 — 부팅 상태 ≡ resetState 상태 (P2B 감사)
 physics.markBootBodies(); // 부팅 로스터 스냅샷 — resetState가 런타임 스폰만 걷어낸다 (감사 A1)
 bus.markBoot();           // 구독 스냅샷 (감사 A4)
+phase('warm_render+reset');
 clock.markBootDone();
 console.info(`[boot] ready in ${clock.bootMs.toFixed(0)}ms mode=${mode} seed=${seed}`);
 readyResolve();

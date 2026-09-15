@@ -67,7 +67,7 @@ export const RECIPES = Object.freeze({
     shader: { mode: 'tri', pom: false, wear: false, scale: 2.0 },
   },
   DANCHEONG: {
-    size: 512, seed: 505, period: 4, intendedAlbedo: 0.26, gain: 1.14,
+    size: 512, seed: 505, period: 4, intendedAlbedo: 0.26, gain: 1.26,
     // 바탕(alb)은 박리 노출 목재, 패턴이 도장층: colA 청 · colB 적 · colC 황 · colD 백
     colA: C(0x1d4f73), colB: C(0x8c2519), colC: C(0xd9b521), colD: C(0xe8e4dc),
     L0: V4(2, 4, 1, 1), L1: V4(1, 4, 2, 12), L2: V4(1, 0, 2, 0.99), L3: V4(40, 3, 0, 0), gate: V4(1, 0, 0, 0),
