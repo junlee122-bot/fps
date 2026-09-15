@@ -417,6 +417,108 @@
   (e3aadc6) 워크트리에서 재캡처해 전환 imagediff 근거를 복원한다 — 샷별
   새 페이지·결정성 검증 완료 상태라 원본과 동일 픽셀.
 
+- **C2 검토 라운드 판정 (57건 → 수정 14 / 기록 6 / 이월 4)**. 수정은 전부
+  "측정 대상을 고친다" 원칙으로, 임계값·게이트 정의는 손대지 않았다.
+  - *캡처 해상도 (감도 희석)*: CDP `Page.captureScreenshot`은 CSS 해상도
+    (1512×982)로 2×2 박스평균된 이미지를 돌려줬다 — HARNESS §6 "DPR 2
+    (5.94MP)"가 픽셀 게이트에서 실행된 적이 없고, 버퍼 1픽셀 Δ≤3 LSB는
+    평균 후 반올림으로 소실돼 tolerance 0의 감도가 4× 희석됐다. `clip.scale`로
+    드로잉 버퍼 해상도(3024×1964)를 받도록 교정. 2차 발견: 새 CDP 세션의
+    clip 캡처가 촬영 후 "원본 복원" 과정에서 Playwright의 DPR 에뮬레이션을
+    지운다(1회차 3024×1964, 같은 페이지 2회차 1512×982, devicePixelRatio 2→1).
+    캡처 세션이 동일 메트릭을 스스로 등록하고 페이지 수명 동안 유지하는 것으로
+    해결 — 실측: 같은 페이지 연속 캡처 2회 바이트 동일, devicePixelRatio 2 유지(stepFrames 후에도), Playwright scale:'device' 스크린샷과 바이트 동일(교차 검증). baseline/c1은 C1 종료 커밋(e3aadc6) 워크트리에
+    같은 캡처 도구를 적용해 재캡처했다(게임 코드 불변·도구만 교체 — 전환
+    imagediff의 기준). C1 스냅샷의 palette·imagediff 수치는 CSS 해상도 기준이며
+    본 라운드부터 버퍼 해상도 기준으로 갱신한다.
+  - *안개 그림자 행진 무효*: 깊이 언팩이 구식 1/255 계열 상수라 three r180의
+    `packDepthToRGBA` 출력(UnpackFactors4: 255/256 계열)을 ~0.8m 멀리 오독하고,
+    비교 바이어스가 광원 깊이창으로 정규화되지 않아 차폐를 놓쳤다. 상수 교정 +
+    바이어스 0.03m/(far−near) 환산 + 행진을 캐스케이드0 도달거리(24m) 안으로
+    제한 + 8상 스트라텀 디더. 검증은 A/B 계측(광선 강도 0 vs 0.85 동일 프레임):
+    fog_wall 원구도(태양 후방 azim 250, mu<0)는 HG 전방산란항이 0.6%로 작아
+    차이 ≤1 LSB(0%) — 광선은 역광 구도에서만 보이는 것이 물리적으로 옳다.
+    태양을 전방(azim 10, elev 12)에 둔 동일 지오메트리에서 0.29%(최대 3 LSB, 우측 건물 대역에 국한 — 담장이 태양 방향과 평행이라 차폐 부피가 작다). 결정적 검증은 역광 대청(daecheong_backlit, 태양 전방 elev 32)에 밀도 0.055를 준 A/B: 픽셀 38.7%가 >2 LSB(2.5%는 >8, 최대 14 LSB) 변화하고 diff 이미지가 공포 사이·문·창살 개구부 형태로 구조화된다 — 행진이 그림자 부피를 실제로 감쇠한다.
+  - *파편 재질 CSM 미패치*: FX_DEBRIS_TILE 재질이 pipeline.patchMaterial을 거치지
+    않아 첫 파편 스폰 시 프로그램이 새로 링크됐다(profile run2 frame 279의
+    플레이 중 컴파일 1건 = 이것). patchMaterial 적용 + 파편 메시 풀 24개 부팅
+    사전할당(스폰 시 할당 0, 고갈 시 throw — 상한 초과는 fx 예산 위반이라 조용히
+    넘기지 않는다). 검증: 【roof】.
+  - *PMREM 구조적 컴파일*: `PMREMGenerator.fromScene`은 호출마다 'PMREM.Background'
+    재질·박스를 생성·폐기해 매 setShot에 프로그램 링크+해제가 일어났다 —
+    프리웜 불가능한 컴파일. 스카이돔을 CubeCamera(256²)로 큐브맵에 렌더한 뒤
+    `fromCubemap`(생성기 캐시 재질만 사용)으로 전환. 검증: setShot 4회 후
+    compileLog(frame≥0) = 0건 (종전 setShot마다 'PMREM.Background' 1건), 프로그램 수 부팅 27 = 샷 4회 후 27 = 플레이 후 27. 환경광 값은 미세 변화(fromScene의 σ=0.04
+    초기 블러 없음 — 거친 재질만 쓰므로 mip0 차이는 무의미).
+  - *난수 트랩 범위*: fixed 전용이던 armCaptureDeterminism을 양 모드 상시로,
+    realtime 루프에도 시뮬 창 표식(markSimWindow)을 넣어 profile 실행 중 소비를
+    계측한다. 트립와이어는 errors 배열과 console.error 양쪽에 기록하고, baseline
+    (getErrors·getDeterminism)과 profile(harnessErrors·determinism·compileLog
+    strict = max(개수 차분, 생성 로그 건수))에 편입 — 종전엔 페이지 이벤트만 봐서
+    시뮬 창 난수 소비가 픽셀 게이트에 도달하지 않았다.
+  - *프리웜 사장 프로그램*: 캔버스 바인딩·환경광 없음 상태의 compileAsync가
+    파이프라인이 절대 쓰지 않는 프로그램 10개를 만들었다(35 = 실사용 25 + 사장 10).
+    shots[0] 적용(환경광 확정) 후 sceneRT를 바인딩한 채 compileAsync. 프로그램
+    35 → 27(사장 10 제거, +큐브맵 경로 재질 2).
+  - *CSM 프러스텀 노후화*: updateFrustums가 부팅 시 1회였다 — 샷 fov(65 등)가
+    바뀌면 캐스케이드 분할이 부팅 fov 기준으로 남는다. render()에서 fov/aspect
+    변경 시 갱신.
+  - *야간 돔 방향*: 정점 위치 기반 그라데이션은 카메라 위치에 따라 돔 좌표가
+    틀어져 비대칭으로 늘어났다 → 시선 방향(vWorldPos − cameraPosition) 기반
+    (Sky.js 규약과 동일). renderOrder=1로 불투명 뒤 렌더(오버드로우 절감).
+  - *§3 어휘*: world:tod의 phase 필드 제거(hours만). 야간은 hours 값으로 표현.
+  - *harnesstest 재시도 기록*: 브라우저 사망 서명(JSON 미출력·크래시)에만 재시도하고
+    모든 재시도를 최상위 retries에 기록 — 무기록 재시도는 음성 케이스의 우연
+    통과를 감출 수 있다. 케이스 12는 자체 baseline(tmp)로 self-contained.
+  - *palette 블라인드스팟*: V<0.10 제외가 야간 프레임의 13%를 색상 무관 사각으로
+    만들었다 → 크로마 d≤2양자만 제외(반올림 산물), examinedPct·무제외 참조치 병기,
+    주입 패치는 픽셀의 3%(해상도 무관). LIMIT 1.5% 불변. (재캡처 baseline/c2 기준 수치는 C2 스냅샷에 기록.)
+  - *§8 overdraw 과소보고*: 안개 패스는 밀도와 무관하게 무조건 실행되므로 +1.0을
+    무조건 가산(밀도 0 샷도 동일 셰이더 경로). HANJI 판 4모서리 중 일부만 근평면
+    뒤면 투영이 무의미 → 전화면(+1.0)으로 과대 계상(전부 뒤면 0).
+  - *합성 부하 표식*: debugEmitParticles는 fixed 전용·stepFrames 중 금지, 호출
+    즉시 state.testOverride를 세워 getStats 출력에 박힌다(resetState로 해제).
+  - *determinismaudit 패턴*: Math['random']·구조분해·MathUtils.rand*/generateUUID·
+    crypto.getRandomValues/randomUUID·performance.timeOrigin·`= Math` 앨리어싱까지
+    확장, 트랩 무장 검사는 주석 제거 후 무조건 수행.
+  - *디렉터리 소유권(ARCHITECTURE §1)*: 하늘 서브시스템이 src/render에 있었다 →
+    `src/sky/`(index.js 스카이·PMREM·이벤트, fog.js 볼류메트릭 안개·광선 패스)로
+    이관. 파이프라인은 주입된 sky.fogPass에 프레임 입력을 넘기고 블릿만 한다
+    (§3 주입 규약, 크로스 import 없음). 반구광 감쇠 계수는 조명 리그 소유자
+    (render/renderer.js)로 이동. 픽셀 중립 확인: 3샷(courtyard_noon·fog_wall·lantern_night, 756×491 DPR1 settle 30) 이관 전후 바이트 동일.
+  - **기록(수정 없음)**: (1) 감사 리그(applySunRawForAudit)의 환경광·안개 차단은
+    resetState가 applyDefaultView→applySunConfig로 전체 재적용하므로 복원된다 —
+    감사 도구는 어차피 페이지를 폐기. (2) 인스캐터 skyColor(CPU 근사)와 돔 색의
+    불일치 — C4 톤매핑 라운드에서 돔 샘플링 통일 검토(기록). (3) world:weather
+    humidity 0.5는 자리표시자 — 날씨 시스템은 P4. (4) HANJI 면적 근사는 보수화로
+    충분(과대 방향). (5) CSM 경계 0.8m 페더는 C4. (6) PMREM.Background 링크는
+    구조 교정으로 소멸.
+  - **profile 최악 시나리오 무효 (C2 검토 — 하네스 히트 로그 신설로 실측)**: P2B부터
+    쓰인 게임플레이 스크립트의 'sprint_north 1.5s → fire_roof_debris(카빈 pitch 0.15)'는
+    spawn(0,24) 정북의 석등(0,16) 갓에 막혀 이동이 z≈16.8에서 멈추고, 이후 사격 전부가
+    0.35m 앞 화강암 갓(GRANITE)에 박혔다 — ROOF_TILE 피격 0, 기와 낙하 0. "지붕 카빈
+    연사 + 기와 파편 다발"이라는 최악 부하가 한 번도 측정된 적이 없다(P2B·C1·C2 profile
+    스냅샷 전부). 의도 태그가 아니라 계측이 기준이어야 하므로 (1) 하네스 getHitLog
+    (표면별 누적 + 최근 64), (2) profile에 시나리오 유효성 게이트(ROOF_TILE 피격>0 ∧
+    파편 스폰>0, 아니면 SCENARIO-INVALID 배너 + exit 1), (3) 스크립트를 실측으로 검증된
+    동선으로 교체: spawn→북 0.8s(석등 앞 z≈19.2)→동 9s 질주(동측 담장에 눌려 x≈43.0 정지 — 저 fps의 시뮬 시간 손실과 무관하게 도달)→담장 기와갓 근접 연사. fixed 스윕 실측: 벽 앞 눈높이≈1.64에서 앙각 0.12~0.45 전 구간이 갓 판/용마루(ROOF_TILE)에 닿고 ≤0.11은 화강암 상단(1.70)에 걸림 → 0.28 채택(여유 ±0.15rad). 카빈 2.4s 연사: ROOF_TILE 105 피격·기와 낙하 105(동시 24 상한 FIFO), 산탄 3발 후 누적 134·파티클 2144, 플레이 컴파일 0, 하네스 오류 0. 종전 profile 수치(fps·overdraw·particles)는 비최악 부하
+    측정치로 강등한다.
+  - **realtime 시뮬 시간 굶주림 (동선 검증 중 발견)**: 메인 루프의 서브스텝 상한 5 ×
+    PHYSICS_DT(1/120) = 41.7ms는 프레임 dt 상한(MAX_FRAME_DT 0.1s)을 다 소화하지 못해
+    24fps 아래에서 이동 시간을 버렸다(≤10fps에서 42%: 캡처 병행 0.7fps 실측 — 시뮬 14s
+    동안 이동 5.2s, 담장 도달 실패·히트 0). 스크립트 세그먼트는 시뮬 시간 기준이므로
+    동선이 fps 의존으로 짧아지는 구조적 결함이다. 상한을 ceil(MAX_FRAME_DT/PHYSICS_DT)=12로
+    (dt 상한이 나선 방지를 담당, 60fps 이상에서는 무변화). fixed 경로(stepSim)는 무관 —
+    캡처 픽셀 불변.
+  - **cpuFrameMsP95의 저 fps 기준 (B5 연장)**: 서브스텝 상한 교정 후 software GL(≤10fps,
+    프레임 dt 상한 0.1s)에서는 한 프레임이 12 서브스텝(목표 60fps의 2배×6)을 통합하므로
+    원시 sim ms(단축 검증 실측 p95 8.9ms — 캡처 병행 중)는 목표 프레임 예산 6ms와 비교
+    불가다. 서브스텝 루프 시간만 (2/n)로 환산한 **60fps 등가 sim ms**를 software GL의
+    게이트 기준으로 하고(프레임당 1회 작업은 그대로, 60fps 이상에서는 원시값과 동일),
+    원시 p95·서브스텝 p95는 참조로 병기한다. 예산 불변 — 측정 기준을 목표 조건에 맞춘 것.
+    새 최악 시나리오(기와 낙하 24 동시·파티클 700+)의 실제 CPU 비용은 유휴 기계의 계약
+    profile로 확정한다.
+
 ## C. 표류 방지 메모 (충돌은 아니지만 오해 소지)
 
 - `WATER`의 "거리 기반 감쇠"는 별도 코드 경로가 아니라 `computePenetration`의
