@@ -117,8 +117,9 @@ const LAYER_FRAG = /* glsl */`
     int pat = int(uPat.x);
     vec2 uv = vUv;
     if (pat == 1) {
-      // 단청 — u: 부재 길이 0..1, v: 폭. 머리초(양 끝 3색 띠+흑선) · 연화(끝 안쪽 6엽) · 금문(중앙 청지 백선 격자·황점) · 박리
-      float endD = min(uv.x, 1.0 - uv.x);
+      // 단청 — u: [0,0.5] 끝단 구간(끝에서 0..LREF m, 셰이더 LOCAL 모드가 미터 기준으로 매핑), [0.5,1] 중앙 반복 구간.
+      // 머리초(끝 3색 띠+흑선) · 연화(끝 안쪽 6엽) · 금문(중앙 청지 백선 격자·황점) · 박리
+      float endD = min(uv.x * 2.0, 1.0);
       float bandW = uPat.y;
       float t = clamp(endD / bandW, 0.0, 1.0);
       vec3 band = colA;                                          // 청
@@ -131,7 +132,7 @@ const LAYER_FRAG = /* glsl */`
       float lotus = (1.0 - smoothstep(0.0, 0.08, abs(r - (0.5 + 0.12 * cos(ang * 6.0))))) * step(endD, bandW);
       band = mix(band, vec3(0.92), lotus * 0.9);
       float mid = smoothstep(bandW, bandW + 0.02, endD);
-      vec2 g = vec2(uv.x * uPat.z, uv.y * 3.0);
+      vec2 g = vec2(uv.x * 2.0 * uPat.z, uv.y * 3.0);
       float lat = min(smoothstep(0.42, 0.47, abs(fract(g.x + g.y) - 0.5) * 2.0 * 0.5 + 0.25), smoothstep(0.42, 0.47, abs(fract(g.x - g.y) - 0.5) * 2.0 * 0.5 + 0.25));
       float white = 1.0 - min(smoothstep(0.03, 0.06, abs(fract(g.x + g.y) - 0.5)), smoothstep(0.03, 0.06, abs(fract(g.x - g.y) - 0.5)));
       float dots = 1.0 - smoothstep(0.10, 0.14, length(fract(g) - 0.5));
@@ -172,7 +173,7 @@ const LAYER_FRAG = /* glsl */`
     } else if (pat == 5) {
       // 등롱 살대: v 주기 흑선 + 산란 얼룩(ao 채널 = 발광 마스크)
       float rib = 1.0 - smoothstep(0.0, uPat.z, abs(fract(uv.y * uPat.y) - 0.5) * 2.0 - (1.0 - uPat.z * 2.0));
-      alb *= 1.0 - 0.6 * rib;
+      alb *= 1.0 - 0.35 * rib;
       h -= 0.1 * rib;
       ao = 0.35 + 0.65 * L0; // 내부 산란 마스크 (재질이 emissiveMap으로 소비)
     } else if (pat == 6) {

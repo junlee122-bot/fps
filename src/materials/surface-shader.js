@@ -96,14 +96,19 @@ const FRAG_MAP = /* glsl */`
   vec4 surfAlbedo; vec4 surfORM; vec3 surfTn; // surfTn: 월드 노멀 (맵 합성 후)
   #ifdef SURF_LOCAL
   {
-    // 부재 길이축 = 가장 긴 치수. u: 길이 방향 0..1, v: 폭 방향 (uv 반복 uLocalScale)
+    // 부재 길이축 = 가장 긴 치수. 텍스처 u 의미: [0,0.5] = 가까운 끝에서 0..LREF(m) 구간(머리초·연화),
+    // [0.5,1] = 중앙 구간(금문, LREF마다 반복). 길이에 비례하지 않고 미터 기준이라 16m 창방에서도 머리초는 끝 0.4m다.
+    const float LREF = 1.0;
     vec3 d = vSurfDims;
     vec3 lp = vSurfLPos;
-    vec2 luv;
-    if (d.x <= 0.0) { luv = lp.xy * uLocalScale + 0.5; }
-    else if (d.x >= d.y && d.x >= d.z) { luv = vec2(lp.x / d.x + 0.5, (abs(vSurfLNrm.y) > 0.5 ? lp.z / d.z : lp.y / d.y) + 0.5); }
-    else if (d.z >= d.x && d.z >= d.y) { luv = vec2(lp.z / d.z + 0.5, (abs(vSurfLNrm.y) > 0.5 ? lp.x / d.x : lp.y / d.y) + 0.5); }
-    else { luv = vec2(lp.y / d.y + 0.5, (abs(vSurfLNrm.x) > 0.5 ? lp.z / d.z : lp.x / d.x) + 0.5); }
+    float along, half, across;
+    if (d.x <= 0.0) { along = lp.x; half = 0.5 / uLocalScale; across = lp.y * uLocalScale + 0.5; }
+    else if (d.x >= d.y && d.x >= d.z) { along = lp.x; half = d.x * 0.5; across = (abs(vSurfLNrm.y) > 0.5 ? lp.z / d.z : lp.y / d.y) + 0.5; }
+    else if (d.z >= d.x && d.z >= d.y) { along = lp.z; half = d.z * 0.5; across = (abs(vSurfLNrm.y) > 0.5 ? lp.x / d.x : lp.y / d.y) + 0.5; }
+    else { along = lp.y; half = d.y * 0.5; across = (abs(vSurfLNrm.x) > 0.5 ? lp.z / d.z : lp.x / d.x) + 0.5; }
+    float endDist = max(half - abs(along), 0.0);
+    float u = endDist < LREF ? endDist / (2.0 * LREF) : 0.5 + fract((endDist - LREF) / LREF) * 0.5;
+    vec2 luv = vec2(u, across);
     surfAlbedo = texture2D(map, luv);
     surfORM = texture2D(roughnessMap, luv);
     vec3 tn = texture2D(normalMap, luv).xyz * 2.0 - 1.0; tn.xy *= normalScale;

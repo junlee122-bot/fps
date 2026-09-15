@@ -63,13 +63,18 @@ export async function prewarmShaders({ renderer, scene, camera, shots, applyShot
 
   // 3) 나머지 샷 순회 — 잔여 순열 (야간 돔·라이트 순열·뷰모델 등)
   tg = clock.wallNowMs(); pg = progs();
+  const perShot = []; // 샷별 소요 — 지배 샷 식별 (C3: 순회 4.7s의 원인 분해)
   for (let i = 1; i < shots.length; i++) {
+    const ts = clock.wallNowMs(), ps = progs();
     applyShot(shots[i]);
+    const ta = clock.wallNowMs();
     draw();
     // 프로토콜/메인스레드 양보 (렌더 결과에는 영향 없음)
     await new Promise((r) => setTimeout(r, 0));
+    perShot.push({ shot: shots[i].name, applyMs: Math.round(ta - ts), drawMs: Math.round(clock.wallNowMs() - ta), programs: progs() - ps });
   }
   mark('shot_sweep(rest)', tg, pg);
+  groups[groups.length - 1].perShot = perShot;
 
   tg = clock.wallNowMs(); pg = progs();
   restoreDefault();

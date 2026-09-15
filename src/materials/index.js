@@ -29,11 +29,13 @@ const C = (hex) => new THREE.Color(hex);
  *  alb [spot→height, streak→colC 가중, spot→colD 가중, 균열 어둡기]
  *  hgt [L0, streak, crack(−), L3]  rgh [base, dStreak, dCrack, dL0]  aom [aoCrack, metalA, metalB, patinaThresh(>1=없음)]
  *  pat [type, a, b, c] — 패턴 연산 (synth.js PAT)
+ *  gain — 색 상수 선형 배율(colA..colD). 의도 알베도(intendedAlbedo) 대비 합성 평균 휘도 실측
+ *         (C3 프로브: 예 WOOD_PLANK 0.115 vs 0.20)에서 역산한 조정값 — 색상·채도 비 유지, 코드에 남는다
  *  shader: { mode:'tri'|'local'|'uv', pom, wear, scale(1/m), pomScale(m), wearColor, wearWidth, wearAmount, localScale }
  */
 export const RECIPES = Object.freeze({
   GRANITE: {
-    size: 512, seed: 101, period: 4, intendedAlbedo: 0.30,
+    size: 512, seed: 101, period: 4, intendedAlbedo: 0.30, gain: 1.17,
     colA: C(0x9a9a97), colB: C(0x777775), colC: C(0xc8c8c4), colD: C(0xc8c8c4),
     L0: V4(3, 5, 3, 1), L1: V4(1, 1, 9, 1), L2: V4(40, 5, 1, 0.12), L3: V4(48, 7, 0, 0), gate: V4(6, 5, 0.62, 0),
     remap: V4(0, 0, 0, 0), alb: V4(0.03, 0, 0.5, 0), hgt: V4(0.18, 0, 0, 0.06), rgh: V4(0.9, 0, 0, 0.05), aom: V4(0, 0, 0, 2),
@@ -41,7 +43,7 @@ export const RECIPES = Object.freeze({
     shader: { mode: 'tri', pom: true, wear: true, scale: 0.9, pomScale: 0.015, wearColor: C(0xb9b9b5), wearWidth: 0.03, wearAmount: 0.5 },
   },
   WOOD_COLUMN: {
-    size: 512, seed: 202, period: 4, intendedAlbedo: 0.16,
+    size: 512, seed: 202, period: 4, intendedAlbedo: 0.16, gain: 1.5,
     colA: C(0x8c7660), colB: C(0x594b3c), colC: C(0x4a3d30), colD: C(0x3a2f25),
     L0: V4(1, 3, 1, 1), L1: V4(1, 4, 2, 14), L2: V4(1, 0, 2, 0.9), L3: V4(60, 9, 0, 0), gate: V4(1, 0, 0, 0),
     remap: V4(0, 0, 0.3, 0.7), alb: V4(0, 0.8, 0, 0), hgt: V4(0.04, 0.12, 0, 0.04), rgh: V4(0.82, -0.12, 0, 0), aom: V4(0, 0, 0, 2),
@@ -49,7 +51,7 @@ export const RECIPES = Object.freeze({
     shader: { mode: 'tri', pom: false, wear: true, scale: 1.2, wearColor: C(0xa89478), wearWidth: 0.02, wearAmount: 0.45 },
   },
   WOOD_PLANK: {
-    size: 512, seed: 203, period: 4, intendedAlbedo: 0.20,
+    size: 512, seed: 203, period: 4, intendedAlbedo: 0.20, gain: 1.74,
     colA: C(0x9c8468), colB: C(0x6b5a46), colC: C(0x55463a), colD: C(0x3a2f25),
     L0: V4(1, 3, 4, 1), L1: V4(1, 4, 5, 18), L2: V4(1, 0, 2, 0.9), L3: V4(60, 9, 0, 0), gate: V4(1, 0, 0, 0),
     remap: V4(0, 0, 0.3, 0.7), alb: V4(0, 0.8, 0, 0), hgt: V4(0.03, 0.1, 0, 0.03), rgh: V4(0.78, -0.12, 0, 0), aom: V4(0, 0, 0, 2),
@@ -57,7 +59,7 @@ export const RECIPES = Object.freeze({
     shader: { mode: 'tri', pom: false, wear: true, scale: 1.0, wearColor: C(0xb8a68a), wearWidth: 0.015, wearAmount: 0.4 },
   },
   WOOD_LATTICE: {
-    size: 256, seed: 204, period: 4, intendedAlbedo: 0.10,
+    size: 256, seed: 204, period: 4, intendedAlbedo: 0.10, gain: 3.15,
     colA: C(0x4a3d32), colB: C(0x382e27), colC: C(0x2d251f), colD: C(0x2d251f),
     L0: V4(1, 3, 1, 1), L1: V4(1, 3, 2, 20), L2: V4(1, 0, 2, 0.99), L3: V4(60, 9, 0, 0), gate: V4(1, 0, 0, 0),
     remap: V4(0, 0, 0.3, 0.7), alb: V4(0, 0.7, 0, 0), hgt: V4(0.02, 0.08, 0, 0.02), rgh: V4(0.8, -0.1, 0, 0), aom: V4(0, 0, 0, 2),
@@ -65,7 +67,7 @@ export const RECIPES = Object.freeze({
     shader: { mode: 'tri', pom: false, wear: false, scale: 2.0 },
   },
   DANCHEONG: {
-    size: 512, seed: 505, period: 4, intendedAlbedo: 0.26,
+    size: 512, seed: 505, period: 4, intendedAlbedo: 0.26, gain: 1.14,
     // 바탕(alb)은 박리 노출 목재, 패턴이 도장층: colA 청 · colB 적 · colC 황 · colD 백
     colA: C(0x1d4f73), colB: C(0x8c2519), colC: C(0xd9b521), colD: C(0xe8e4dc),
     L0: V4(2, 4, 1, 1), L1: V4(1, 4, 2, 12), L2: V4(1, 0, 2, 0.99), L3: V4(40, 3, 0, 0), gate: V4(1, 0, 0, 0),
@@ -76,7 +78,7 @@ export const RECIPES = Object.freeze({
     shader: { mode: 'local', wear: true, wearColor: C(0x594b3c), wearWidth: 0.02, wearAmount: 0.7, localScale: 1 / 0.9 },
   },
   ROOF_TILE: {
-    size: 512, seed: 404, period: 4, intendedAlbedo: 0.07,
+    size: 512, seed: 404, period: 4, intendedAlbedo: 0.07, gain: 1.87,
     colA: C(0x3a3d42), colB: C(0x2b2e33), colC: C(0x59593a), colD: C(0x4a4d52),
     L0: V4(6, 4, 1, 1), L1: V4(1, 1, 2, 1), L2: V4(1, 0, 2, 0.99), L3: V4(70, 2, 0, 0), gate: V4(2, 3, 0.58, 0),
     remap: V4(0, 0, 0, 0), alb: V4(0, 0, 0, 0), hgt: V4(0.08, 0, 0, 0.03), rgh: V4(0.9, 0, 0, 0), aom: V4(0, 0, 0, 2),
@@ -85,7 +87,7 @@ export const RECIPES = Object.freeze({
     shader: { mode: 'tri', pom: true, wear: false, scale: 2.5, pomScale: 0.01 },
   },
   EARTH_WALL: {
-    size: 256, seed: 303, period: 4, intendedAlbedo: 0.25,
+    size: 256, seed: 303, period: 4, intendedAlbedo: 0.25, gain: 1.04,
     colA: C(0x948168), colB: C(0x7a6a55), colC: C(0xbfad73), colD: C(0x8f7d64),
     L0: V4(4, 5, 1, 1), L1: V4(20, 3, 31, 0.08), L2: V4(5, 43, 0, 0.035), L3: V4(64, 4, 0, 0), gate: V4(2, 47, 0.45, 0),
     remap: V4(0, 0, 0.56, 0.64), alb: V4(0, 0.8, 0, 0.45), hgt: V4(0.1, 0.05, 0.3, 0.04), rgh: V4(0.95, -0.1, 0, 0), aom: V4(0.35, 0, 0, 2),
@@ -93,7 +95,7 @@ export const RECIPES = Object.freeze({
     shader: { mode: 'tri', pom: true, wear: false, scale: 1.0, pomScale: 0.012 },
   },
   PLASTER: {
-    size: 256, seed: 304, period: 4, intendedAlbedo: 0.55,
+    size: 256, seed: 304, period: 4, intendedAlbedo: 0.55, gain: 0.88,
     colA: C(0xddd8ce), colB: C(0xc9c3b6), colC: C(0xc9c3b6), colD: C(0xc9c3b6),
     L0: V4(3, 5, 1, 1), L1: V4(1, 1, 2, 1), L2: V4(3, 5, 0, 0.012), L3: V4(80, 2, 0, 0), gate: V4(1, 8, 0.6, 0),
     remap: V4(0, 0, 0, 0), alb: V4(0, 0, 0, 0.3), hgt: V4(0.03, 0, 0.15, 0.03), rgh: V4(0.9, 0, 0, 0), aom: V4(0.2, 0, 0, 2),
@@ -101,7 +103,7 @@ export const RECIPES = Object.freeze({
     shader: { mode: 'tri', pom: false, wear: true, scale: 1.0, wearColor: C(0x948168), wearWidth: 0.03, wearAmount: 0.5 },
   },
   LACQUER: {
-    size: 256, seed: 606, period: 4, intendedAlbedo: 0.035,
+    size: 256, seed: 606, period: 4, intendedAlbedo: 0.035, gain: 3.8,
     colA: C(0x38110e), colB: C(0x1f0a08), colC: C(0x1f0a08), colD: C(0x1f0a08),
     L0: V4(2, 4, 5, 1), L1: V4(1, 1, 2, 1), L2: V4(12, 3, 0, 0.015), L3: V4(40, 2, 0, 0), gate: V4(1, 0, 0, 0),
     remap: V4(0, 0, 0, 0), alb: V4(0, 0, 0, 0.35), hgt: V4(0.01, 0, 0.06, 0), rgh: V4(0.12, 0, 0.25, 0), aom: V4(0, 0, 0, 2),
@@ -109,7 +111,7 @@ export const RECIPES = Object.freeze({
     shader: { mode: 'tri', pom: false, wear: false, scale: 1.0 },
   },
   FABRIC: {
-    size: 256, seed: 707, period: 4, intendedAlbedo: 0.45,
+    size: 256, seed: 707, period: 4, intendedAlbedo: 0.45, gain: 0.93,
     colA: C(0xccc0a3), colB: C(0xb5a98c), colC: C(0xb5a98c), colD: C(0xd8ccb0),
     L0: V4(2, 4, 4, 1), L1: V4(1, 1, 2, 1), L2: V4(1, 0, 2, 0.99), L3: V4(90, 2, 0, 0), gate: V4(1, 0, 0, 0),
     remap: V4(0, 0, 0, 0), alb: V4(0, 0, 0, 0), hgt: V4(0.02, 0, 0, 0.02), rgh: V4(0.95, 0, 0, 0), aom: V4(0, 0, 0, 2),
@@ -117,7 +119,7 @@ export const RECIPES = Object.freeze({
     shader: { mode: 'tri', pom: false, wear: false, scale: 1.0 },
   },
   THATCH: {
-    size: 256, seed: 808, period: 4, intendedAlbedo: 0.28,
+    size: 256, seed: 808, period: 4, intendedAlbedo: 0.28, gain: 1.27,
     colA: C(0x9e8c57), colB: C(0x615235), colC: C(0xbfad73), colD: C(0x615235),
     L0: V4(1, 3, 1, 1), L1: V4(1, 4, 2, 40), L2: V4(1, 0, 2, 0.99), L3: V4(3, 6, 0, 0), gate: V4(1, 0, 0, 0),
     remap: V4(0, 0, 0.3, 0.7), alb: V4(0, 0.5, 0, 0), hgt: V4(0.02, 0.06, 0, 0.06), rgh: V4(0.92, 0, 0, 0), aom: V4(0, 0, 0, 2),
@@ -125,7 +127,7 @@ export const RECIPES = Object.freeze({
     shader: { mode: 'tri', pom: true, wear: false, scale: 1.0, pomScale: 0.02 },
   },
   BRONZE: {
-    size: 256, seed: 909, period: 4, intendedAlbedo: 0.12,
+    size: 256, seed: 909, period: 4, intendedAlbedo: 0.12, gain: 1.13,
     colA: C(0x524637), colB: C(0x4d807e), colC: C(0x4d807e), colD: C(0x6a9a97),
     L0: V4(5, 5, 1, 1), L1: V4(1, 1, 2, 1), L2: V4(1, 0, 2, 0.99), L3: V4(60, 2, 0, 0), gate: V4(1, 0, 0, 0),
     remap: V4(0.45, 0.7, 0, 0), alb: V4(0, 0, 0, 0), hgt: V4(0.05, 0, 0, 0.04), rgh: V4(0.55, 0, 0, 0.4), aom: V4(0, 0.85, 0.15, 0.45),
@@ -133,7 +135,7 @@ export const RECIPES = Object.freeze({
     shader: { mode: 'tri', pom: false, wear: false, scale: 1.5 },
   },
   PACKED_DIRT: {
-    size: 256, seed: 1010, period: 4, intendedAlbedo: 0.20,
+    size: 256, seed: 1010, period: 4, intendedAlbedo: 0.20, gain: 1.41,
     colA: C(0x806f5c), colB: C(0x6b5d4c), colC: C(0x6b5d4c), colD: C(0xa39d92),
     L0: V4(2, 5, 1, 1), L1: V4(1, 1, 2, 1), L2: V4(30, 5, 1, 0.06), L3: V4(90, 2, 0, 0), gate: V4(8, 9, 0.72, 0),
     remap: V4(0, 0, 0, 0), alb: V4(0.1, 0, 0.7, 0), hgt: V4(0.08, 0, 0, 0.03), rgh: V4(0.96, 0, 0, 0), aom: V4(0, 0, 0, 2),
@@ -141,7 +143,7 @@ export const RECIPES = Object.freeze({
     shader: { mode: 'tri', pom: true, wear: false, scale: 0.7, pomScale: 0.01 },
   },
   HANJI: {
-    size: 256, seed: 1111, period: 4, intendedAlbedo: 0.72,
+    size: 256, seed: 1111, period: 4, intendedAlbedo: 0.72, gain: 0.96,
     colA: C(0xe3e0d8), colB: C(0xd9cfb2), colC: C(0xf0ede6), colD: C(0xf0ede6),
     L0: V4(1, 4, 7, 1), L1: V4(40, 3, 1, 0.04), L2: V4(1, 0, 2, 0.99), L3: V4(50, 2, 0, 0), gate: V4(1, 0, 0, 0),
     remap: V4(0.5, 0.85, 0.55, 0.7), alb: V4(0, 0.5, 0, 0), hgt: V4(0, 0.03, 0, 0.01), rgh: V4(0.9, 0, 0, 0), aom: V4(0, 0, 0, 2),
@@ -149,16 +151,16 @@ export const RECIPES = Object.freeze({
     shader: { mode: 'uv' },
   },
   LANTERN: {
-    size: 256, seed: 1212, period: 4, intendedAlbedo: 0.55,
+    size: 256, seed: 1212, period: 4, intendedAlbedo: 0.55, gain: 1.5,
     colA: C(0xd8cba8), colB: C(0xc9ba95), colC: C(0xc9ba95), colD: C(0xc9ba95),
     L0: V4(2, 4, 3, 1), L1: V4(1, 1, 2, 1), L2: V4(1, 0, 2, 0.99), L3: V4(50, 1, 0, 0), gate: V4(1, 0, 0, 0),
     remap: V4(0, 0, 0, 0), alb: V4(0, 0, 0, 0), hgt: V4(0.02, 0, 0, 0.02), rgh: V4(0.9, 0, 0, 0), aom: V4(0, 0, 0, 2),
-    pat: V4(PAT.RIBS, 8, 0.06, 0), normalStrength: 3,
+    pat: V4(PAT.RIBS, 8, 0.03, 0), normalStrength: 3,
     emissive: C(0xffdf8e), emissiveIntensity: 1.1,
     shader: { mode: 'uv' },
   },
   WATER: {
-    size: 256, seed: 1313, period: 4, intendedAlbedo: 0.19,
+    size: 256, seed: 1313, period: 4, intendedAlbedo: 0.19, gain: 1.0,
     colA: C(0x6e7a80), colB: C(0x6e7a80), colC: C(0x6e7a80), colD: C(0x6e7a80),
     L0: V4(3, 4, 1, 1), L1: V4(1, 1, 2, 1), L2: V4(1, 0, 2, 0.99), L3: V4(1, 0, 0, 0), gate: V4(1, 0, 0, 0),
     remap: V4(0, 0, 0, 0), alb: V4(0, 0, 0, 0), hgt: V4(0.1, 0, 0, 0), rgh: V4(0.22, 0, 0, 0), aom: V4(0, 0, 0, 2),
@@ -185,6 +187,8 @@ export function createSurfaceMaterials({ renderer }) {
   for (const [key, r] of Object.entries(RECIPES)) {
     const rc = { ...r, name: key };
     if (key === 'DANCHEONG') { rc.colA = r.peelBase[0]; rc.colB = r.peelBase[1]; }
+    const g = r.gain ?? 1;
+    if (g !== 1) for (const ck of ['colA', 'colB', 'colC', 'colD']) if (rc[ck]) rc[ck] = rc[ck].clone().multiplyScalar(g);
     const tex = synth.generate(rc);
     // 단청: 패턴 색은 도장 5색이지만 바탕(alb)은 목재 — 셰이더 uniform 순서상 colA/B가 바탕이므로
     // 도장색은 colC/colD 자리로 넘길 수 없다 → 단청 레시피는 pat 분기에서 colA/colB/colC/colD를 도장색으로 쓴다.
