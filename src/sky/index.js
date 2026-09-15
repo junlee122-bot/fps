@@ -23,6 +23,7 @@
  */
 
 import * as THREE from 'three';
+import { clock } from '../core/clock.js';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { FogPass } from './fog.js';
 
@@ -60,6 +61,8 @@ export class SkySystem {
     this._cubeCam = new THREE.CubeCamera(0.1, 100, this._cubeRT); // fromScene 기본 near/far와 동일 (돔은 z=w 고정이라 무관)
     this._sunDir = new THREE.Vector3(0, 1, 0);
     this._pmremWarmed = new Set(); // 프리웜 중 PMREM을 재질(주간/야간)별 1회 보장
+    /** 환경광 재생성 소요 로그 [{material, cubeMs, pmremMs}] — 부팅 분해 계측 (PATCH-004-A) */
+    this.envLog = [];
     /** 현재 안개 구성 — 파이프라인 안개 패스가 읽는다 (world:weather와 동일 값) */
     this.fog = { density: 0, heightFalloff: 0.12, baseY: 0 };
 
@@ -139,8 +142,11 @@ export class SkySystem {
     if (!this.prewarmSkipPmrem || !this._envRT || !this._pmremWarmed.has(this.sky.material)) {
       if (this._envRT) { this._envRT.dispose(); this._envRT = null; }
       this._envScene.add(this.sky); // scene에서 잠시 이관
+      const tc = clock.wallNowMs();
       this._cubeCam.update(this.renderer, this._envScene);
+      const tp = clock.wallNowMs();
       this._envRT = this.pmrem.fromCubemap(this._cubeRT.texture);
+      this.envLog.push({ material: this.sky.material === this.dayMat ? 'day' : 'night', cubeMs: Math.round(tp - tc), pmremMs: Math.round(clock.wallNowMs() - tp) });
       this.scene.add(this.sky);     // 복귀
       this._pmremWarmed.add(this.sky.material);
     }

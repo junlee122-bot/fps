@@ -91,7 +91,8 @@ const LAYER_FRAG = /* glsl */`
     // ---- 레이어
     int s0 = int(uL0.x), s1 = int(uL1.x), s2 = int(uL2.x), s3 = int(uL3.x), sg = int(uGate.x);
     float L0 = fbm(p * float(s0) * vec2(1.0, uL0.w), period * s0, seed + uint(uL0.z), int(uL0.y));
-    float L1 = fbm(p * float(s1) * vec2(1.0, uL1.w), period * s1, seed + uint(uL1.z), int(uL1.y));
+    // 결(L1): x를 늘여 y 방향으로 줄무늬가 흐른다 — 트라이플래너에서 텍스처 y=월드 y(기둥 축), 바닥(Y투영)은 z(마루 방향)
+    float L1 = fbm(p * float(s1) * vec2(uL1.w, 1.0), period * s1, seed + uint(uL1.z), int(uL1.y));
     vec2  W  = worley(p * float(s2), period * s2, seed + uint(uL2.y));
     float L3 = vnoise(p * float(s3), period * s3, seed + uint(uL3.y));
     float G  = fbm(p * float(sg), period * sg, seed + uint(uGate.y), 3);
@@ -141,9 +142,10 @@ const LAYER_FRAG = /* glsl */`
       geum = mix(geum, colC, dots);
       vec3 paint = mix(band, geum, mid);
       // 박리: 고주파 임계 마스크 + 끝단 가중 (도장층이 벗겨져 목재 노출 — 기본 alb가 목재)
-      float pm = fbm(p * 6.0, period * 6, seed + 77u, 4) + 0.25 * (1.0 - smoothstep(0.0, 0.3, endD)) * 0.0;
+      float pm = fbm(p * 6.0, period * 6, seed + 77u, 4);
       float peel = smoothstep(uPat.w, uPat.w + 0.03, pm);
-      alb = mix(paint, alb, peel);
+      vec3 woodBase = mix(uPat2.rgb, uPat2.rgb * 0.7, L0); // 박리 노출 목재 (pat2.rgb)
+      alb = mix(paint, woodBase, peel);
       h = 0.5 + 0.06 * (1.0 - peel) + 0.02 * lotus - 0.03 * white * mid;
       rough = mix(0.55, 0.9, peel);
       ao = 1.0 - 0.25 * peel;

@@ -68,12 +68,11 @@ export const RECIPES = Object.freeze({
   },
   DANCHEONG: {
     size: 512, seed: 505, period: 4, intendedAlbedo: 0.26, gain: 1.26,
-    // 바탕(alb)은 박리 노출 목재, 패턴이 도장층: colA 청 · colB 적 · colC 황 · colD 백
+    // colA 청 · colB 적 · colC 황 · colD 백 (도장층). 박리로 노출되는 목재색은 peelBase(pat2로 전달)
     colA: C(0x1d4f73), colB: C(0x8c2519), colC: C(0xd9b521), colD: C(0xe8e4dc),
     L0: V4(2, 4, 1, 1), L1: V4(1, 4, 2, 12), L2: V4(1, 0, 2, 0.99), L3: V4(40, 3, 0, 0), gate: V4(1, 0, 0, 0),
     remap: V4(0, 0, 0.35, 0.65), alb: V4(0, 0.3, 0, 0), hgt: V4(0.05, 0.06, 0, 0.02), rgh: V4(0.85, 0, 0, 0), aom: V4(0, 0, 0, 2),
     pat: V4(PAT.DANCHEONG, 0.22, 6, 0.70), normalStrength: 4,
-    // 박리 바탕 목재색은 셰이더의 alb(mix(colA,colB,L0)) — 단청은 colA/colB가 도장색이라 바탕은 별도: peelBase
     peelBase: [C(0x594b3c), C(0x4a3d30)],
     shader: { mode: 'local', wear: true, wearColor: C(0x594b3c), wearWidth: 0.02, wearAmount: 0.7, localScale: 1 / 0.9 },
   },
@@ -186,13 +185,11 @@ export function createSurfaceMaterials({ renderer }) {
   const mats = {};
   for (const [key, r] of Object.entries(RECIPES)) {
     const rc = { ...r, name: key };
-    if (key === 'DANCHEONG') { rc.colA = r.peelBase[0]; rc.colB = r.peelBase[1]; }
     const g = r.gain ?? 1;
     if (g !== 1) for (const ck of ['colA', 'colB', 'colC', 'colD']) if (rc[ck]) rc[ck] = rc[ck].clone().multiplyScalar(g);
+    // 단청: colA..colD = 도장 4색(청·적·황·백), 박리 노출 목재색은 pat2.rgb로 전달 (셰이더 단청 분기 참조)
+    if (key === 'DANCHEONG') { const w = r.peelBase[0].clone().multiplyScalar(g); rc.pat2 = V4(w.r, w.g, w.b, 0); }
     const tex = synth.generate(rc);
-    // 단청: 패턴 색은 도장 5색이지만 바탕(alb)은 목재 — 셰이더 uniform 순서상 colA/B가 바탕이므로
-    // 도장색은 colC/colD 자리로 넘길 수 없다 → 단청 레시피는 pat 분기에서 colA/colB/colC/colD를 도장색으로 쓴다.
-    // (합성 시 colA/colB = 도장 청/적, 바탕 목재는 remap 없이 mix(colA,colB,L0)… 아래 2차 생성으로 분리)
     const m = new THREE.MeshStandardMaterial({
       color: 0xffffff, roughness: 1.0, metalness: 1.0,
       map: tex.map, normalMap: tex.normalMap, roughnessMap: tex.ormMap, metalnessMap: tex.ormMap, aoMap: tex.ormMap,
