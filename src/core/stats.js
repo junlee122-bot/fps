@@ -39,7 +39,10 @@ export class StatsRecorder {
      *            라스터에 블록되어 오염됨 (profile이 환경 감지로 게이트 성분을 선택)
      */
     this.cpuSimMsPerFrame = [];
+    this.substepsPerFrame = [];
+    this.substepMsPerFrame = [];
     this.cpuSubmitMsPerFrame = [];
+    /** 프레임당 물리 서브스텝 수·소요 ms (realtime 전용, fixed는 -1) — 저 fps 환경의 CPU 지표 정규화 근거 */
     /** §7 overdraw_estimate — (파티클+데칼 화면 투영 면적)/화면 픽셀. 미계측 -1 */
     this.overdrawPerFrame = [];
     this.particlesPerFrame = [];
@@ -50,7 +53,7 @@ export class StatsRecorder {
   }
 
   /** 렌더 직후 호출 */
-  record(cpuSimMs = -1, cpuSubmitMs = -1, overdraw = -1, particlesActive = -1, decalsUsed = -1, sceneCalls = -1, sceneTris = -1) {
+  record(cpuSimMs = -1, cpuSubmitMs = -1, overdraw = -1, particlesActive = -1, decalsUsed = -1, sceneCalls = -1, sceneTris = -1, substeps = -1, substepMs = -1) {
     if (this.programCountPerFrame.length >= MAX_SAMPLES) return;
     const now = clock.wallNowMs();
     if (this._lastWall !== null) this.frameTimes.push(now - this._lastWall);
@@ -63,6 +66,8 @@ export class StatsRecorder {
     this.trianglesScenePerFrame.push(sceneTris);
     this.cpuSimMsPerFrame.push(cpuSimMs);
     this.cpuSubmitMsPerFrame.push(cpuSubmitMs);
+    this.substepsPerFrame.push(substeps);
+    this.substepMsPerFrame.push(substepMs);
     this.overdrawPerFrame.push(overdraw);
     this.particlesPerFrame.push(particlesActive);
     this.decalsPerFrame.push(decalsUsed);
@@ -88,6 +93,8 @@ export class StatsRecorder {
       trianglesScenePerFrame: this.trianglesScenePerFrame.slice(),
       cpuSimMsPerFrame: this.cpuSimMsPerFrame.slice(),
       cpuSubmitMsPerFrame: this.cpuSubmitMsPerFrame.slice(),
+      substepsPerFrame: this.substepsPerFrame.slice(),
+      substepMsPerFrame: this.substepMsPerFrame.slice(),
       overdrawPerFrame: this.overdrawPerFrame.slice(),
       particlesPerFrame: this.particlesPerFrame.slice(),
       decalsPerFrame: this.decalsPerFrame.slice(),

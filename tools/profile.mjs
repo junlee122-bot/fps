@@ -199,10 +199,24 @@ for (let run = 0; run < RUNS; run++) {
   const trisTotal = stats.trianglesPerFrame.slice(WARMUP_FRAMES);
   const cpuSimRaw = stats.cpuSimMsPerFrame.slice(WARMUP_FRAMES);
   const cpuSubmitRaw = stats.cpuSubmitMsPerFrame.slice(WARMUP_FRAMES);
+  // 60fps 등가 정규화 (C2 검토): 프레임 dt 상한(0.1s) 아래 fps에서는 한 프레임이 최대 12
+  // 서브스텝(목표 60fps의 2배×6)을 통합하므로 원시 sim ms는 목표 프레임 예산과 비교 불가.
+  // 서브스텝 루프 시간만 (2/서브스텝 수)로 환산하고 프레임당 1회 작업(스크립트·카메라·
+  // 인스턴스 기록)은 그대로 둔다. 60fps 이상에서는 원시값과 동일.
+  const TARGET_SUBSTEPS = 2; // FIXED_DT(1/60) / PHYSICS_DT(1/120)
+  const subN = (stats.substepsPerFrame ?? []).slice(WARMUP_FRAMES);
+  const subMs = (stats.substepMsPerFrame ?? []).slice(WARMUP_FRAMES);
+  const cpuSim60 = cpuSimRaw.map((v, i) => {
+    const n = subN[i] ?? -1, m = subMs[i] ?? -1;
+    if (v < 0 || n <= TARGET_SUBSTEPS || m < 0) return v;
+    return v - m + m * (TARGET_SUBSTEPS / n);
+  });
   const odRaw = (stats.overdrawPerFrame ?? []).slice(WARMUP_FRAMES).filter((v) => v >= 0);
   const pcRaw = (stats.particlesPerFrame ?? []).slice(WARMUP_FRAMES).filter((v) => v >= 0);
   const dcRaw = (stats.decalsPerFrame ?? []).slice(WARMUP_FRAMES).filter((v) => v >= 0);
   const cpuSim = sortedAsc(cpuSimRaw.filter((v) => v >= 0));
+  const cpuSim60s = sortedAsc(cpuSim60.filter((v) => v >= 0));
+  const subNs = sortedAsc(subN.filter((v) => v >= 0));
   const cpuSubmit = sortedAsc(cpuSubmitRaw.filter((v) => v >= 0));
   // 프레임별 합(sim+submit)의 분포 — p95(sim)+p95(submit)는 합의 p95가 아니다 (감사 B3)
   const cpuTotal = sortedAsc(pairSum(cpuSimRaw, cpuSubmitRaw));
@@ -244,6 +258,14 @@ for (let run = 0; run < RUNS; run++) {
         p95: +percentile(cpuSim, 0.95).toFixed(2),
         worst: +(cpuSim[cpuSim.length - 1] ?? NaN).toFixed(2),
         samples: cpuSim.length,
+      },
+      /** 60fps 등가 (서브스텝 루프를 2/n로 환산) — 저 fps 환경의 게이트 기준 (C2 검토) */
+      cpuSimMs60: {
+        p50: +percentile(cpuSim60s, 0.5).toFixed(2),
+        p95: +percentile(cpuSim60s, 0.95).toFixed(2),
+        worst: +(cpuSim60s[cpuSim60s.length - 1] ?? NaN).toFixed(2),
+        substepsP95: percentile(subNs, 0.95),
+        substepsMax: subNs[subNs.length - 1] ?? -1,
       },
       cpuSubmitMs: {
         p50: +percentile(cpuSubmit, 0.5).toFixed(2),
@@ -332,7 +354,7 @@ const med = (arr) => arr.slice().sort((a, b) => a - b)[Math.floor(arr.length / 2
 //  - 소프트웨어 GL: render()가 라스터에 블록되어 submit이 오염 → sim 성분만 게이트하고
 //    submit은 참고로 보고한다. 목표 하드웨어에서 total 기준 재검증 필요 (보고서에 명시)
 const cpuGatedP95 = environment.softwareGL
-  ? Math.max(...runs.map((r) => r.leading.cpuSimMs.p95))
+  ? Math.max(...runs.map((r) => r.leading.cpuSimMs60.p95)) // sim-only, 60fps 등가 서브스텝 정규화 (C2 검토)
   : Math.max(...runs.map((r) => r.leading.cpuTotalMs.p95)); // 프레임별 합의 참 p95 (감사 B3)
 const leading = {
   trisScene: {
@@ -358,8 +380,12 @@ const leading = {
   cpuFrameMsP95: {
     value: +cpuGatedP95.toFixed(2),
     budget: budget.cpuFrameMsP95,
-    basis: environment.softwareGL ? 'sim-only (software GL: submit은 라스터 오염)' : 'sim+submit',
+    basis: environment.softwareGL
+      ? 'sim-only, 60fps 등가 (서브스텝 루프 ×2/n — 프레임 dt 상한 아래 fps에서 한 프레임이 최대 12스텝을 통합; software GL: submit은 라스터 오염)'
+      : 'sim+submit',
     submitP95_reference: +Math.max(...runs.map((r) => r.leading.cpuSubmitMs.p95)).toFixed(2),
+    simRawP95_reference: +Math.max(...runs.map((r) => r.leading.cpuSimMs.p95)).toFixed(2),
+    substepsP95_reference: Math.max(...runs.map((r) => r.leading.cpuSimMs60.substepsP95)),
   },
 };
 // [P2B §7] 필레이트 선행지표 — 예산이 정의된 단계에서만 게이트 (p2b·final)

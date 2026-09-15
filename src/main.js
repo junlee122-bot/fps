@@ -290,13 +290,15 @@ if (mode === 'realtime') {
     harness._internal.scriptTick();
     accum += clock.dt;
     let steps = 0;
+    const subT0 = clock.wallNowMs();
     while (accum >= PHYSICS_DT && steps < MAX_SUBSTEPS) {
       harness._internal.simSubstep(); // player + fire + physics — fixed 경로와 동일 배선
       accum -= PHYSICS_DT;
       steps++;
     }
+    const substepMs = clock.wallNowMs() - subT0;
     if (steps === MAX_SUBSTEPS) accum = 0; // 백로그 폐기 — 나선 방지
-    harness._internal.renderFrame(cpuT0);
+    harness._internal.renderFrame(cpuT0, { substeps: steps, substepMs });
     markSimWindow(false);
   };
   requestAnimationFrame(loop);

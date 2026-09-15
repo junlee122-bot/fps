@@ -117,7 +117,7 @@ export function installHarness(ctx) {
     for (let s = 0; s < PHYS_STEPS_PER_FRAME; s++) simSubstep();
   }
 
-  function renderFrame(cpuStartMs = -1) {
+  function renderFrame(cpuStartMs = -1, sub = null) {
     if (!state.cameraOverride) {
       player.applyCamera(camera);
       // P2B §8 카메라 반동 — 렌더 오프셋 (조준 입력 상태를 오염시키지 않는다)
@@ -140,7 +140,9 @@ export function installHarness(ctx) {
       fx.particles.active,
       Math.min(fx.decals.cursor, fx.decals.capacity),
       pipeline.passStats.scenePass[0], // 단일 씬 패스 (게이트 지표 — P3 판정)
-      pipeline.passStats.scenePass[1]
+      pipeline.passStats.scenePass[1],
+      sub ? sub.substeps : -1,          // realtime: 프레임당 물리 서브스텝 수·ms (CPU 지표 60fps 등가 정규화)
+      sub ? sub.substepMs : -1
     );
   }
 
