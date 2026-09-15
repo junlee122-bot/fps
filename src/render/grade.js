@@ -19,7 +19,33 @@ export const GRADE_DEFAULT = Object.freeze({
   saturation: 0.94, shadowDesat: 0.80, shadowEnd: 0.25,
   splitShadow: [0.62, 0.74, 1.00], splitHighlight: [1.00, 0.95, 0.86], splitAmount: 0.03,
   lift: 0.0,
+  /**
+   * 목재·흙 대역 채도 연성 상한 (§4: 20–40° sat ≤ 0.35). 재질 알베도는 대역 안(sat 0.28–0.35)이지만
+   * 온색 광원(등롱·저고도 태양)이 곱해지면 0.45+로 올라간다 (C4 실측: lantern_night 5.5%·muzzle_interior
+   * 2.6% 위반, LUT 없이). 2차 색보정(HSL 대역 채도 상한)으로 룩이 팔레트 규율을 강제한다 — 창(hue)은
+   * 12–18° 램프인, 40–46° 램프아웃(단청 황 48°·초가 45°는 밖). cap 초과분은 bandSlope 기울기로만 남긴다.
+   */
+  band: [12, 18, 40, 46], bandCap: 0.30, bandSlope: 0.2,
 });
+
+function rgb2hsv(r, g, b) {
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+  let h = 0;
+  if (d > 1e-9) {
+    if (mx === r) h = 60 * (((g - b) / d) % 6);
+    else if (mx === g) h = 60 * ((b - r) / d + 2);
+    else h = 60 * ((r - g) / d + 4);
+    if (h < 0) h += 360;
+  }
+  return [h, mx > 0 ? d / mx : 0, mx];
+}
+function hsv2rgb(h, s, v) {
+  const c = v * s, x = c * (1 - Math.abs(((h / 60) % 2) - 1)), m = v - c;
+  let r, g, b;
+  if (h < 60) [r, g, b] = [c, x, 0]; else if (h < 120) [r, g, b] = [x, c, 0]; else if (h < 180) [r, g, b] = [0, c, x];
+  else if (h < 240) [r, g, b] = [0, x, c]; else if (h < 300) [r, g, b] = [x, 0, c]; else [r, g, b] = [c, 0, x];
+  return [r + m, g + m, b + m];
+}
 
 const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
 const smooth = (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
@@ -39,6 +65,16 @@ export function gradeColor([r, g, b], p = GRADE_DEFAULT) {
   c = c.map((v, i) => v * (1 + (tint[i] / ty - 1) * p.splitAmount));
   // 4) 리프트
   c = c.map((v) => clamp01(p.lift + v * (1 - p.lift)));
+  // 5) 목재·흙 대역 채도 연성 상한 (GRADE_DEFAULT.band 주석)
+  if (p.bandCap != null) {
+    const [h, sv, v] = rgb2hsv(c[0], c[1], c[2]);
+    const [a0, a1, b0, b1] = p.band;
+    const w = smooth(a0, a1, h) * (1 - smooth(b0, b1, h));
+    if (w > 0 && sv > p.bandCap) {
+      const s2 = p.bandCap + (sv - p.bandCap) * p.bandSlope;
+      c = hsv2rgb(h, sv + (s2 - sv) * w, v).map(clamp01);
+    }
+  }
   return c;
 }
 

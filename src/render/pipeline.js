@@ -45,8 +45,8 @@ import { clock } from '../core/clock.js';
  *  rateUp/rateDown: 적응 속도(1/s) — 밝아질 때 빠르고 어두워질 때 느리다(시각 적응 비대칭).
  */
 const EXPOSURE_PARAMS = Object.freeze({ ec: 1.0, evMin: 1.0, kneeSlope: 0.2, evMax: 14.0, rateUp: 3.0, rateDown: 1.5, centerWeight: 0.35 });
-const BLOOM_PARAMS = Object.freeze({ threshold: 1.0, knee: 0.5, iterations: 2 });
-const OUTPUT_PARAMS = Object.freeze({ bloomStrength: 0.06, lutIntensity: 1.0, ditherAmp: 0.0 });
+const BLOOM_PARAMS = Object.freeze({ threshold: 0.8, knee: 0.5, iterations: 2 });
+const OUTPUT_PARAMS = Object.freeze({ bloomStrength: 0.08, lutIntensity: 1.0, ditherAmp: 0.0 });
 
 /** Halton(2,3) 8점 — TAA 서브픽셀 지터 (결정적 상수, 픽셀 단위 오프셋) */
 const JITTER = [

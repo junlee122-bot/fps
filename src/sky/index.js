@@ -29,6 +29,10 @@ import { FogPass } from './fog.js';
 
 /** 인스캐터 하늘색 = 돔 지평선 평균 × 이 계수 (단일 산란 알베도 근사 — 실측 근거 CONTRACT-NOTES C4) */
 export const HORIZON_TO_INSCATTER = 1.0;
+/** 지평선 판독 고도(°). Preetham 선형 출력은 저고도 태양에서 지평선(+6°)이 녹색 편이(g>b, fog_wall 실측 [.27,.37,.34]) — +10°는 청색 유지 */
+export const HORIZON_SAMPLE_ELEV_DEG = 10;
+/** 인스캐터 색 채도 감쇠 — 안개 속 다중 산란은 단일 산란 하늘색보다 무채색에 가깝다 (Preetham 녹색 편이 완화) */
+export const INSCATTER_DESAT = 0.8;
 /**
  * C4 돔 복사휘도 스케일 (주간 Preetham). three Sky.js는 texColor^(1/(1.2+1.2·sunfade))의 LDR 표시용 곡선을
  * 출력한다 — HDR 체인에서는 선형 복사휘도(texColor)를 써야 노출·AgX가 의미를 갖는다. 스케일은 태양 직사
@@ -112,7 +116,7 @@ export class SkySystem {
       depthBuffer: false, stencilBuffer: false,
     });
     this._horizonMat = new THREE.ShaderMaterial({
-      uniforms: { tCube: { value: null }, elev: { value: THREE.MathUtils.degToRad(6) } },
+      uniforms: { tCube: { value: null }, elev: { value: THREE.MathUtils.degToRad(HORIZON_SAMPLE_ELEV_DEG) } },
       vertexShader: /* glsl */`
         varying vec2 vUv;
         void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }
@@ -260,7 +264,8 @@ export class SkySystem {
     let r = 0, g = 0, b = 0;
     for (let i = 0; i < 16; i++) { r += f(this._horizonBuf[i * 4]); g += f(this._horizonBuf[i * 4 + 1]); b += f(this._horizonBuf[i * 4 + 2]); }
     this.horizonColor = [r / 16, g / 16, b / 16];
-    this.fogPass.setSkyColor(this.horizonColor, HORIZON_TO_INSCATTER);
+    const lum = 0.2126 * this.horizonColor[0] + 0.7152 * this.horizonColor[1] + 0.0722 * this.horizonColor[2];
+    this.fogPass.setSkyColor(this.horizonColor.map((v) => lum + (v - lum) * INSCATTER_DESAT), HORIZON_TO_INSCATTER);
   }
 
   /** 감사 리그 전용 — 환경광 차단/복원 */
