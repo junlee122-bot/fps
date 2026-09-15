@@ -519,6 +519,54 @@
     새 최악 시나리오(기와 낙하 24 동시·파티클 700+)의 실제 CPU 비용은 유휴 기계의 계약
     profile로 확정한다.
 
+- **C2 스냅샷 (검토 라운드 수정 후 최종 게이트, 2026-09-15)**:
+  - paletteaudit baseline/c2 (드로잉 버퍼 3024×1964, 크로마 ≤2 제외): 11/11 ≤1.5% —
+    lantern_night 0.970% (무제외 참조 1.21%, 검사율 99.76%, 위반 색상 20–40° 저채도 초과
+    목재·흙), 나머지 10샷 0.000%.
+  - 결정성 (드로잉 버퍼 3024×1964, tolerance 0): baseline/c2 ×2(샷마다 새 페이지, 11샷 × 1샷 실행
+    조립) 11/11 바이트 동일 (08:12 확인). 샷당 소요 ≈12–15분(유휴 SwiftShader), 병행 부하 시 30분+.
+  - albedoaudit: ok — L018/L004 4.365(기대 4.5), L090/L018 4.97(기대 5), 흑카드 0, manifest 편차 0
+    (감사 리그: 환경광·안개 차단, NoToneMapping).
+  - viewmodelaudit: ok — 월드 카드/뷰모델 카드 휘도비 1.000(허용 ±0.1), 흑카드 0.004.
+  - playtest: ok — 46 검사 전부 통과(오류 0·NaN 0·관통 0·낙하 0·이동/충돌/점프/앉기/강체 안정).
+    (albedo·viewmodel·playtest는 c1 재캡처와 병행 실행 — fixed 결정적이라 결과 불변, 소요만 증가.)
+  - 전환 imagediff c1→c2 (버퍼 해상도, tolerance 0 — 전역 변화라 exit 1 정상): 11/11 상이.
+    | 샷 | 변화 px% | maxΔ | meanΔ |
+    |---|---|---|---|
+    | corridor_columns | 100.0 | 153 | 63.7 |
+    | courtyard_noon | 100.0 | 169 | 94.7 |
+    | daecheong_backlit | 100.0 | 192 | 78.5 |
+    | dancheong_closeup | 100.0 | 166 | 108.3 |
+    | fog_wall | 100.0 | 143 | 98.3 |
+    | hanji_pierced | 100.0 | 155 | 63.9 |
+    | hanji_silhouette | 100.0 | 178 | 82.2 |
+    | lantern_night | 99.4 | 35 | 10.1 |
+    | muzzle_interior | 99.8 | 136 | 39.1 |
+    | roofline_distant | 100.0 | 172 | 93.0 |
+    | viewmodel_ads | 100.0 | 164 | 85.8 |
+    해석: 하늘돔(배경 회색 0x31353b→대기 산란)·PMREM 환경광·안개 인스캐터·반구광 0.4× 도입의 전역 조명 변화.
+    야간(lantern_night meanΔ 10.1)·실내(muzzle_interior 39.1)는 하늘 기여가 작아 변화가 작다.
+    육안 확인(1/4 축소): C1은 배경 회색 하늘·반구광만이라 처마 밑 공포가 근흑(≈30)이고, C2는
+    하늘 환경광이 처마 밑을 채워(≈140) dancheong_closeup meanΔ 108의 대부분이 음영부 상승이다.
+    C2 프레임은 전체적으로 고조도·저대비(안개 인스캐터 + 환경광) — 노출·톤 곡선은 C4 범위
+    (C2는 조명 물리 도입만, 회색 규율 유지).
+  - profile p3 (계약 조건 30s×3runs DPR2 1512×982, 유휴 기계, exit 0): 선행지표 전부 통과 —
+    trisScene 134,554(≤600k) / trisFrameP95 121,542(≤250k, 전패스 참조 417k) / drawCalls 408
+    (≤900, 전패스 참조 1,633) / programs 27(≤110) / cpuFrameMsP95 1.22ms(≤6, 60fps 등가 — 원시
+    6.8ms@12서브스텝) / overdrawP95 2.001(≤3.0, worst 5.05) / particlesMax 731(≤4000) /
+    decalsMax 147(≤512). 플레이 중 셰이더 컴파일 0(3 run 생성 로그 0), 하네스 오류 0, 시뮬 창
+    난수 0, 부팅 중앙값 5,513ms(잠정 8s 이내; run별 6,281/5,513/5,403). 시나리오 유효성:
+    ROOF_TILE 피격 147/136/139, 기와 낙하 147/136/139, 파티클 방출 2,352/2,176/2,224 —
+    최악 부하가 3 run 전부 실측됐다. 프리웜 분해: forward_base 13개/98ms, first_shot 13개/711ms,
+    shot_sweep 1개/1,886ms(야간 돔 PMREM), restore 703ms — 합 3,397ms.
+    GPU-INVALID(SwiftShader): 프레임 p50 ≈12.5s, fps 0.1 — 성능 판정 무효(참고치).
+  - harnesstest 1차(16 케이스): 14 통과, 10·13(viewmodel/albedo 음성) 실패 — 원인은 도구 판정이
+    아니라 runAudit의 10분 타임아웃(SIGTERM → Playwright 종료 핸들러 exit 1, 출력 공백). 직접
+    재실행: viewmodel --test-boost 2 → exit 1·표식·ratio 1.715, albedo --test-scale-albedo 0.333 →
+    exit 1·표식·편차 다수 (각 ≈12분). 타임아웃 30분 + 명시 기록으로 교정 후 전체 재실행: (재실행 결과는 아래 최종 행에 기록)
+  - 정적: npm test 22/22, determinismaudit ok(src 위반 0, 트랩 무장), surface/cover/chain/fx audit ok.
+  - harnesstest 재실행(타임아웃 교정 후, 16 케이스): **[재실행 결과 기입 대기]**
+
 ## C. 표류 방지 메모 (충돌은 아니지만 오해 소지)
 
 - `WATER`의 "거리 기반 감쇠"는 별도 코드 경로가 아니라 `computePenetration`의
