@@ -667,6 +667,37 @@
   사각을 수 분 안에 메운다(이 결함은 11시간 캡처가 있어야 1픽셀로 드러났다). baseline/c3 1·2차(교정 전)는
   tmp/c3_invalid2로 이동, 교정 코드로 ×2 재캡처 시작 06:52.
 
+- **C3 스냅샷 (교정 코드 461b908, 최종 게이트, 2026-09-16 06:52–22:57)**:
+  - 결정성 (드로잉 버퍼 3024×1964, tolerance 0): baseline/c3 ×2(샷마다 새 페이지, 12샷 × 1샷 실행 조립)
+    **12/12 바이트 동일**(첫 패스 06:52–11:24, 검증 11:24–16:09; 샷당 ≈25분 단독 — C2 13–15분 대비 절차
+    재질 셰이더(트라이플래너·POM·마모) 비용). rendervariance 12샷×4 HDR 해시 단일(harnesstest 17).
+  - paletteaudit baseline/c3 (크로마 ≤2 제외): 12/12 ≤1.5% — lantern_night 0.592%(20–40° 저채도 초과 잔여),
+    dancheong_closeup 0.150(340–360° 단청 적 경계), muzzle_interior 0.121, daecheong_backlit 0.071, 나머지 ≤0.033.
+  - albedoaudit: ok — L018/L004 4.365(기대 4.5), L090/L018 4.97(기대 5), 흑카드 0, manifest 편차 0
+    (크로마 .6 축소는 휘도 보존 — 의도 알베도 불변 입증).
+  - viewmodelaudit: ok — 휘도비 1.000. playtest: ok(오류 0).
+  - harnesstest 18/18 (신설 17 rendervariance 양성·18 음성 포함). npm test 24/24.
+  - profile p3 (계약 조건 30s×3 DPR2, 4.9h SwiftShader): 선행지표 전부 통과 — trisScene 134,554(≤600k, 동결
+    불변) / trisFrameP95 121,542(≤250k, 전패스 참조 417,091) / drawCalls 407(≤900, 전패스 1,635) / programs
+    **37**(≤110) / cpuFrameMsP95 1.2ms(≤6, 60fps 등가; 원시 6.7ms@12서브스텝) / overdrawP95 2.001(≤3.0, worst
+    5.05) / particlesMax 731 / decalsMax 144 / 플레이 컴파일 **0** / 시나리오 유효(ROOF_TILE 136·파편 136).
+    **부팅 중앙값 13,146ms(DPR2 계약 페이지) — 잠정 8s 초과.** 저해상 단독 분해(10.3–10.5s)는 C3 기록 참조;
+    DPR2 페이지는 웜렌더·그림자 재할당이 풀해상도라 +2.7s. 최종 예산 확정은 발주자 판정(PATCH-004-A 3항).
+  - 전환 imagediff c2→c3 (--partial: tile_fall은 C3 신규, 11샷 비교, exit 1 정상): 변화 px% / maxΔ / meanΔ —
+    corridor 80.1/96/16.8 · noon 55.3/71/13.6 · backlit 90.0/140/15.6 · closeup 92.3/89/32.0 · fog 55.9/64/5.6 ·
+    pierced 96.5/79/13.0 · silhouette 88.8/79/13.1 · night 53.9/212/8.6 · interior 81.5/88/11.1 · roofline
+    52.6/80/10.8 · viewmodel 52.7/72/12.6. 해석: 회색 규율 → 절차 재질(색·노멀·POM·마모)+단청 가상층+크로마
+    .6+야간 환경광 .65; 하늘이 큰 샷은 50%대(하늘 불변), 근접 공포(closeup)가 meanΔ 최대.
+  - baseline/c3 보존(로컬, A3 규칙상 비커밋; sha는 각 cap3-*.log report). 무효 캡처 2벌은 tmp/c3_invalid·
+    c3_invalid2(팔레트 실패·POM 비결정 증거).
+- **PATCH-004-D 게이트 노후화 3항 점검 (C3)**: (1) *임계 대비 여유*: overdraw 2.001/3.0(67%), programs 37/110,
+  tris 134,554/600k — 여유 큼; 팔레트 lantern_night 0.59/1.5(39%)는 C3에서 새로 실측된 유의미한 지표. 부팅
+  13.1s는 잠정 8s를 넘어 **게이트 실패 상태로 보고**(예산 확정 대기). (2) *측정 대상 일치*: 픽셀 ×2 게이트가
+  서브LSB 비결정을 90프레임에 1픽셀꼴로만 보는 사각이 드러나 rendervariance(HDR 해시)로 보완; 팔레트 게이트는
+  야간·실내에서 처음 유의미하게 작동(크로마·환경광 교정 유도). (3) *새 실패 모드의 관측 가능성*: (a) 비균일
+  제어 흐름 미분(POM) — rendervariance가 수 분 내 검출; (b) 샷 전환 첫 프레임 상태 의존(CSM 절두체 순서) —
+  rendervariance frames=1이 검출; (c) 캡처 전 사전점검 누락 — 규칙화(저해상 전 게이트 사전점검 의무).
+
 ## C. 표류 방지 메모 (충돌은 아니지만 오해 소지)
 
 - `WATER`의 "거리 기반 감쇠"는 별도 코드 경로가 아니라 `computePenetration`의
