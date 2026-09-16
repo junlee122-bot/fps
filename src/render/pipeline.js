@@ -244,6 +244,9 @@ export class RenderPipeline {
     this._fakeRead = { texture: null }; // OutputPass.render(readBuffer) 인터페이스
     /** 패스별 콜·삼각형 분해 (지표 의미 판정용 — renderFrame이 stats에 전달) */
     this.passStats = { shadowBeauty: [0, 0], gtao: [0, 0], post: [0, 0], scenePass: [0, 0] };
+    /** rendervariance 음성 테스트 전용 결함 주입 — reset()에 무관한 렌더 카운터로 지터를 흔든다 (harness.debugDrift) */
+    this.debugDrift = false;
+    this._renderCount = 0;
   }
 
   /** CSM 셰이더 패치 — 부팅 씬 순회 + 이후 생성 재질(카드·클론)에 필수 */
@@ -324,10 +327,6 @@ export class RenderPipeline {
     this.renderer.info.reset(); // 프레임 시작 — 전 패스 합산 계측
     const cam = this.camera;
     cam.updateMatrixWorld();
-    this.csm.update();
-    this.renderer.shadowMap.needsUpdate = true; // 프레임당 1회 (renderPass 내부에서 소비)
-
-    // 비지터 VP → 재투영 행렬 (현재 클립 → 이전 클립).
     // aspect는 파이프라인이 소유한다: setViewOffset(fullW,fullH,…)가 camera.aspect를
     // fullW/fullH로 덮어쓰므로(three 규약), 프리웜 저해상도 렌더가 aspect를 오염시킨 채
     // 부팅이 끝나면 첫 프레임의 _curVP만 잘못된 aspect로 계산된다 — 실제 드로우는
@@ -336,11 +335,18 @@ export class RenderPipeline {
     cam.aspect = this._size.x / this._size.y;
     cam.updateProjectionMatrix();
     // CSM 캐스케이드 절두체는 fov/aspect의 함수 — setSize 시점(프리웜 잔여 1.6·fov 70)에
-    // 고정되면 샷 fov와 무관한 분할이 그림자 텍셀 밀도를 결정한다 (C2 검토)
+    // 고정되면 샷 fov와 무관한 분할이 그림자 텍셀 밀도를 결정한다 (C2 검토).
+    // 반드시 csm.update()(광원 행렬 산출) **앞**에서 갱신한다: 뒤에서 갱신하면 샷 전환 후 첫 프레임의
+    // 그림자가 직전 샷의 분할로 그려져 '첫 프레임 ≠ 재실행 첫 프레임'이 된다 (rendervariance frames=1
+    // 실측: fov가 바뀐 샷마다 반복 1회차만 해시 이탈 — C3 교정)
     if (cam.fov !== this._csmFov || cam.aspect !== this._csmAspect) {
       this.csm.updateFrustums();
       this._csmFov = cam.fov; this._csmAspect = cam.aspect;
     }
+    this.csm.update();
+    this.renderer.shadowMap.needsUpdate = true; // 프레임당 1회 (renderPass 내부에서 소비)
+
+    // 비지터 VP → 재투영 행렬 (현재 클립 → 이전 클립).
     this._curVP.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
     if (this._hasPrev) {
       // 정적 카메라(캡처): prevVP == curVP이면 정확한 항등으로 스냅 — 역행렬의
@@ -360,7 +366,10 @@ export class RenderPipeline {
     }
 
     // TAA 지터 (시뮬 프레임 인덱스 — 결정적)
-    const j = JITTER[clock.frame % JITTER.length];
+    const j0 = JITTER[clock.frame % JITTER.length];
+    // 결함 주입(음성 테스트): 리셋과 무관한 카운터로 서브픽셀 지터를 흔들어 '같은 입력 → 다른 HDR 프레임'을 만든다
+    const j = this.debugDrift ? [j0[0] + 1e-3 * (this._renderCount % 5), j0[1]] : j0;
+    this._renderCount++;
     cam.setViewOffset(this._size.x, this._size.y, j[0], j[1], this._size.x, this._size.y);
 
     // 1. 씬(HDR+깊이) → sceneRT, GTAO 합성 → aoRT (패스별 계측 포함)

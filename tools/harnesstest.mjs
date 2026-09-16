@@ -333,6 +333,23 @@ const SHORT = ['--duration', '16', '--runs', '1', '--dpr', '1', '--w', '640', '-
     `exit=${r.code} valid=${valid} roofHits=${roof} debris=${debris}`);
 }
 
+/* ---- 17/18. rendervariance: 같은 입력의 반복 렌더 HDR 해시가 전부 동일해야 한다 (C3 결정성 교정) ----
+ * 8비트 픽셀 게이트(baseline ×2)는 서브LSB 변동을 90프레임에 1픽셀꼴로만 드러낸다 — HDR 버퍼 해시는
+ * 매 렌더 변동을 잡는다(POM 암시 미분 결함: 교정 전 12회 중 10종 해시). 음성: --inject-drift(지터 드리프트 주입)
+ * → 반드시 exit 1 + testOverride. 축소 해상도(640×416)라도 변동 검출은 해상도와 무관하다. */
+{
+  const r = runAudit('node', ['tools/rendervariance.mjs', '--repeats', '4']);
+  let bad = null, shots = 0;
+  try { const j = JSON.parse(r.out); bad = j.varying; shots = Object.keys(j.shots ?? {}).length; } catch { /* fail */ }
+  record(17, 'rendervariance 양성 (12샷 × 4회 HDR 해시 단일)', r.code === 0 && Array.isArray(bad) && bad.length === 0 && shots === 12, `exit=${r.code} shots=${shots} varying=${JSON.stringify(bad)}`);
+}
+{
+  const r = runAudit('node', ['tools/rendervariance.mjs', '--repeats', '4', '--shots', 'courtyard_noon,lantern_night', '--inject-drift']);
+  let bad = null, marked = false;
+  try { const j = JSON.parse(r.out); bad = j.varying; marked = String(j.testOverride ?? '').includes('debugDrift'); } catch { /* fail */ }
+  record(18, 'rendervariance 음성 (--inject-drift → 변동 검출 exit 1 + 표식)', r.code === 1 && Array.isArray(bad) && bad.length === 2 && marked, `exit=${r.code} varying=${JSON.stringify(bad)} 표식=${marked}`);
+}
+
 const ok = results.every((r) => r.pass);
 console.log(JSON.stringify({ ok, retries, cases: results }, null, 2));
 process.exit(ok ? 0 : 1);

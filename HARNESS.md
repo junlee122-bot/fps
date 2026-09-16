@@ -43,6 +43,7 @@ Retina DPR 실제 게임플레이(내부 해상도 3.34MP, 2.07MP 아님)에서 
 | `tools/imagediff.mjs` | — | 픽셀 비교 | ✓ |
 | `tools/profile.mjs` | 통계적 | 프레임타임 분포·히치 귀속 | ✓ |
 | `tools/playtest.mjs` | — | 이동·사격 스모크 | ✓ |
+| `tools/rendervariance.mjs` | **HDR 해시 단일** | 같은 입력 반복 렌더의 씬 RT(HalfFloat) 해시 동일성 — 8비트 게이트가 못 보는 서브LSB 변동 검출 (C3) | ✓ |
 
 > **`shotset.mjs`를 게이트로 쓰지 마라.** 빠르지만 재현되지 않는다.
 > 사람이 눈으로 훑을 때만 쓴다.
