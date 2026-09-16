@@ -37,7 +37,9 @@ try {
         window.__harness.resetState();
         window.__harness.setShot(shot);
         await window.__harness.stepFrames(frames);
-        hs.push(window.__harness.getSceneHash().hash);
+        // C4: 씬 RT + 포스트(안개·TAA·MB) 출력 RT + 노출 적응값을 함께 해시 — 체인 전체의 결정성
+        const e = window.__harness.getExposure ? window.__harness.getExposure() : null;
+        hs.push(window.__harness.getSceneHash('sceneRT').hash + '|' + window.__harness.getSceneHash('mbRT').hash + (e ? `|ev${e.ev100}` : ''));
       }
       return hs;
     }, [shot, REPEATS, FRAMES]);
