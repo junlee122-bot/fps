@@ -63,19 +63,22 @@ const FRAG_PARS = /* glsl */`
   vec2 surfUvZ(vec3 p, float s) { return vec2(p.x * s, p.y) * uSurfScale; }
 
   #ifdef SURF_POM
-  // 지배축 평면에서의 시차 행진: uv0 입력, 뷰 벡터의 접평면 성분 vt(높이 1당 uv 이동)
-  vec2 surfPom(vec2 uv0, vec2 vt) {
+  // 지배축 평면에서의 시차 행진: uv0 입력, 뷰 벡터의 접평면 성분 vt(높이 1당 uv 이동).
+  // gx/gy: 호출자가 **균일 제어 흐름**에서 계산한 uv0의 화면 미분. 루프(break)·지배축 분기 안의 암시 미분은
+  // GLSL ES 3.0 §8.9상 정의되지 않는다 — SwiftShader에서 이웃 레인의 잔여값을 읽어 LOD가 실행마다 흔들렸다
+  // (C3 종료 캡처 hanji_silhouette 1픽셀 1LSB 비결정, GRANITE 상면 POM 활성 — CONTRACT-NOTES C3 기록). textureGrad로 고정.
+  vec2 surfPom(vec2 uv0, vec2 vt, vec2 gx, vec2 gy) {
     const int STEPS = 8;
     float layer = 1.0 / float(STEPS);
     vec2 duv = vt * uPomScale * uSurfScale * layer;
     float depth = 0.0; vec2 uv = uv0;
-    float h = 1.0 - texture2D(normalMap, uv).a;
+    float h = 1.0 - textureGrad(normalMap, uv, gx, gy).a;
     float prevH = h; vec2 prevUv = uv;
     for (int i = 0; i < STEPS; i++) {
       if (depth >= h) break;
       prevUv = uv; prevH = h;
       uv -= duv; depth += layer;
-      h = 1.0 - texture2D(normalMap, uv).a;
+      h = 1.0 - textureGrad(normalMap, uv, gx, gy).a;
     }
     // 시컨트 보정
     float a = h - depth; float b = prevH - (depth - layer);
@@ -122,6 +125,8 @@ const FRAG_MAP = /* glsl */`
     vec2 uvX = surfUvX(p, sgn.x), uvY = surfUvY(p, sgn.y), uvZ = surfUvZ(p, sgn.z);
     #ifdef SURF_POM
     {
+      // 화면 미분은 분기 전(균일 흐름)에서 3축 모두 계산 — surfPom 주석
+      vec2 gXx = dFdx(uvX), gXy = dFdy(uvX), gYx = dFdx(uvY), gYy = dFdy(uvY), gZx = dFdx(uvZ), gZy = dFdy(uvZ);
       vec3 V = normalize(cameraPosition - vSurfWPos);
       float dist = length(cameraPosition - vSurfWPos);
       float fade = 1.0 - smoothstep(4.0, 8.0, dist);
@@ -129,13 +134,13 @@ const FRAG_MAP = /* glsl */`
         // 지배축 하나만 시차 행진 (비용 상한)
         if (surfW.x >= surfW.y && surfW.x >= surfW.z) {
           vec2 vt = vec2(V.z * sgn.x, V.y) / max(abs(V.x), 0.2) * fade;
-          uvX = surfPom(uvX, vt);
+          uvX = surfPom(uvX, vt, gXx, gXy);
         } else if (surfW.y >= surfW.z) {
           vec2 vt = vec2(V.x, V.z * sgn.y) / max(abs(V.y), 0.2) * fade;
-          uvY = surfPom(uvY, vt);
+          uvY = surfPom(uvY, vt, gYx, gYy);
         } else {
           vec2 vt = vec2(V.x * sgn.z, V.y) / max(abs(V.z), 0.2) * fade;
-          uvZ = surfPom(uvZ, vt);
+          uvZ = surfPom(uvZ, vt, gZx, gZy);
         }
       }
     }
@@ -228,7 +233,7 @@ export function applySurfaceShader(mat, opts = {}) {
       .replace('#include <aomap_fragment>', FRAG_AO);
   };
   // 프로그램 캐시 키: 모드 정의는 material.defines로 이미 키에 포함된다(three) — 패치 버전만 보탠다
-  mat.customProgramCacheKey = () => 'surf1';
+  mat.customProgramCacheKey = () => 'surf2'; // C3 POM textureGrad 교정 후 키 갱신
   mat.needsUpdate = true;
   return mat;
 }
