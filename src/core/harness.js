@@ -249,7 +249,7 @@ export function installHarness(ctx) {
       state.script = null;
       state.shotFrame = 0;
       state.pendingActions = [];
-      state.testOverride = null;
+      state.testOverride = pipeline.debugDrift ? 'debugDrift — 지터 드리프트 주입, harnesstest 전용, 계약 판정 무효' : null;
       hitLog.length = 0;
       hitCounts = {};
       applyDefaultView();
@@ -361,6 +361,29 @@ export function installHarness(ctx) {
     /** C4 노출 상태 — {ev100, evTarget, avgLum, ec, exposure} 직전 프레임 적응 1×1 판독 (계측 전용, 동기 readback) */
     getExposure() {
       return pipeline.exposure.read();
+    },
+
+    /**
+     * 렌더 결정성 계측(C3 교정) — 직전 프레임의 HDR 씬 RT(HalfFloat) 전체를 동기 판독해 해시한다.
+     * 8비트 출력 픽셀 게이트는 서브LSB 변동을 90프레임에 1픽셀꼴로만 드러냈다(hanji_silhouette 실측);
+     * HDR 버퍼 해시는 매 렌더의 변동을 그대로 잡는다. rendervariance.mjs 전용(동기 readback, 프레임 경로 금지).
+     */
+    getSceneHash() {
+      const rt = pipeline.sceneRT;
+      const w = rt.width, h = rt.height;
+      const buf = new Uint16Array(w * h * 4);
+      renderer.readRenderTargetPixels(rt, 0, 0, w, h, buf);
+      let a = 2166136261, b = 0;
+      for (let k = 0; k < buf.length; k++) { a ^= buf[k]; a = Math.imul(a, 16777619) >>> 0; b = (b + buf[k]) >>> 0; }
+      return { hash: `${a.toString(16)}:${b.toString(16)}`, width: w, height: h };
+    },
+
+    /** rendervariance 음성 테스트 전용 — 리셋 무관 지터 드리프트 주입 (파이프라인 결함 주입, 계약 판정 무효) */
+    debugDrift(on) {
+      if (mode !== 'fixed') throw new Error('debugDrift requires fixed mode');
+      pipeline.debugDrift = !!on;
+      if (on) state.testOverride = 'debugDrift — 지터 드리프트 주입, harnesstest 전용, 계약 판정 무효';
+      return { ok: true, drift: !!on };
     },
 
     /** 직전 프레임 패스별 [콜, 삼각형] 분해 — P3 지표 판정의 실측 근거 */
