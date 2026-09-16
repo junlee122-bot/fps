@@ -27,6 +27,25 @@ import { clock } from '../core/clock.js';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { FogPass } from './fog.js';
 
+/** 인스캐터 하늘색 = 돔 지평선 평균 × 이 계수 (단일 산란 알베도 근사 — 실측 근거 CONTRACT-NOTES C4) */
+export const HORIZON_TO_INSCATTER = 1.0;
+/** 지평선 판독 고도(°). Preetham 선형 출력은 저고도 태양에서 지평선(+6°)이 녹색 편이(g>b, fog_wall 실측 [.27,.37,.34]) — +10°는 청색 유지 */
+export const HORIZON_SAMPLE_ELEV_DEG = 10;
+/** 인스캐터 색 채도 감쇠 — 안개 속 다중 산란은 단일 산란 하늘색보다 무채색에 가깝다 (Preetham 녹색 편이 완화) */
+export const INSCATTER_DESAT = 0.8;
+/**
+ * C4 돔 복사휘도 스케일 (주간 Preetham). three Sky.js는 texColor^(1/(1.2+1.2·sunfade))의 LDR 표시용 곡선을
+ * 출력한다 — HDR 체인에서는 선형 복사휘도(texColor)를 써야 노출·AgX가 의미를 갖는다. 스케일은 태양 직사
+ * (CSM irradiance 3.2 → 백색 확산면 복사휘도 ≈0.92)에 대한 지평선 하늘의 비(실세계 ≈0.25–0.4)로 정한다
+ * — C2/C3 프레임의 '고조도·저대비'는 돔이 태양광 백색면보다 2.5× 밝아(지평선 2.5) 환경광이 직사광과
+ * 맞먹은 결과였다 (C4 실측, CONTRACT-NOTES C4).
+ */
+export const DOME_SCALE = 0.10;
+/** environmentIntensity = clamp(hemi × ENV_PER_HEMI, 0.05, 1.0) — 샷의 hemi(주변광 의도)로 물리 돔 IBL을 변조 */
+export const ENV_PER_HEMI = 2.0;
+/** 지평선 헤이즈 가산 (선형, domeScale 적용 후 단위): 지평선에서 hazeAmount·hazeColor, (1−y)^hazePower 감쇠 */
+export const HAZE_AMOUNT = 0.3;
+export const HAZE_POWER = 1.5;
 /** 야간 돔 환경광 강도 (apply 주석 — 팔레트 §4 야간 암부 교정, C3) */
 export const NIGHT_ENV_INTENSITY = 0.65;
 
@@ -43,6 +62,32 @@ export class SkySystem {
     scene.add(this.sky);
 
     const u = this.sky.material.uniforms;
+    /**
+     * C4 돔 셰이더 패치 (유니폼만 — 프로그램 순열 불변):
+     *  - 선형 복사휘도 출력: Sky.js의 pow(1/(1.2+1.2·sunfade)) 표시 곡선 제거, × domeScale.
+     *  - 지평선 헤이즈: Preetham 단일 산란은 다중 산란의 지평선 백화가 없어 선형 출력이 b/r≈3의 짙은
+     *    청색이 된다(C4 실측). hazeColor·hazeAmount·(1−y)^hazePower·dayF 를 가산 (§4 청·하늘 대역 안,
+     *    수묵 대기원근의 종이빛 지평선).
+     *  - sunDisc: 환경 큐브 렌더 시 0 — 태양 원반(vSunE·19000·0.04 ≈ 7.6e5, HalfFloat 클램프 65504)이
+     *    PMREM에 들어가면 조도 ≈ 65504·6.8e-5 sr ≈ 4.5 의 **무그림자 직사광**이 환경광으로 이중 계상된다
+     *    (C2/C3 저대비의 두 번째 원인 — CSM 3.2와 맞먹는 그림자 없는 태양). 가시 돔은 1.
+     */
+    this.domeScale = { value: DOME_SCALE };
+    this.hazeAmount = { value: HAZE_AMOUNT };
+    this.hazePower = { value: HAZE_POWER };
+    this.hazeColor = { value: new THREE.Color(0.95, 0.93, 0.88) };
+    this._sunDisc = { value: 1 };
+    this.envPerHemi = ENV_PER_HEMI;
+    const U = { domeScale: this.domeScale, hazeAmount: this.hazeAmount, hazePower: this.hazePower, hazeColor: this.hazeColor, sunDisc: this._sunDisc };
+    this.sky.material.onBeforeCompile = (shader) => {
+      Object.assign(shader.uniforms, U);
+      shader.fragmentShader = shader.fragmentShader
+        .replace('void main() {', 'uniform float domeScale, hazeAmount, hazePower, sunDisc;\n\t\tuniform vec3 hazeColor;\n\t\tvoid main() {')
+        .replace('L0 += ( vSunE * 19000.0 * Fex ) * sundisk;', 'L0 += ( vSunE * 19000.0 * Fex ) * sundisk * sunDisc;')
+        .replace('gl_FragColor = vec4( retColor, 1.0 );',
+          'float dayF = clamp( vSunE / 1000.0, 0.0, 1.0 );\n\t\t\tvec3 haze = hazeColor * ( hazeAmount * dayF * pow( 1.0 - clamp( direction.y, 0.0, 1.0 ), hazePower ) );\n\t\t\tgl_FragColor = vec4( texColor * domeScale + haze, 1.0 );');
+    };
+    this.sky.material.customProgramCacheKey = () => 'sky_linear_c4';
     u.turbidity.value = 6;       // 맑은 대륙성 대기
     u.rayleigh.value = 1.6;
     u.mieCoefficient.value = 0.004;
@@ -64,6 +109,39 @@ export class SkySystem {
     this._cubeCam = new THREE.CubeCamera(0.1, 100, this._cubeRT); // fromScene 기본 near/far와 동일 (돔은 z=w 고정이라 무관)
     this._sunDir = new THREE.Vector3(0, 1, 0);
     this._pmremWarmed = new Set(); // 프리웜 중 PMREM을 재질(주간/야간)별 1회 보장
+    /**
+     * C4: 돔 지평선 판독 — 큐브맵을 고도 +6°·방위 16점으로 샘플한 16×1 HalfFloat RT를 동기 판독해
+     * 평균색을 안개 인스캐터 skyColor로 쓴다 (apply 시 1회 — 프레임 경로 아님). C2 검토 기록 (2) 해소.
+     */
+    this._horizonRT = new THREE.WebGLRenderTarget(16, 1, {
+      type: THREE.HalfFloatType, magFilter: THREE.NearestFilter, minFilter: THREE.NearestFilter,
+      depthBuffer: false, stencilBuffer: false,
+    });
+    this._horizonMat = new THREE.ShaderMaterial({
+      uniforms: { tCube: { value: null }, elev: { value: THREE.MathUtils.degToRad(HORIZON_SAMPLE_ELEV_DEG) } },
+      vertexShader: /* glsl */`
+        varying vec2 vUv;
+        void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }
+      `,
+      fragmentShader: /* glsl */`
+        varying vec2 vUv;
+        uniform samplerCube tCube;
+        uniform float elev;
+        void main() {
+          float az = vUv.x * 6.283185307179586;
+          vec3 d = vec3(cos(elev) * sin(az), sin(elev), -cos(elev) * cos(az));
+          gl_FragColor = vec4(textureCube(tCube, d).rgb, 1.0);
+        }
+      `,
+      depthTest: false, depthWrite: false,
+    });
+    this._horizonMat.name = 'C4_SKY_HORIZON';
+    this._horizonScene = new THREE.Scene();
+    this._horizonScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this._horizonMat));
+    this._horizonCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    this._horizonBuf = new Uint16Array(16 * 4);
+    /** 마지막 지평선 판독 평균 [r,g,b] (선형) — 계측·기록용 */
+    this.horizonColor = [0, 0, 0];
     /** 환경광 재생성 소요 로그 [{material, cubeMs, pmremMs}] — 부팅 분해 계측 (PATCH-004-A) */
     this.envLog = [];
     /** 현재 안개 구성 — 파이프라인 안개 패스가 읽는다 (world:weather와 동일 값) */
@@ -146,7 +224,9 @@ export class SkySystem {
       if (this._envRT) { this._envRT.dispose(); this._envRT = null; }
       this._envScene.add(this.sky); // scene에서 잠시 이관
       const tc = clock.wallNowMs();
+      this._sunDisc.value = this.envSunDisc ? 1 : 0; // 환경 큐브: 태양 원반 제외 (생성자 주석) — envSunDisc는 A/B 프로브 전용
       this._cubeCam.update(this.renderer, this._envScene);
+      this._sunDisc.value = 1;
       const tp = clock.wallNowMs();
       this._envRT = this.pmrem.fromCubemap(this._cubeRT.texture);
       this.envLog.push({ material: this.sky.material === this.dayMat ? 'day' : 'night', cubeMs: Math.round(tp - tc), pmremMs: Math.round(clock.wallNowMs() - tp) });
@@ -154,13 +234,12 @@ export class SkySystem {
       this._pmremWarmed.add(this.sky.material);
     }
     this.scene.environment = this._envRT.texture;
-    // 환경광 강도는 샷 주변광(hemi)에 종속 — 기본 1.0은 실내까지 하늘 IBL로
-    // 침수시켜 역광·실내 무드를 파괴한다 (C2 실측: meanLum 39→156 백화)
-    // 야간(C3 교정): hemi 0.05 → 0.035로는 야간 돔(0.01–0.05)의 조도가 ≈0.001 — 등롱 감쇠부·처마 밑이
-    // AgX 토(V<0.2)에 잠겨 온색 채도가 2–3배 증폭됐다(입력 sat .13 → 출력 .26–.40, 오프라인 AgX 포트 실측;
-    // lantern_night 팔레트 10.3% 위반). 야간 하늘광(청 220°)을 물리 수준 근처로 올려 암부를 토 밖으로 끌어올리고
-    // 온색을 중화한다 — 근거·수치는 CONTRACT-NOTES C3 기록.
-    this.scene.environmentIntensity = night ? NIGHT_ENV_INTENSITY : THREE.MathUtils.clamp(hemi * 0.7, 0.03, 0.5);
+    this._readHorizon(); // C4: 인스캐터 색 = 돔 지평선 실측 (큐브는 위에서 갱신됨 — 프리웜 스킵 시 직전 돔)
+    // 환경광 강도는 샷 주변광(hemi)에 종속. C2의 clamp(hemi·0.7, 0.03, 0.5)는 과대 돔(지평선 2.5)에 대한
+    // 억제였다 — C4에서 돔을 선형 복사휘도 × DOME_SCALE로 물리 비율에 맞추고 계수를 ENV_PER_HEMI로 재정의
+    // (noon hemi 0.55 → 1.0 = 돔 그대로, 실내 0.15 → 0.3). 야간은 C3 교정 NIGHT_ENV_INTENSITY 유지(야간 돔은
+    // 스케일 대상이 아니므로 C3와 동일 조도): 암부가 AgX 토에 잠겨 온색 채도가 증폭되는 것을 하늘광으로 중화.
+    this.scene.environmentIntensity = night ? NIGHT_ENV_INTENSITY : THREE.MathUtils.clamp(hemi * this.envPerHemi, 0.05, 1.0);
 
     // 안개 구성 (sky 소유 — 파이프라인이 this.fog를 읽는다)
     this.fog = {
@@ -174,6 +253,22 @@ export class SkySystem {
     // 어휘 준수(§3): world:tod { hours }만 — 야간은 hours(예: 20.0)로 표현, phase 필드 제거
     this.bus.emit('world:tod', { hours });
     this.bus.emit('world:weather', { fogDensity: this.fog.density, humidity: 0.5 });
+  }
+
+  /** C4: 큐브맵 지평선 16점 샘플 → 동기 판독 → 평균 → fogPass.setSkyColor */
+  _readHorizon() {
+    this._horizonMat.uniforms.tCube.value = this._cubeRT.texture;
+    const prev = this.renderer.getRenderTarget();
+    this.renderer.setRenderTarget(this._horizonRT);
+    this.renderer.render(this._horizonScene, this._horizonCam);
+    this.renderer.readRenderTargetPixels(this._horizonRT, 0, 0, 16, 1, this._horizonBuf);
+    this.renderer.setRenderTarget(prev);
+    const f = THREE.DataUtils.fromHalfFloat;
+    let r = 0, g = 0, b = 0;
+    for (let i = 0; i < 16; i++) { r += f(this._horizonBuf[i * 4]); g += f(this._horizonBuf[i * 4 + 1]); b += f(this._horizonBuf[i * 4 + 2]); }
+    this.horizonColor = [r / 16, g / 16, b / 16];
+    const lum = 0.2126 * this.horizonColor[0] + 0.7152 * this.horizonColor[1] + 0.0722 * this.horizonColor[2];
+    this.fogPass.setSkyColor(this.horizonColor.map((v) => lum + (v - lum) * INSCATTER_DESAT), HORIZON_TO_INSCATTER);
   }
 
   /** 감사 리그 전용 — 환경광 차단/복원 */

@@ -44,20 +44,20 @@ export function createLighting(scene) {
   const hemi = new THREE.HemisphereLight(0xcfd4da, 0x8a8478, 0.5);
   scene.add(hemi);
 
-  return { hemi, pipeline: null };
+  return { hemi, pipeline: null, hemiScale: HEMI_SCALE_WITH_ENV };
 }
 
 /**
  * 태양각 적용. azimuth: 0=북(-Z), 90=동(+X), 180=남(+Z). elevation: 도.
  * P3: CSM(pipeline)으로 위임 — 방향·강도. world:tod 발행 주체는 sky(C2).
  */
-/** 반구광 감쇠 계수 — PMREM 환경광 도입 후 잔여 바닥 보정 (조명 리그 소유, C4 재조율 대상) */
+/** 반구광 감쇠 계수 — PMREM 환경광 도입 후 잔여 바닥 보정 (지면 반사광 대용 — 돔 PMREM에는 지면 성분이 없다). C4 재조율값·근거는 CONTRACT-NOTES C4 */
 export const HEMI_SCALE_WITH_ENV = 0.4;
 
 export function applySunConfig(lighting, sun, hemiIntensity, fogCfg) {
   lighting.pipeline.setSun(sun);
   // C2: PMREM 환경광 도입 후 반구광은 잔여 바닥 보정으로 감쇠 (src/sky 주변광 이관 주석 참조)
-  lighting.hemi.intensity = hemiIntensity * (lighting.sky ? HEMI_SCALE_WITH_ENV : 1);
+  lighting.hemi.intensity = hemiIntensity * (lighting.sky ? lighting.hemiScale : 1);
   lighting.sky?.apply(sun, fogCfg, hemiIntensity);
 }
 

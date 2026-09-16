@@ -149,6 +149,9 @@ export const RECIPES = Object.freeze({
     pat: V4(PAT.NONE, 0, 0, 0), normalStrength: 2,
     shader: { mode: 'uv' },
   },
+  // C4: 등롱 발광 강도는 샷의 등롱 광원 상태에 종속 (main applyShot) — 야간 점등 시 HDR 발광(블룸 대상),
+  // 주간 소등 시 종이 갓의 잔광만. emissiveIntensity 1.1 고정은 야간에 블룸 임계(노출 후 0.8)를 겨우 넘어
+  // '자발광·블룸' 샷 의도가 읽히지 않았다 (C4 실측: 블룸 0.25까지 올려도 글로우 미미).
   LANTERN: {
     size: 256, seed: 1212, period: 4, intendedAlbedo: 0.55, gain: 1.5,
     colA: C(0xd8cba8), colB: C(0xc9ba95), colC: C(0xc9ba95), colD: C(0xc9ba95),
@@ -200,6 +203,9 @@ export const SURFACE_MAT = Object.freeze({
  * mats: 킷 Assembler가 쓰는 키→재질 맵 (GREY_* 키는 호환용으로 남긴다 — 기존 물성 유지 재질).
  * 셰이더 패치는 CSM 패치 이후여야 하므로 여기서는 하지 않는다 → finalizeSurfaceShaders(mats).
  */
+/** 등롱 발광 강도 — 점등(샷 lantern>0)/소등. applyShot이 LANTERN 재질에 적용 (C4) */
+export const LANTERN_EMISSIVE = Object.freeze({ lit: 6.0, unlit: 0.25 });
+
 export function createSurfaceMaterials({ renderer }) {
   const synth = new ProceduralSynth({ renderer });
   const mats = {};

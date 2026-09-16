@@ -28,7 +28,7 @@ import { setupAlbedoAudit } from './render/audit-cards.js';
 import { PhysicsWorld } from './physics/index.js';
 import { collectRayChain } from './physics/raychain.js';
 import { buildWorld } from './world/level.js';
-import { createSurfaceMaterials, finalizeSurfaceShaders } from './materials/index.js';
+import { createSurfaceMaterials, finalizeSurfaceShaders, LANTERN_EMISSIVE } from './materials/index.js';
 import { PlayerInput } from './player/input.js';
 import { Player } from './player/player.js';
 import { FireControl } from './weapons/firecontrol.js';
@@ -193,6 +193,8 @@ function applyShot(shot, opts = {}) {
   camera.updateProjectionMatrix();
   applySunConfig(lighting, shot.sun, shot.hemi, shot.fog);
   for (const l of world.lanternLights) l.intensity = shot.lantern;
+  // C4: 등롱 발광은 점등 상태에 종속 (materials LANTERN_EMISSIVE 주석) — 유니폼 값이라 프로그램 순열 불변
+  if (surfaceMaterials.mats.LANTERN) surfaceMaterials.mats.LANTERN.emissiveIntensity = shot.lantern > 0 ? LANTERN_EMISSIVE.lit : LANTERN_EMISSIVE.unlit;
 
   viewmodel.setVisible(!!shot.viewmodel);
   if (shot.viewmodel) {
@@ -283,6 +285,7 @@ console.info(`[boot] prewarm programs=${warm.programsAfter} (+${warm.compiled}) 
 phase('prewarm');
 window.__prewarm = warm;
 window.__pipeline = pipeline; // 디버그·결정성 이분 전용 — 게이트 도구는 __harness만 쓴다
+window.__lighting = lighting; // C4 조정 프로브 전용 (hemiScale)
 
 fire.reset();             // 프리웜의 applyShot(viewmodel 샷)이 만진 무기 상태를 부팅 초기로
 fx.reset();               // 프리웜 대표 fx 인스턴스 정리 (부팅 = 무상태)

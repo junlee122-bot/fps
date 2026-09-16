@@ -124,6 +124,15 @@ export class FogPass {
       sky.setRGB(0.015, 0.02, 0.035); // 야간 박명 잔광
     }
     u.shaftStrength.value = day ? 0.85 : 0.0;
+    // 위 skyColor는 CPU 근사 초기값 — C4부터 sky.apply가 돔 지평선 판독값으로 덮어쓴다 (setSkyColor)
+  }
+
+  /**
+   * C4: 인스캐터 하늘색을 스카이돔 지평선 실측(큐브맵 판독)으로 통일 — CPU 근사와 돔 색의 불일치 해소
+   * (C2 검토 기록 (2)). scale은 인스캐터 대 돔 휘도 비(단일 산란 근사의 알베도 계수).
+   */
+  setSkyColor(rgb, scale = 1.0) {
+    this.material.uniforms.skyColor.value.setRGB(rgb[0] * scale, rgb[1] * scale, rgb[2] * scale);
   }
 
   /**

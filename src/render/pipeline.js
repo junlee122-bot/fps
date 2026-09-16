@@ -1,8 +1,9 @@
 /**
  * src/render/pipeline.js — C1 렌더 파이프라인 뼈대 (P3-BRIEF §3).
  *
- * 체인: HDR(HalfFloat) 씬 렌더(+깊이 텍스처 prepass) → GTAO → TAA 리졸브
- * → 카메라 모션블러 → AgX 톤매핑 + sRGB (OutputPass). 태양 그림자는 CSM 3캐스케이드.
+ * 체인: HDR(HalfFloat) 씬 렌더(+깊이 텍스처 prepass) → GTAO → [C2 안개] → TAA 리졸브
+ * → 카메라 모션블러 → [C4 노출 미터 3패스 · 블룸 6패스] → 출력(노출·블룸·AgX·sRGB·그레이드 LUT, output.js).
+ * 태양 그림자는 CSM 3캐스케이드(C4: 캐스케이드 경계 페이드).
  *
  * 구조: 모든 패스를 **명시적 자체 RT**로 직접 호출한다 — EffectComposer 없음.
  * (컴포저는 rt2를 clone()으로 만들며 depthTexture까지 복제하므로, TAA/모션블러가
@@ -30,10 +31,22 @@
 import * as THREE from 'three';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
-import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ExposureMeter } from './exposure.js';
+import { BloomPass } from './bloom.js';
+import { buildGradeLUT } from './grade.js';
+import { createOutputMaterial } from './output.js';
 import { CSM } from 'three/addons/csm/CSM.js';
 import { SimplexNoise } from 'three/addons/math/SimplexNoise.js';
 import { clock } from '../core/clock.js';
+
+/**
+ * C4 노출·블룸·출력 파라미터 — 미학 상수 (실측 근거: CONTRACT-NOTES C4 기록).
+ *  ec: 노출 보정 EV(+가 밝게). evMin/evMax: 적응 EV100 클램프 — 야간이 중회색으로 끌려 올라가지 않게 하한을 둔다.
+ *  rateUp/rateDown: 적응 속도(1/s) — 밝아질 때 빠르고 어두워질 때 느리다(시각 적응 비대칭).
+ */
+const EXPOSURE_PARAMS = Object.freeze({ ec: 1.0, evMin: 1.0, kneeSlope: 0.2, evMax: 14.0, rateUp: 3.0, rateDown: 1.5, centerWeight: 0.35 });
+const BLOOM_PARAMS = Object.freeze({ threshold: 0.8, knee: 0.5, iterations: 2 });
+const OUTPUT_PARAMS = Object.freeze({ bloomStrength: 0.08, lutIntensity: 1.0, ditherAmp: 0.0 });
 
 /** Halton(2,3) 8점 — TAA 서브픽셀 지터 (결정적 상수, 픽셀 단위 오프셋) */
 const JITTER = [
@@ -126,7 +139,9 @@ export class RenderPipeline {
     this.scene = scene;
     this.camera = camera;
 
-    renderer.toneMapping = THREE.AgXToneMapping; // C1: AgX. 노출·그레이드는 C4
+    // C4: renderer.toneMapping은 출력 패스의 모드 스위치다 — AgX=전체 체인, NoToneMapping=감사 우회(audit-cards).
+    // 씬은 HDR RT에 그려지므로 재질 셰이더에는 톤매핑이 주입되지 않는다 (three 규약: 화면 타깃에서만).
+    renderer.toneMapping = THREE.AgXToneMapping;
     renderer.toneMappingExposure = 1.0;
     // 컴포저·후처리의 내부 render() 다회 호출이 info를 매번 리셋하면
     // drawCalls/triangles가 마지막 패스(풀스크린 쿼드 1콜)만 남는다 —
@@ -151,6 +166,9 @@ export class RenderPipeline {
       l.shadow.bias = -0.0004;
       l.shadow.normalBias = 0.02;
     }
+    // C4: 캐스케이드 경계 페이드 (C2 검토 이월 '경계 페더') — CSM_FADE 정의가 재질 셰이더에 들어가므로
+    // patchMaterial 이전에 설정해야 한다 (프리웜이 그 순열을 컴파일). 마진은 three 규약 0.25·d² (정규화 깊이).
+    this.csm.fade = true;
 
     // ---- 씬(HDR+깊이) RT + GTAO 합성 RT — 직접 소유 ----
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
@@ -233,20 +251,32 @@ export class RenderPipeline {
     this.sky = null;
     this._invVPFog = new THREE.Matrix4();
     this._csmFov = -1; this._csmAspect = -1;
-    this.outputPass = new OutputPass();
-    this.outputPass.renderToScreen = true;
+    // ---- C4: 노출 미터 → 블룸 → 출력(AgX·sRGB·LUT) — 전부 자체 RT·자체 재질 (output.js 머리주석) ----
+    const blit = (m, t) => this._blit(m, t);
+    this.exposure = new ExposureMeter({ renderer, blit, params: EXPOSURE_PARAMS });
+    this.bloom = new BloomPass({ blit, params: BLOOM_PARAMS });
+    this.lut = buildGradeLUT();
+    this.outputMat = createOutputMaterial({ lut: this.lut.texture, lutSize: this.lut.size, params: OUTPUT_PARAMS });
 
     this._prevVP = new THREE.Matrix4();
     this._curVP = new THREE.Matrix4();
     this._reproj = new THREE.Matrix4();
     this._invVP = new THREE.Matrix4();
     this._hasPrev = false;
-    this._fakeRead = { texture: null }; // OutputPass.render(readBuffer) 인터페이스
     /** 패스별 콜·삼각형 분해 (지표 의미 판정용 — renderFrame이 stats에 전달) */
-    this.passStats = { shadowBeauty: [0, 0], gtao: [0, 0], post: [0, 0], scenePass: [0, 0] };
+    this.passStats = { shadowBeauty: [0, 0], gtao: [0, 0], post: [0, 0], scenePass: [0, 0], postFullscreenEq: 0 };
     /** rendervariance 음성 테스트 전용 결함 주입 — reset()에 무관한 렌더 카운터로 지터를 흔든다 (harness.debugDrift) */
     this.debugDrift = false;
     this._renderCount = 0;
+  }
+
+  /** C4 그레이드 LUT 재구성 (조정 프로브·설정 변경용 — 부팅 경로는 생성자 1회) */
+  setGrade(params) {
+    const old = this.lut.texture;
+    this.lut = buildGradeLUT(params);
+    this.outputMat.uniforms.tLut.value = this.lut.texture;
+    this.outputMat.uniforms.lutSize.value = this.lut.size;
+    old.dispose();
   }
 
   /** CSM 셰이더 패치 — 부팅 씬 순회 + 이후 생성 재질(카드·클론)에 필수 */
@@ -294,6 +324,11 @@ export class RenderPipeline {
     this.fogRT.setSize(w, h);
     this._size.set(w, h);
     this.taaMat.uniforms.resolution.value.set(w, h);
+    this.bloom.setSize(w, h);
+    this.outputMat.uniforms.bloomSize.value.copy(this.bloom.size);
+    // 포스트 체인 풀스크린 등가 비용 (계측 보고 — §8 overdraw 지표 정의(씬+안개+HANJI)와 별개):
+    // GTAO 4 + 안개 1 + TAA 1 + MB 1 + 출력 1 + 노출 미터(64²+8²+1)/픽셀 + 블룸(1/16+5/64)
+    this.passStats.postFullscreenEq = +(4 + 1 + 1 + 1 + 1 + (64 * 64 + 64 + 1) / (w * h) + this.bloom.fullscreenEq).toFixed(4);
     this.csm.updateFrustums();
     // 히스토리·재투영·패리티 전부 리셋 — historyValid만 끄고 _hasPrev를 남기면
     // 다음 첫 프레임의 MB가 stale _prevVP(프리웜 마지막 뷰)로 비항등 재투영을 만들어
@@ -307,6 +342,7 @@ export class RenderPipeline {
     this._hasPrev = false;
     this.taaWrite = 0;          // 핑퐁 패리티 — '짝수 프레임 수' 우연에 의존하지 않는다
     this._prevVP.identity();
+    this.exposure.reset();      // C4: 노출 적응 상태 — 다음 프레임 목표값 스냅
     const prev = this.renderer.getRenderTarget();
     for (const rt of [this.taaRT[0], this.taaRT[1], this.mbRT]) {
       this.renderer.setRenderTarget(rt);
@@ -416,9 +452,18 @@ export class RenderPipeline {
     this.mbMat.uniforms.reproj.value.copy(this._reproj);
     this._blit(this.mbMat, this.mbRT);
 
-    // 4. AgX 톤매핑 + sRGB → 화면
-    this._fakeRead.texture = this.mbRT.texture;
-    this.outputPass.render(this.renderer, null, this._fakeRead, 0, false);
+    // 4. C4 노출 미터(3 소형 패스) + 블룸(6 소형 패스) — 둘 다 모션블러 출력(HDR, 노출 전)을 읽는다
+    this.exposure.render(this.mbRT.texture, this._size.x, this._size.y, clock.dt);
+    this.bloom.render(this.mbRT.texture, this.exposure.texture, this.exposure.ec);
+
+    // 5. 출력: 노출 × HDR + 블룸 → AgX → sRGB → 그레이드 LUT → 화면 (감사 상태는 sRGB만)
+    const ou = this.outputMat.uniforms;
+    ou.tDiffuse.value = this.mbRT.texture;
+    ou.tBloom.value = this.bloom.texture;
+    ou.tAdapt.value = this.exposure.texture;
+    ou.ec.value = this.exposure.ec;
+    ou.toneMode.value = this.renderer.toneMapping === THREE.NoToneMapping ? 0 : 1;
+    this._blit(this.outputMat, null);
     this.passStats.post = [info.calls - c2, info.triangles - t2];
 
     cam.clearViewOffset();
