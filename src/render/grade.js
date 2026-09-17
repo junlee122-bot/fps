@@ -28,7 +28,10 @@ export const GRADE_DEFAULT = Object.freeze({
    * 2.6% 위반, LUT 없이). 2차 색보정(HSL 대역 채도 상한)으로 룩이 팔레트 규율을 강제한다 — 창(hue)은
    * 12–18° 램프인, 40–46° 램프아웃(단청 황 48°·초가 45°는 밖). cap 초과분은 bandSlope 기울기로만 남긴다.
    */
-  band: [12, 18, 40, 46], bandCap: 0.30, bandSlope: 0.2,
+  // R1 A-3: cap .30/slope .2 → .28/.08 — 환경광 채도 감쇠(ENV_DESAT) 후 청색 환경광이 목재 온색을 상쇄하던 효과가 사라져
+  // 저조도 실내(muzzle_interior)에서 AgX 토 채도 증폭(C3 기록: sat .13→.40 at V .05)이 그대로 드러났다(사전점검 7.2% 위반).
+  // 상한 .28 + 초과분 .08 → 대역 안 출력 채도 최대 .28+.08·.72 = .338 < .35 (LUT 32³ 보간 오차 여유 .012). 재질 원색(.19)은 그대로.
+  band: [12, 18, 40, 46], bandCap: 0.28, bandSlope: 0.08,
 });
 
 function rgb2hsv(r, g, b) {
