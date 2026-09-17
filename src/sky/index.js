@@ -52,6 +52,13 @@ export const NIGHT_ENV_INTENSITY = 0.65;
 export const CIRRUS_AMOUNT = 0.55;
 export const CIRRUS_SCALE = 2.2;
 export const CIRRUS_GAIN = 1.45;
+/**
+ * 환경 큐브 전용 채도 감쇠 (R1 수정 A-2): Preetham 단일 산란 돔은 천정 b/r≈3의 고채도 청색이라 PMREM 환경광이 그늘 전체를
+ * 청색으로 물들였다(R1 '회청색': 대청 마루 (57,68,78), 담장 (124,133,139) 실측). 실제 하늘 환경광은 다중 산란·지면 반사·
+ * 구름으로 천정 청색보다 훨씬 중성이다. 가시 돔은 그대로(0), 환경 큐브 렌더에만 휘도 보존 채도 감쇠를 적용한다
+ * (sunDisc와 같은 유니폼 스왑). 큐브 지평선 판독(안개 인스캐터)도 이 값을 물려받는다.
+ */
+export const ENV_DESAT = 0.5;
 const CIRRUS_GLSL = /* glsl */`
     uint skLb(uint x) { x ^= x >> 16u; x *= 0x7feb352du; x ^= x >> 15u; x *= 0x846ca68bu; x ^= x >> 16u; return x; }
     float skH(ivec2 p, uint s) { return float(skLb(uint(p.x + 8192) * 0x9E3779B1u ^ uint(p.y + 8192) * 0x85EBCA77u ^ s)) * (1.0 / 4294967296.0); }
@@ -118,16 +125,17 @@ export class SkySystem {
     this.cirrusGain = { value: CIRRUS_GAIN };
     this.cirrusColor = { value: new THREE.Color(1.0, 0.985, 0.96) };
     this._sunDisc = { value: 1 };
+    this._envDesat = { value: 0 };
     this.envPerHemi = ENV_PER_HEMI;
     const U = { domeScale: this.domeScale, hazeAmount: this.hazeAmount, hazePower: this.hazePower, hazeColor: this.hazeColor, sunDisc: this._sunDisc,
-      cirrusAmount: this.cirrusAmount, cirrusScale: this.cirrusScale, cirrusGain: this.cirrusGain, cirrusColor: this.cirrusColor };
+      cirrusAmount: this.cirrusAmount, cirrusScale: this.cirrusScale, cirrusGain: this.cirrusGain, cirrusColor: this.cirrusColor, envDesat: this._envDesat };
     this.sky.material.onBeforeCompile = (shader) => {
       Object.assign(shader.uniforms, U);
       shader.fragmentShader = shader.fragmentShader
-        .replace('void main() {', 'uniform float domeScale, hazeAmount, hazePower, sunDisc, cirrusAmount, cirrusScale, cirrusGain;\n\t\tuniform vec3 hazeColor, cirrusColor;\n' + CIRRUS_GLSL + '\n\t\tvoid main() {')
+        .replace('void main() {', 'uniform float domeScale, hazeAmount, hazePower, sunDisc, cirrusAmount, cirrusScale, cirrusGain, envDesat;\n\t\tuniform vec3 hazeColor, cirrusColor;\n' + CIRRUS_GLSL + '\n\t\tvoid main() {')
         .replace('L0 += ( vSunE * 19000.0 * Fex ) * sundisk;', 'L0 += ( vSunE * 19000.0 * Fex ) * sundisk * sunDisc;')
         .replace('gl_FragColor = vec4( retColor, 1.0 );',
-          'float dayF = clamp( vSunE / 1000.0, 0.0, 1.0 );\n\t\t\tvec3 haze = hazeColor * ( hazeAmount * dayF * pow( 1.0 - clamp( direction.y, 0.0, 1.0 ), hazePower ) );\n\t\t\tvec3 skyLin = texColor * domeScale + haze;\n\t\t\tskyLin = skyCirrus( skyLin, direction, vSunDirection, dayF );\n\t\t\tgl_FragColor = vec4( skyLin, 1.0 );');
+          'float dayF = clamp( vSunE / 1000.0, 0.0, 1.0 );\n\t\t\tvec3 haze = hazeColor * ( hazeAmount * dayF * pow( 1.0 - clamp( direction.y, 0.0, 1.0 ), hazePower ) );\n\t\t\tvec3 skyLin = texColor * domeScale + haze;\n\t\t\tskyLin = skyCirrus( skyLin, direction, vSunDirection, dayF );\n\t\t\tskyLin = mix( skyLin, vec3( dot( skyLin, vec3( 0.2126, 0.7152, 0.0722 ) ) ), envDesat );\n\t\t\tgl_FragColor = vec4( skyLin, 1.0 );');
     };
     this.sky.material.customProgramCacheKey = () => 'sky_linear_r1';
     u.turbidity.value = 6;       // 맑은 대륙성 대기
@@ -267,8 +275,10 @@ export class SkySystem {
       this._envScene.add(this.sky); // scene에서 잠시 이관
       const tc = clock.wallNowMs();
       this._sunDisc.value = this.envSunDisc ? 1 : 0; // 환경 큐브: 태양 원반 제외 (생성자 주석) — envSunDisc는 A/B 프로브 전용
+      this._envDesat.value = ENV_DESAT; // 환경 큐브: 채도 감쇠 (ENV_DESAT 주석)
       this._cubeCam.update(this.renderer, this._envScene);
       this._sunDisc.value = 1;
+      this._envDesat.value = 0;
       const tp = clock.wallNowMs();
       this._envRT = this.pmrem.fromCubemap(this._cubeRT.texture);
       this.envLog.push({ material: this.sky.material === this.dayMat ? 'day' : 'night', cubeMs: Math.round(tp - tc), pmremMs: Math.round(clock.wallNowMs() - tp) });

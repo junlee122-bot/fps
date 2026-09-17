@@ -15,9 +15,11 @@ import * as THREE from 'three';
 
 export const GRADE_DEFAULT = Object.freeze({
   size: 32,
-  // R1 수정 A: 대비 1.10→1.16, 채도 .94→.97, 암부 탈색 .80→.85, 스플릿톤 .03→.015 — 회청색 저대비·뿌옇음(R1 S03·S04·S07·S09·S10·S12)
+  // R1 수정 A: 대비 1.10→1.16, 스플릿톤 .03→.015 — 회청색 저대비·뿌옇음(R1 S03·S04·S07·S09·S10·S12).
+  // 채도 .97·암부 탈색 .85 시도는 저해상 팔레트 사전점검에서 muzzle_interior 1.845%(30–40° 목재) 위반 → C4 검증값(.94/.80) 복귀.
+  // 청색 캐스트는 채도 조작이 아니라 원인(환경광 채도·태양 색온도, sky ENV_DESAT·SUN_COLOR)에서 고친다.
   contrast: 1.16, pivot: 0.42,
-  saturation: 0.97, shadowDesat: 0.85, shadowEnd: 0.25,
+  saturation: 0.94, shadowDesat: 0.80, shadowEnd: 0.25,
   splitShadow: [0.62, 0.74, 1.00], splitHighlight: [1.00, 0.95, 0.86], splitAmount: 0.015,
   lift: 0.0,
   /**

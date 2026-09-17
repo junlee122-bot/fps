@@ -44,6 +44,8 @@ import { clock } from '../core/clock.js';
  *  ec: 노출 보정 EV(+가 밝게). evMin/evMax: 적응 EV100 클램프 — 야간이 중회색으로 끌려 올라가지 않게 하한을 둔다.
  *  rateUp/rateDown: 적응 속도(1/s) — 밝아질 때 빠르고 어두워질 때 느리다(시각 적응 비대칭).
  */
+/** 태양광 색 (선형, R1 수정 A-2 — csm.fade 아래 주석) */
+const SUN_COLOR = Object.freeze([1.0, 0.97, 0.92]);
 /** GTAO 파라미터 (R1 수정 B — 접지 음영). radius(m)·scale·thickness·distanceExponent·distanceFallOff는 GTAOPass 유니폼 */
 const GTAO_PARAMS = Object.freeze({ radius: 0.7, scale: 1.4, thickness: 1.0, distanceExponent: 1.0, distanceFallOff: 1.0 });
 const EXPOSURE_PARAMS = Object.freeze({ ec: 1.0, evMin: 1.0, kneeSlope: 0.2, evMax: 14.0, rateUp: 3.0, rateDown: 1.5, centerWeight: 0.35 });
@@ -171,6 +173,9 @@ export class RenderPipeline {
     // C4: 캐스케이드 경계 페이드 (C2 검토 이월 '경계 페더') — CSM_FADE 정의가 재질 셰이더에 들어가므로
     // patchMaterial 이전에 설정해야 한다 (프리웜이 그 순열을 컴파일). 마진은 three 규약 0.25·d² (정규화 깊이).
     this.csm.fade = true;
+    // R1 수정 A-2: 태양광 약한 온색 (5500K 근사) — 그늘(청색 환경광)과 양지의 색온도 대비. CSM은 lightColor 인자가 없어 생성 후 설정.
+    // 팔레트: 목재 대역 원색 sRGB 채도 ≈.2 × 온광 → ≈.25 < .35 (사전점검 확인). 야간(강도 .02)은 무의미.
+    for (const l of this.csm.lights) l.color.setRGB(SUN_COLOR[0], SUN_COLOR[1], SUN_COLOR[2]);
 
     // ---- 씬(HDR+깊이) RT + GTAO 합성 RT — 직접 소유 ----
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
