@@ -33,7 +33,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { ExposureMeter } from './exposure.js';
 import { BloomPass } from './bloom.js';
-import { buildGradeLUT } from './grade.js';
+import { buildGradeLUT, GRADE_DEFAULT } from './grade.js';
 import { createOutputMaterial } from './output.js';
 import { CSM } from 'three/addons/csm/CSM.js';
 import { SimplexNoise } from 'three/addons/math/SimplexNoise.js';
@@ -266,8 +266,9 @@ export class RenderPipeline {
     const blit = (m, t) => this._blit(m, t);
     this.exposure = new ExposureMeter({ renderer, blit, params: EXPOSURE_PARAMS });
     this.bloom = new BloomPass({ blit, params: BLOOM_PARAMS });
-    this.lut = buildGradeLUT();
-    this.outputMat = createOutputMaterial({ lut: this.lut.texture, lutSize: this.lut.size, params: OUTPUT_PARAMS });
+    // R1 A-3: 대역 채도 상한은 LUT(암부에서 무력)가 아니라 출력 셰이더가 건다 — LUT는 bandCap 없이 빌드 (output.js 주석)
+    this.lut = buildGradeLUT({ bandCap: null });
+    this.outputMat = createOutputMaterial({ lut: this.lut.texture, lutSize: this.lut.size, params: OUTPUT_PARAMS, band: GRADE_DEFAULT });
 
     this._prevVP = new THREE.Matrix4();
     this._curVP = new THREE.Matrix4();
@@ -284,9 +285,13 @@ export class RenderPipeline {
   /** C4 그레이드 LUT 재구성 (조정 프로브·설정 변경용 — 부팅 경로는 생성자 1회) */
   setGrade(params) {
     const old = this.lut.texture;
-    this.lut = buildGradeLUT(params);
-    this.outputMat.uniforms.tLut.value = this.lut.texture;
-    this.outputMat.uniforms.lutSize.value = this.lut.size;
+    this.lut = buildGradeLUT({ ...params, bandCap: null });
+    const u = this.outputMat.uniforms;
+    u.tLut.value = this.lut.texture;
+    u.lutSize.value = this.lut.size;
+    const g = { ...GRADE_DEFAULT, ...params };
+    u.uBand.value = { x: g.band[0], y: g.band[1], z: g.band[2], w: g.band[3] };
+    u.uBandCap.value = g.bandCap ?? 0; u.uBandSlope.value = g.bandSlope ?? 0;
     old.dispose();
   }
 
