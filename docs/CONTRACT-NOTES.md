@@ -748,6 +748,35 @@
   사각을 수 분 안에 메운다(이 결함은 11시간 캡처가 있어야 1픽셀로 드러났다). baseline/c3 1·2차(교정 전)는
   tmp/c3_invalid2로 이동, 교정 코드로 ×2 재캡처 시작 06:52.
 
+- **C4 스냅샷 (코드 f05a220 = 병합 8c1518d와 src 동일, 최종 게이트, 2026-09-16 23:38 – 09-17 18:23)**:
+  - 결정성 (드로잉 버퍼 3024×1964, tolerance 0): baseline/c4 ×2(샷마다 새 페이지) **12/12 바이트 동일**(첫 패스 23:38–04:06,
+    검증 04:22–08:54; 샷당 ≈22분). rendervariance 12샷 단일(사전점검·harnesstest 17).
+  - paletteaudit baseline/c4: 12/12 ≤1.5% — muzzle_interior 0.746, dancheong_closeup 0.411, lantern_night 0.403, daecheong_backlit
+    0.184, hanji_silhouette 0.172, corridor 0.094, pierced 0.094, noon 0.052, viewmodel 0.050, roofline 0.017, fog 0.001, tile_fall 0.
+  - albedoaudit: ok — L018/L004 4.365, L090/L018 4.97, 흑카드 0, manifest 편차 0 (감사 조명은 NoToneMapping 우회 — 노출·LUT 무영향 입증).
+  - viewmodelaudit: ok — 휘도비 0.9995. playtest: ok(오류 0).
+  - harnesstest **18/18**(재시도 0). 1차 실행은 r1 저해상 프로브와 동시 실행되어 케이스 10이 시간 초과로 실패 → 무효 처리 후
+    단독 재실행(R1-P1 규칙). 재실행에서 케이스 10 ratio 1.8399 정상.
+  - profile p3 (단독 5.4h SwiftShader, 3런): 선행지표 전부 통과 — trisScene 134,554 / trisFrameP95 121,542 / drawCalls 412(전패스
+    참조 1,643) / programs **44**(≤110) / cpuFrameMsP95 1.55ms(≤6) / overdrawP95 2.0(≤3.0, worst 7.001 — 사격 시나리오 파티클+데칼
+    순간치) / particlesMax 731 / decalsMax 139 / 플레이 컴파일 **0** / 하네스 오류 0 / 시나리오 유효(ROOF_TILE 137·파편 135+).
+    **부팅 중앙값 15,572ms(런별 16,625/14,983/15,572) — 잠정 8s 초과.** 분해: forward_base 24프로그램 519ms, first_shot 19프로그램
+    2,022ms, **샷 스윕 10,190ms(프로그램 1개 — 샷별 PMREM 재생성 apply 307–3,786ms가 전부)**, restore 298ms. C3 13.1s → +2.4s는
+    노출·블룸·출력 프로그램(+7)과 환경 큐브 재생성 비용. 옵션(미적용, 발주자 판단): 프리웜 스윕에서 PMREM 재생성 생략 시 ≈−9s
+    (SwiftShader 기준; 실기기 PMREM은 ms 단위라 이득 작음).
+  - 전환 imagediff c3→c4 (12샷, exit 1 정상): 변화 px% / maxΔ / meanΔ — noon 100/109/50.1 · roofline 100/98/42.6 · viewmodel 100/97/38.6
+    · tile_fall 100/94/36.6 · fog 100/82/31.0 · corridor 99.96/95/27.0 · silhouette 99.93/81/25.3 · backlit 99.93/126/23.6 · interior
+    99.9996/96/21.1 · pierced 100/83/14.7 · closeup 100/92/14.7 · night 99.29/135/8.3. 해석: 노출·AgX·LUT·돔 선형화가 전 픽셀에 걸리는
+    전역 변화; 하늘 비중이 큰 주간 샷이 meanΔ 최대(돔 표시 곡선 제거·환경광 절반), 야간 최소.
+  - baseline/c4 보존(로컬, A3 비커밋). R1 비평은 이 캡처의 756×491 사본으로 수행.
+- **PATCH-004-D 게이트 노후화 3항 점검 (C4)**: (1) *임계 대비 여유*: overdraw 2.0/3.0, programs 44/110, tris 134,554/600k, cpu 1.55/6 —
+  여유 큼; 팔레트 최악 0.746/1.5(50%)는 실내 저조도 목재(AgX 토)에서 유의미. 부팅 15.6s는 잠정 8s 대비 **실패 상태로 보고**(예산
+  확정 대기; 스윕 PMREM 옵션 제시). (2) *측정 대상 일치*: 노출 미터가 들어오며 픽셀 게이트가 '적응 상태'까지 포함하게 됐다 —
+  rendervariance가 EV 해시를 함께 보므로 적응 비결정은 검출 범위 안. 팔레트 게이트가 표시 LUT 뒤 픽셀을 보는 것은 맞으나, R1
+  사전점검에서 32³ LUT가 암부 상한을 못 건다는 사각이 드러났다(R1 A-3 → 셰이더 상한). (3) *새 실패 모드의 관측 가능성*: (a) 게이트
+  동시 실행 부하 → 감사 시간 초과(harnesstest 케이스 10) — 규칙화(R1-P1); (b) 부팅 예산 초과가 프로파일에서만 드러남 — 저해상
+  프로브 부팅치(12.8–14.3s)는 참고치로만 기록.
+
 ### R1 (비평 라운드 1 → 수정 라운드) 판정 기록
 
 R1 집계(docs/critique/R1-SUMMARY.md): 결함 157, 미완성 12/12, 평균 3.1 → 라운드 실패. 결함 묶음 A–H 중 **수정** 분류분을
