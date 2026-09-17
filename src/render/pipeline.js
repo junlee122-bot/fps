@@ -301,6 +301,10 @@ export class RenderPipeline {
     });
   }
 
+  /** 빛 진행 방향(월드, 공유 참조 — setSun이 제자리 갱신). 창호지 투과 유니폼이 참조한다 (R1 F) */
+  get sunTravelDirection() { return this.csm.lightDirection; }
+  /** 태양광 색(공유 참조) */
+  get sunColor() { return this.csm.lights[0].color; }
   /** 태양 구성 (elev/azim 도, intensity) — applySunConfig가 호출 */
   setSun({ elev, azim, intensity }) {
     const el = THREE.MathUtils.degToRad(elev);

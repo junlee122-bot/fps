@@ -28,7 +28,7 @@ import { setupAlbedoAudit } from './render/audit-cards.js';
 import { PhysicsWorld } from './physics/index.js';
 import { collectRayChain } from './physics/raychain.js';
 import { buildWorld } from './world/level.js';
-import { createSurfaceMaterials, finalizeSurfaceShaders, LANTERN_EMISSIVE } from './materials/index.js';
+import { createSurfaceMaterials, finalizeSurfaceShaders, LANTERN_EMISSIVE, applyHanjiTransmit, HANJI_TRANSMIT } from './materials/index.js';
 import { PlayerInput } from './player/input.js';
 import { Player } from './player/player.js';
 import { FireControl } from './weapons/firecontrol.js';
@@ -110,6 +110,9 @@ scene.traverse((o) => {
 const hanji = new HanjiState();
 for (const id of hanjiPanes.keys()) hanji.register(id);
 const opacityApplier = new OpacityApplier(hanjiPanes);
+// R1 F: 창호지 역광 투과 유니폼 묶음 (패치는 CSM 패치 뒤 — 아래 finalize 직후). 샷 태양 강도 × T
+const hanjiTransmitUniforms = [];
+const setHanjiTransmit = (sunIntensity) => { for (const u of hanjiTransmitUniforms) u.uHanjiTransmit.value = sunIntensity * HANJI_TRANSMIT; };
 
 // P2B FX — 기와 낙하 강체는 콜백 주입 (fx는 physics를 import하지 않는다)
 const debrisGeo = new THREE.BoxGeometry(0.18, 0.024, 0.13);
@@ -184,6 +187,7 @@ function applySunRawForAudit(sun, hemi) {
   // 안개 인스캐터는 가산 오프셋이라 암카드 휘도를 들어 비율을 무너뜨린다
   // (C2 실측: L018/L004 4.37→2.63 — 밀도 0.0022×14m ≈ +0.010 리니어와 일치)
   skySystem.fog = { density: 0, heightFalloff: 0.12, baseY: 0 };
+  setHanjiTransmit(0); // 감사 수치는 자체 조명의 순수 함수 (R1 F)
 }
 
 function applyShot(shot, opts = {}) {
@@ -192,6 +196,7 @@ function applyShot(shot, opts = {}) {
   camera.fov = shot.cam.fov;
   camera.updateProjectionMatrix();
   applySunConfig(lighting, shot.sun, shot.hemi, shot.fog);
+  setHanjiTransmit(shot.sun.intensity);
   for (const l of world.lanternLights) l.intensity = shot.lantern;
   // C4: 등롱 발광은 점등 상태에 종속 (materials LANTERN_EMISSIVE 주석) — 유니폼 값이라 프로그램 순열 불변
   if (surfaceMaterials.mats.LANTERN) surfaceMaterials.mats.LANTERN.emissiveIntensity = shot.lantern > 0 ? LANTERN_EMISSIVE.lit : LANTERN_EMISSIVE.unlit;
@@ -215,6 +220,7 @@ function applyShot(shot, opts = {}) {
 
 function applyDefaultView() {
   applySunConfig(lighting, DEFAULT_VIEW.sun, DEFAULT_VIEW.hemi);
+  setHanjiTransmit(DEFAULT_VIEW.sun.intensity);
   for (const l of world.lanternLights) l.intensity = DEFAULT_VIEW.lantern;
   camera.fov = 70;
   camera.updateProjectionMatrix();
@@ -253,6 +259,16 @@ const harness = installHarness({
 pipeline.patchScene();   // CSM 재질 패치 — 클론·fx 포함 전 재질 (C1)
 // C3: 표면 셰이더(트라이플래너·POM·마모)는 CSM 훅을 체인하므로 CSM 패치 다음에 적용
 finalizeSurfaceShaders({ ...surfaceMaterials.mats, FX_DEBRIS_TILE: debrisMaterial });
+// R1 F: 창호지 역광 투과 — 원본 HANJI + 판별 클론(HANJI@id) 모두 패치 (CSM 패치 뒤, 프로그램 공유). materials 주석 참조
+{
+  const seen = new Set();
+  const patchHanji = (m) => {
+    if (!m || seen.has(m) || !(m.name === 'HANJI' || m.name.startsWith('HANJI@'))) return;
+    seen.add(m); hanjiTransmitUniforms.push(applyHanjiTransmit(m, pipeline.sunTravelDirection, pipeline.sunColor));
+  };
+  patchHanji(surfaceMaterials.mats.HANJI);
+  scene.traverse((o) => { if (o.isMesh) patchHanji(o.material); });
+}
 window.__materials = surfaceMaterials.synth; // { ms, breakdown } — 부팅 분해 계측 (profile 편입)
 window.__bootPhases = bootPhases; // 부팅 단계별 ms (렌더러·합성·월드·프리웜·웜렌더) — clock.markBootDone 직전까지
 fx.prewarmSpawn(camera); // fx 머티리얼 전 종 컴파일 보증 (P2B §6)

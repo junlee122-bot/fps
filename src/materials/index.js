@@ -46,18 +46,18 @@ export const RECIPES = Object.freeze({
   // 계약 해상도에서 세로 줄무늬 모아레, 야간 등롱광 스페큘러가 노멀 잡음을 드러냄(R1 S02·S03·S06·S10)
   WOOD_COLUMN: {
     size: 512, seed: 202, period: 4, intendedAlbedo: 0.16, gain: 1.5,
-    colA: C(0x8c7660), colB: C(0x594b3c), colC: C(0x4a3d30), colD: C(0x3a2f25),
+    colA: C(0x8c7660), colB: C(0x594b3c), colC: C(0x4a3d30), colD: C(0x4a3d32), // colD(옹이) 완화 (WOOD_PLANK 주석)
     L0: V4(1, 3, 1, 1), L1: V4(1, 4, 2, 8), L2: V4(1, 0, 2, 0.9), L3: V4(60, 9, 0, 0), gate: V4(1, 0, 0, 0),
     remap: V4(0, 0, 0.3, 0.7), alb: V4(0, 0.6, 0, 0), hgt: V4(0.04, 0.08, 0, 0.03), rgh: V4(0.88, -0.08, 0, 0), aom: V4(0, 0, 0, 2),
-    pat: V4(PAT.KNOTS, 2, 0.88, 0.3), normalStrength: 3.5,
+    pat: V4(PAT.KNOTS, 2, 0.88, 0.2), normalStrength: 3.5,
     shader: { mode: 'tri', pom: false, wear: true, scale: 1.0, wearColor: C(0xa89478), wearWidth: 0.02, wearAmount: 0.45 },
   },
   WOOD_PLANK: {
-    size: 512, seed: 203, period: 4, intendedAlbedo: 0.20, gain: 1.74,
-    colA: C(0x9c8468), colB: C(0x6b5a46), colC: C(0x55463a), colD: C(0x3a2f25),
+    size: 512, seed: 203, period: 4, intendedAlbedo: 0.20, gain: 1.563, // R1: 결 대비 완화로 평균 ↑(.2227) → 역산 (albedoaudit 실측)
+    colA: C(0x9c8468), colB: C(0x6b5a46), colC: C(0x55463a), colD: C(0x4a3d32), // colD(옹이) 3a2f25→4a3d32: '바닥 검은 타원 점'(R1 S08)
     L0: V4(1, 3, 4, 1), L1: V4(1, 4, 5, 10), L2: V4(1, 0, 2, 0.9), L3: V4(60, 9, 0, 0), gate: V4(1, 0, 0, 0),
     remap: V4(0, 0, 0.3, 0.7), alb: V4(0, 0.6, 0, 0), hgt: V4(0.03, 0.07, 0, 0.03), rgh: V4(0.82, -0.08, 0, 0), aom: V4(0, 0, 0, 2),
-    pat: V4(PAT.KNOTS, 2, 0.85, 0.28), normalStrength: 3, // R1 수정 D (WOOD_COLUMN 주석): 신장 18→10·결 대비·노멀·반복 완화
+    pat: V4(PAT.KNOTS, 2, 0.85, 0.18), normalStrength: 3, // R1 수정 D (WOOD_COLUMN 주석): 신장 18→10·결 대비·노멀·반복 완화, 옹이 반경 .28→.18
     shader: { mode: 'tri', pom: false, wear: true, scale: 0.8, wearColor: C(0xb8a68a), wearWidth: 0.015, wearAmount: 0.4 },
   },
   WOOD_LATTICE: {
@@ -222,9 +222,39 @@ export const SURFACE_MAT = Object.freeze({
  * mats: 킷 Assembler가 쓰는 키→재질 맵 (GREY_* 키는 호환용으로 남긴다 — 기존 물성 유지 재질).
  * 셰이더 패치는 CSM 패치 이후여야 하므로 여기서는 하지 않는다 → finalizeSurfaceShaders(mats).
  */
-/** 창호지 불투명도 — R1 수정 F: 0.62 → 0.82. 격자 뒤 건물 너머 하늘까지 비치고 여러 겹 격자가 중첩돼 보였다(R1 S03·S09).
- *  P2A 균일 불투명도 물성은 유지(값만), 국소 산란은 HANJI 레시피(섬유 결·hgt)가 맡는다. kit.js 호환 재질도 동일 값. */
-export const HANJI_OPACITY = 0.82;
+/**
+ * 창호지 역광 투과 (R1 수정 F — P3 소유 '국소 산란'): 창호지는 투명체가 아니라 확산체다. 알파 블렌딩(불투명도 .62)은
+ * 뒤 물체를 그대로 비치게 해 "격자 뒤 하늘까지 보임·격자 겹침"(R1 S03·S09)이 됐다. 불투명도 .62는 P0 동결 계약
+ * (hanji.js HANJI_BASE_OPACITY, 조정 금지; 피격 리셋도 이 값으로 복원)이라 손대지 않고, 보이는 면 **뒤에서** 오는 태양광을
+ * 종이색으로 발광시킨다: 복사휘도 += albedo · sunColor · I · T · max(0, n·travel) / π. 밝은 종이 위에 뒤 물체가 38%로
+ * 섞여 실제 창호지처럼 그림자 실루엣으로만 남는다. 판별 클론(render OpacityApplier `HANJI@id`)과 원본을 모두 패치해
+ * 프로그램을 공유한다. 감사 조명(applySunRawForAudit)에서는 0.
+ */
+export const HANJI_TRANSMIT = 0.4;
+const HANJI_TRANSMIT_GLSL = /* glsl */`
+  {
+    vec3 hjTravel = normalize(mat3(viewMatrix) * uHanjiLightDir);
+    float hjBack = max(0.0, dot(normal, hjTravel));
+    totalEmissiveRadiance += diffuseColor.rgb * uHanjiSunColor * (uHanjiTransmit * RECIPROCAL_PI * hjBack);
+  }
+`;
+/** lightDirRef: 빛 진행 방향 Vector3(공유 참조 — CSM lightDirection), sunColorRef: 태양광 Color(공유 참조). 반환: 유니폼 묶음 */
+export function applyHanjiTransmit(mat, lightDirRef, sunColorRef) {
+  const uniforms = { uHanjiLightDir: { value: lightDirRef }, uHanjiSunColor: { value: sunColorRef }, uHanjiTransmit: { value: 0 } };
+  mat.userData.hanjiUniforms = uniforms;
+  const prev = mat.onBeforeCompile;
+  mat.onBeforeCompile = function (shader, renderer) {
+    if (prev) prev.call(this, shader, renderer);
+    Object.assign(shader.uniforms, uniforms);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform vec3 uHanjiLightDir, uHanjiSunColor; uniform float uHanjiTransmit;')
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n' + HANJI_TRANSMIT_GLSL);
+  };
+  const prevKey = mat.customProgramCacheKey;
+  mat.customProgramCacheKey = function () { return (prevKey ? prevKey.call(this) : '') + '|hanji_transmit_r1'; };
+  mat.needsUpdate = true;
+  return uniforms;
+}
 /** 등롱 발광 강도 — 점등(샷 lantern>0)/소등. applyShot이 LANTERN 재질에 적용 (C4) */
 export const LANTERN_EMISSIVE = Object.freeze({ lit: 6.0, unlit: 0.25 });
 
@@ -244,7 +274,7 @@ export function createSurfaceMaterials({ renderer }) {
       normalScale: new THREE.Vector2(1, 1),
     });
     if (r.emissive) { m.emissive = r.emissive; m.emissiveIntensity = r.emissiveIntensity; m.emissiveMap = tex.ormMap; /* R=산란 마스크 */ }
-    if (key === 'HANJI') { m.transparent = true; m.opacity = HANJI_OPACITY; m.side = THREE.DoubleSide; }
+    if (key === 'HANJI') { m.transparent = true; m.opacity = 0.62; m.side = THREE.DoubleSide; } // .62 = hanji.js HANJI_BASE_OPACITY (P0 동결 계약 — 조정 금지)
     if (key === 'WATER') { m.transparent = true; m.opacity = 0.85; }
     m.name = key;
     m.userData.albedoLum = tex.albedoLum;

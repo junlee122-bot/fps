@@ -44,7 +44,7 @@ export function makeMaterials() {
     GREY_LIGHT: std(0x9a9a97), // 석재·흙
     GREY_MID: std(0x7b766f),   // 목재·초가
     GREY_DARK: std(0x585b5f),  // 기와·창살
-    HANJI: std(0xe3e0d8, { transparent: true, opacity: 0.82, side: THREE.DoubleSide }), // R1 F: materials HANJI_OPACITY와 동일
+    HANJI: std(0xe3e0d8, { transparent: true, opacity: 0.62, side: THREE.DoubleSide }),
     WATER: std(0x6e7a80, { transparent: true, opacity: 0.85, roughness: 0.25 }),
     BRONZE: std(0x6f6d62, { roughness: 0.5, metalness: 0.55 }),
     LANTERN: new THREE.MeshStandardMaterial({
