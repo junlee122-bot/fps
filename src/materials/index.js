@@ -198,15 +198,18 @@ export const RECIPES = Object.freeze({
 export const CHROMA_SCALE = Object.freeze({
   WOOD_COLUMN: 0.6, WOOD_PLANK: 0.6, WOOD_LATTICE: 0.6, EARTH_WALL: 0.6, PACKED_DIRT: 0.6, THATCH: 0.6, BRONZE: 0.6,
 });
+/** 휘도 보존 크로마 축소 (선형 공간, 제자리) */
+function scaleChroma(c, k) {
+  const lum = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+  c.setRGB(lum + (c.r - lum) * k, lum + (c.g - lum) * k, lum + (c.b - lum) * k);
+  return c;
+}
 for (const [name, k] of Object.entries(CHROMA_SCALE)) {
   const r = RECIPES[name];
-  for (const key of ['colA', 'colB', 'colC', 'colD']) {
-    const c = r[key];
-    if (!c) continue;
-    const lum = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
-    c.setRGB(lum + (c.r - lum) * k, lum + (c.g - lum) * k, lum + (c.b - lum) * k);
-  }
+  for (const key of ['colA', 'colB', 'colC', 'colD']) if (r[key]) scaleChroma(r[key], k);
 }
+// R1 C: 지붕 셸 하면 서까래 목재색도 목재 대역 규율(위 주석)과 같은 크로마 축소 — sRGB 채도 .30 → ≈.18
+scaleChroma(RECIPES.ROOF_SOIL.shader.underColor, CHROMA_SCALE.WOOD_COLUMN);
 
 export const SURFACE_MAT = Object.freeze({
   GRANITE: 'GRANITE', PACKED_DIRT: 'PACKED_DIRT', EARTH_WALL: 'EARTH_WALL', ROOF_SOIL: 'ROOF_SOIL', // R1 C: 보토 셸 전용 재질
