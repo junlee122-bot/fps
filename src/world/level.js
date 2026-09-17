@@ -567,7 +567,10 @@ export function buildWorld(scene, physics, materials = null) {
     // 온광이 목재 회색과 곱해지면 조명된 목재가 30–40° 고채도로 대량 이탈한다
     // (목재·흙 대역 sat≤0.35). 색 정체성은 발광 코어가, 조명은 낮은 채도가 맡는다.
     // s≈0.055: 결합 채도 1-(1-s_wood)(1-s_light) ≈ 0.26 < 0.35 (AgX 여유 포함)
-    const light = new THREE.PointLight(0xfff6e8, 0, 18, 2);
+    // R1 수정 B: 감쇠 2(역제곱)·거리 18에서 강도 9의 빛이 담장(6~8m)에 닿지 않아 야간 샷이 등롱 주변만 밝았다
+    // (R1 S06). 1m 밝기(팔레트 상한 근접)는 유지하고 원거리 도달만 늘리기 위해 감쇠 지수를 1.5로 완화 —
+    // 6m에서 ×2.4, 1m에서 ×1. 광원 강도(샷 계약 lantern)는 바꾸지 않는다.
+    const light = new THREE.PointLight(0xfff6e8, 0, 24, 1.5);
     light.name = `lantern_light_${side}`;
     light.position.set(x, 2.45, z);
     A.group.add(light);

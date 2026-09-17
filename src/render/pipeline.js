@@ -44,6 +44,8 @@ import { clock } from '../core/clock.js';
  *  ec: 노출 보정 EV(+가 밝게). evMin/evMax: 적응 EV100 클램프 — 야간이 중회색으로 끌려 올라가지 않게 하한을 둔다.
  *  rateUp/rateDown: 적응 속도(1/s) — 밝아질 때 빠르고 어두워질 때 느리다(시각 적응 비대칭).
  */
+/** GTAO 파라미터 (R1 수정 B — 접지 음영). radius(m)·scale·thickness·distanceExponent·distanceFallOff는 GTAOPass 유니폼 */
+const GTAO_PARAMS = Object.freeze({ radius: 0.7, scale: 1.4, thickness: 1.0, distanceExponent: 1.0, distanceFallOff: 1.0 });
 const EXPOSURE_PARAMS = Object.freeze({ ec: 1.0, evMin: 1.0, kneeSlope: 0.2, evMax: 14.0, rateUp: 3.0, rateDown: 1.5, centerWeight: 0.35 });
 const BLOOM_PARAMS = Object.freeze({ threshold: 0.8, knee: 0.5, iterations: 2 });
 const OUTPUT_PARAMS = Object.freeze({ bloomStrength: 0.08, lutIntensity: 1.0, ditherAmp: 0.0 });
@@ -182,6 +184,10 @@ export class RenderPipeline {
     this.renderPass = new RenderPass(scene, camera);
     this.gtao = new GTAOPass(scene, camera, size.x, size.y);
     this.gtao.output = GTAOPass.OUTPUT.Default;
+    // R1 비평 수정 B: 기본 반경 0.25m·scale 1은 계약 해상도(3024×1964)에서 기단·기둥 밑 접지 음영이
+    // 읽히지 않았다(R1 S01·S03·S05·S11). 반경은 월드 m — 주춧돌·기단 턱(0.3~0.6m) 규모의 폐색을 잡도록
+    // 확대, scale은 폐색 곡선 강도. 유니폼만 변경(샘플 수·정의 불변 → 프로그램 순열·비용 불변).
+    this.gtao.updateGtaoMaterial(GTAO_PARAMS);
     this.depthTexture = depthTexture;
 
     // GTAOPass 생성자는 PD 디노이즈 노이즈를 SimplexNoise 기본 인자 r=Math로 만든다

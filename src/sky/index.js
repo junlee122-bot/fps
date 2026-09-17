@@ -44,10 +44,40 @@ export const DOME_SCALE = 0.10;
 /** environmentIntensity = clamp(hemi × ENV_PER_HEMI, 0.05, 1.0) — 샷의 hemi(주변광 의도)로 물리 돔 IBL을 변조 */
 export const ENV_PER_HEMI = 2.0;
 /** 지평선 헤이즈 가산 (선형, domeScale 적용 후 단위): 지평선에서 hazeAmount·hazeColor, (1−y)^hazePower 감쇠 */
-export const HAZE_AMOUNT = 0.3;
+export const HAZE_AMOUNT = 0.2; // R1 수정 A: 0.3 → 0.2 — 기본 안개와 겹쳐 주간 전체가 뿌옇게 탈색(R1 12/12 언급)
 export const HAZE_POWER = 1.5;
 /** 야간 돔 환경광 강도 (apply 주석 — 팔레트 §4 야간 암부 교정, C3) */
 export const NIGHT_ENV_INTENSITY = 0.65;
+/** 권운층 (R1 수정 A, 생성자 주석): 혼합량·투영 스케일·하늘 대비 휘도 이득 */
+export const CIRRUS_AMOUNT = 0.55;
+export const CIRRUS_SCALE = 2.2;
+export const CIRRUS_GAIN = 1.45;
+const CIRRUS_GLSL = /* glsl */`
+    uint skLb(uint x) { x ^= x >> 16u; x *= 0x7feb352du; x ^= x >> 15u; x *= 0x846ca68bu; x ^= x >> 16u; return x; }
+    float skH(ivec2 p, uint s) { return float(skLb(uint(p.x + 8192) * 0x9E3779B1u ^ uint(p.y + 8192) * 0x85EBCA77u ^ s)) * (1.0 / 4294967296.0); }
+    float skVn(vec2 p, uint s) {
+      vec2 f = fract(p); ivec2 i = ivec2(floor(p)); vec2 u = f * f * (3.0 - 2.0 * f);
+      return mix(mix(skH(i, s), skH(i + ivec2(1, 0), s), u.x), mix(skH(i + ivec2(0, 1), s), skH(i + ivec2(1, 1), s), u.x), u.y);
+    }
+    float skFbm(vec2 p) {
+      float s = 0.0, a = 0.5;
+      for (int o = 0; o < 4; o++) { s += a * skVn(p, 0x51u + uint(o) * 131u); a *= 0.5; p = p * 2.03 + vec2(17.1, 9.7); }
+      return s;
+    }
+    vec3 skyCirrus(vec3 sky, vec3 dir, vec3 sunDir, float dayF) {
+      float y = max(dir.y, 0.0);
+      vec2 cuv = dir.xz / (y + 0.18) * cirrusScale;
+      float ang = 0.55; mat2 rot = mat2(cos(ang), -sin(ang), sin(ang), cos(ang));
+      cuv = rot * cuv; cuv.x *= 0.28;                       // 권운 결: 한 방향으로 늘인 이방성
+      float n = skFbm(cuv) * 0.75 + skFbm(cuv * 3.1 + vec2(3.3, 7.7)) * 0.25;
+      float cov = smoothstep(0.47, 0.70, n);
+      cov *= smoothstep(0.02, 0.22, y);                      // 지평선 페이드 (헤이즈가 맡는다)
+      float lum = dot(sky, vec3(0.2126, 0.7152, 0.0722));
+      float fwd = 1.0 + 1.6 * pow(max(dot(dir, sunDir), 0.0), 8.0); // 태양 근처 전방산란
+      vec3 cl = cirrusColor * (lum * cirrusGain * fwd);
+      return mix(sky, cl, cov * cirrusAmount * dayF);
+    }
+`;
 
 export class SkySystem {
   constructor({ scene, renderer, bus }) {
@@ -76,18 +106,30 @@ export class SkySystem {
     this.hazeAmount = { value: HAZE_AMOUNT };
     this.hazePower = { value: HAZE_POWER };
     this.hazeColor = { value: new THREE.Color(0.95, 0.93, 0.88) };
+    /**
+     * R1 수정 A — 권운(卷雲)층: 돔이 단색 그라데이션이라 '구름·태양·변화 없음'이 12/12샷 결함이었다.
+     * 결정적 정수 해시(lowbias32) 값노이즈 4옥타브를 고도 평면 투영(direction.xz/(y+k))에 이방성으로 늘여
+     * 권운 결을 만들고, 국소 하늘 휘도 × cirrusGain 의 중성색으로 cov·cirrusAmount 만큼 섞는다(가산 아님 —
+     * 돔 스케일과 무관하게 하늘 대비 비율 고정). 태양 근처 전방산란 가중. 야간(dayF=0)은 0. 지평선은 페이드.
+     * 환경 큐브(PMREM)에도 그대로 들어간다(유니폼 공유). 저채도 백색이라 §4 하늘 대역 안.
+     */
+    this.cirrusAmount = { value: CIRRUS_AMOUNT };
+    this.cirrusScale = { value: CIRRUS_SCALE };
+    this.cirrusGain = { value: CIRRUS_GAIN };
+    this.cirrusColor = { value: new THREE.Color(1.0, 0.985, 0.96) };
     this._sunDisc = { value: 1 };
     this.envPerHemi = ENV_PER_HEMI;
-    const U = { domeScale: this.domeScale, hazeAmount: this.hazeAmount, hazePower: this.hazePower, hazeColor: this.hazeColor, sunDisc: this._sunDisc };
+    const U = { domeScale: this.domeScale, hazeAmount: this.hazeAmount, hazePower: this.hazePower, hazeColor: this.hazeColor, sunDisc: this._sunDisc,
+      cirrusAmount: this.cirrusAmount, cirrusScale: this.cirrusScale, cirrusGain: this.cirrusGain, cirrusColor: this.cirrusColor };
     this.sky.material.onBeforeCompile = (shader) => {
       Object.assign(shader.uniforms, U);
       shader.fragmentShader = shader.fragmentShader
-        .replace('void main() {', 'uniform float domeScale, hazeAmount, hazePower, sunDisc;\n\t\tuniform vec3 hazeColor;\n\t\tvoid main() {')
+        .replace('void main() {', 'uniform float domeScale, hazeAmount, hazePower, sunDisc, cirrusAmount, cirrusScale, cirrusGain;\n\t\tuniform vec3 hazeColor, cirrusColor;\n' + CIRRUS_GLSL + '\n\t\tvoid main() {')
         .replace('L0 += ( vSunE * 19000.0 * Fex ) * sundisk;', 'L0 += ( vSunE * 19000.0 * Fex ) * sundisk * sunDisc;')
         .replace('gl_FragColor = vec4( retColor, 1.0 );',
-          'float dayF = clamp( vSunE / 1000.0, 0.0, 1.0 );\n\t\t\tvec3 haze = hazeColor * ( hazeAmount * dayF * pow( 1.0 - clamp( direction.y, 0.0, 1.0 ), hazePower ) );\n\t\t\tgl_FragColor = vec4( texColor * domeScale + haze, 1.0 );');
+          'float dayF = clamp( vSunE / 1000.0, 0.0, 1.0 );\n\t\t\tvec3 haze = hazeColor * ( hazeAmount * dayF * pow( 1.0 - clamp( direction.y, 0.0, 1.0 ), hazePower ) );\n\t\t\tvec3 skyLin = texColor * domeScale + haze;\n\t\t\tskyLin = skyCirrus( skyLin, direction, vSunDirection, dayF );\n\t\t\tgl_FragColor = vec4( skyLin, 1.0 );');
     };
-    this.sky.material.customProgramCacheKey = () => 'sky_linear_c4';
+    this.sky.material.customProgramCacheKey = () => 'sky_linear_r1';
     u.turbidity.value = 6;       // 맑은 대륙성 대기
     u.rayleigh.value = 1.6;
     u.mieCoefficient.value = 0.004;
@@ -243,7 +285,7 @@ export class SkySystem {
 
     // 안개 구성 (sky 소유 — 파이프라인이 this.fog를 읽는다)
     this.fog = {
-      density: fogCfg?.density ?? 0.0022,
+      density: fogCfg?.density ?? 0.0012, // R1 수정 A: 0.0022 → 0.0012 (헤이즈·그레이드 암부 스플릿과 중첩된 탈색 완화)
       heightFalloff: fogCfg?.heightFalloff ?? 0.12,
       baseY: fogCfg?.baseY ?? 0,
     };

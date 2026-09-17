@@ -52,7 +52,7 @@ export function createLighting(scene) {
  * P3: CSM(pipeline)으로 위임 — 방향·강도. world:tod 발행 주체는 sky(C2).
  */
 /** 반구광 감쇠 계수 — PMREM 환경광 도입 후 잔여 바닥 보정 (지면 반사광 대용 — 돔 PMREM에는 지면 성분이 없다). C4 재조율값·근거는 CONTRACT-NOTES C4 */
-export const HEMI_SCALE_WITH_ENV = 0.4;
+export const HEMI_SCALE_WITH_ENV = 0.25; // R1 수정 B: 0.4 → 0.25 — 잔여 반구광이 접지 음영·면 간 명암차를 메웠다(R1 S01·S05·S06)
 
 export function applySunConfig(lighting, sun, hemiIntensity, fogCfg) {
   lighting.pipeline.setSun(sun);

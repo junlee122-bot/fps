@@ -37,26 +37,28 @@ export const RECIPES = Object.freeze({
   GRANITE: {
     size: 512, seed: 101, period: 4, intendedAlbedo: 0.30, gain: 1.17,
     colA: C(0x9a9a97), colB: C(0x777775), colC: C(0xc8c8c4), colD: C(0xc8c8c4),
-    L0: V4(3, 5, 3, 1), L1: V4(1, 1, 9, 1), L2: V4(40, 5, 1, 0.12), L3: V4(48, 7, 0, 0), gate: V4(6, 5, 0.62, 0),
-    remap: V4(0, 0, 0, 0), alb: V4(0.03, 0, 0.5, 0), hgt: V4(0.18, 0, 0, 0.06), rgh: V4(0.9, 0, 0, 0.05), aom: V4(0, 0, 0, 2),
-    pat: V4(PAT.CHISEL, 14, 0.08, 0.62), normalStrength: 6,
-    shader: { mode: 'tri', pom: true, wear: true, scale: 0.9, pomScale: 0.015, wearColor: C(0xb9b9b5), wearWidth: 0.03, wearAmount: 0.5 },
+    L0: V4(3, 5, 3, 1), L1: V4(1, 1, 9, 1), L2: V4(40, 5, 1, 0.09), L3: V4(48, 7, 0, 0), gate: V4(6, 5, 0.62, 0),
+    remap: V4(0, 0, 0, 0), alb: V4(0.02, 0, 0.35, 0), hgt: V4(0.18, 0, 0, 0.06), rgh: V4(0.9, 0, 0, 0.05), aom: V4(0, 0, 0, 2),
+    pat: V4(PAT.CHISEL, 14, 0.08, 0.62), normalStrength: 6, // R1 수정 D: 반점 크기 .12→.09·대비 .5→.35, 거시 변조 .08
+    shader: { mode: 'tri', pom: true, wear: true, scale: 0.9, pomScale: 0.015, wearColor: C(0xb9b9b5), wearWidth: 0.03, wearAmount: 0.5, macro: 0.08 },
   },
+  // R1 수정 D: 결 신장 14→8·알베도 결 대비 .8→.6·결 높이 .12→.08·노멀 5→3.5·반복 1.2→1.0·거칠기 .82→.88 —
+  // 계약 해상도에서 세로 줄무늬 모아레, 야간 등롱광 스페큘러가 노멀 잡음을 드러냄(R1 S02·S03·S06·S10)
   WOOD_COLUMN: {
     size: 512, seed: 202, period: 4, intendedAlbedo: 0.16, gain: 1.5,
     colA: C(0x8c7660), colB: C(0x594b3c), colC: C(0x4a3d30), colD: C(0x3a2f25),
-    L0: V4(1, 3, 1, 1), L1: V4(1, 4, 2, 14), L2: V4(1, 0, 2, 0.9), L3: V4(60, 9, 0, 0), gate: V4(1, 0, 0, 0),
-    remap: V4(0, 0, 0.3, 0.7), alb: V4(0, 0.8, 0, 0), hgt: V4(0.04, 0.12, 0, 0.04), rgh: V4(0.82, -0.12, 0, 0), aom: V4(0, 0, 0, 2),
-    pat: V4(PAT.KNOTS, 2, 0.88, 0.3), normalStrength: 5,
-    shader: { mode: 'tri', pom: false, wear: true, scale: 1.2, wearColor: C(0xa89478), wearWidth: 0.02, wearAmount: 0.45 },
+    L0: V4(1, 3, 1, 1), L1: V4(1, 4, 2, 8), L2: V4(1, 0, 2, 0.9), L3: V4(60, 9, 0, 0), gate: V4(1, 0, 0, 0),
+    remap: V4(0, 0, 0.3, 0.7), alb: V4(0, 0.6, 0, 0), hgt: V4(0.04, 0.08, 0, 0.03), rgh: V4(0.88, -0.08, 0, 0), aom: V4(0, 0, 0, 2),
+    pat: V4(PAT.KNOTS, 2, 0.88, 0.3), normalStrength: 3.5,
+    shader: { mode: 'tri', pom: false, wear: true, scale: 1.0, wearColor: C(0xa89478), wearWidth: 0.02, wearAmount: 0.45 },
   },
   WOOD_PLANK: {
     size: 512, seed: 203, period: 4, intendedAlbedo: 0.20, gain: 1.74,
     colA: C(0x9c8468), colB: C(0x6b5a46), colC: C(0x55463a), colD: C(0x3a2f25),
-    L0: V4(1, 3, 4, 1), L1: V4(1, 4, 5, 18), L2: V4(1, 0, 2, 0.9), L3: V4(60, 9, 0, 0), gate: V4(1, 0, 0, 0),
-    remap: V4(0, 0, 0.3, 0.7), alb: V4(0, 0.8, 0, 0), hgt: V4(0.03, 0.1, 0, 0.03), rgh: V4(0.78, -0.12, 0, 0), aom: V4(0, 0, 0, 2),
-    pat: V4(PAT.KNOTS, 2, 0.85, 0.28), normalStrength: 4,
-    shader: { mode: 'tri', pom: false, wear: true, scale: 1.0, wearColor: C(0xb8a68a), wearWidth: 0.015, wearAmount: 0.4 },
+    L0: V4(1, 3, 4, 1), L1: V4(1, 4, 5, 10), L2: V4(1, 0, 2, 0.9), L3: V4(60, 9, 0, 0), gate: V4(1, 0, 0, 0),
+    remap: V4(0, 0, 0.3, 0.7), alb: V4(0, 0.6, 0, 0), hgt: V4(0.03, 0.07, 0, 0.03), rgh: V4(0.82, -0.08, 0, 0), aom: V4(0, 0, 0, 2),
+    pat: V4(PAT.KNOTS, 2, 0.85, 0.28), normalStrength: 3, // R1 수정 D (WOOD_COLUMN 주석): 신장 18→10·결 대비·노멀·반복 완화
+    shader: { mode: 'tri', pom: false, wear: true, scale: 0.8, wearColor: C(0xb8a68a), wearWidth: 0.015, wearAmount: 0.4 },
   },
   WOOD_LATTICE: {
     size: 256, seed: 204, period: 4, intendedAlbedo: 0.10, gain: 3.15,
@@ -74,10 +76,13 @@ export const RECIPES = Object.freeze({
     remap: V4(0, 0, 0.35, 0.65), alb: V4(0, 0.3, 0, 0), hgt: V4(0.05, 0.06, 0, 0.02), rgh: V4(0.85, 0, 0, 0), aom: V4(0, 0, 0, 2),
     pat: V4(PAT.DANCHEONG, 0.22, 6, 0.70), normalStrength: 4,
     peelBase: [C(0x594b3c), C(0x4a3d30)],
-    shader: { mode: 'local', wear: true, wearColor: C(0x594b3c), wearWidth: 0.02, wearAmount: 0.7, localScale: 1 / 0.9 },
+    shader: { mode: 'local', wear: true, wearColor: C(0x594b3c), wearWidth: 0.02, wearAmount: 0.35, localScale: 1 / 0.9 }, // R1 수정 E: 박리 .7→.35 ('노란 점 위 검붉은 얼룩')
   },
+  // R1 수정 C/G: 의도 알베도 0.07 → 0.13 — 0.07은 신품 검은 기와(무광 흑회)의 값이고 풍화된 회흑색 기와는
+  // 0.12~0.15 로 측정된다. 0.07은 AgX 하에서 근흑으로 눌려 기와·파편이 '검은 판'으로 읽혔다(R1 S01·S05·S12).
+  // 매니페스트 동시 갱신(albedoaudit 대조). gain은 합성 평균 휘도 실측으로 역산(C3 방식).
   ROOF_TILE: {
-    size: 512, seed: 404, period: 4, intendedAlbedo: 0.07, gain: 1.87,
+    size: 512, seed: 404, period: 4, intendedAlbedo: 0.13, gain: 3.47,
     colA: C(0x3a3d42), colB: C(0x2b2e33), colC: C(0x59593a), colD: C(0x4a4d52),
     L0: V4(6, 4, 1, 1), L1: V4(1, 1, 2, 1), L2: V4(1, 0, 2, 0.99), L3: V4(70, 2, 0, 0), gate: V4(2, 3, 0.58, 0),
     remap: V4(0, 0, 0, 0), alb: V4(0, 0, 0, 0), hgt: V4(0.08, 0, 0, 0.03), rgh: V4(0.9, 0, 0, 0), aom: V4(0, 0, 0, 2),
@@ -91,7 +96,18 @@ export const RECIPES = Object.freeze({
     L0: V4(4, 5, 1, 1), L1: V4(20, 3, 31, 0.08), L2: V4(5, 43, 0, 0.035), L3: V4(64, 4, 0, 0), gate: V4(2, 47, 0.45, 0),
     remap: V4(0, 0, 0.56, 0.64), alb: V4(0, 0.8, 0, 0.45), hgt: V4(0.1, 0.05, 0.3, 0.04), rgh: V4(0.95, -0.1, 0, 0), aom: V4(0.35, 0, 0, 2),
     pat: V4(PAT.NONE, 0, 0, 0), normalStrength: 6,
-    shader: { mode: 'tri', pom: true, wear: false, scale: 1.0, pomScale: 0.012 },
+    shader: { mode: 'tri', pom: true, wear: false, scale: 1.0, pomScale: 0.012, macro: 0.12 }, // R1 수정 D: 거시 변조
+  },
+  // R1 수정 C: 보토 셸 전용 재질 — 상면 앙토(회백 흙회 — 기와 밑이라 거의 안 보임), 하면은 셰이더 uUnder 유니폼으로
+  // 서까래(목재색 띠) + 앙토 그늘. EARTH_WALL 재사용(SURFACE_MAT ROOF_SOIL→EARTH_WALL)이 '베이지 천' 오독의 원인.
+  // 정의 집합 TRI 전용(WOOD_LATTICE 등과 프로그램 공유) — 프로그램 순열 불변.
+  ROOF_SOIL: {
+    size: 256, seed: 305, period: 4, intendedAlbedo: 0.40, gain: 1.0,
+    colA: C(0xc4bcae), colB: C(0xa9a08f), colC: C(0xb8ae9a), colD: C(0x9c9384),
+    L0: V4(3, 5, 1, 1), L1: V4(1, 1, 2, 1), L2: V4(6, 7, 0, 0.03), L3: V4(64, 3, 0, 0), gate: V4(2, 11, 0.5, 0),
+    remap: V4(0, 0, 0, 0), alb: V4(0, 0, 0, 0.25), hgt: V4(0.05, 0, 0.15, 0.03), rgh: V4(0.93, 0, 0, 0), aom: V4(0.25, 0, 0, 2),
+    pat: V4(PAT.NONE, 0, 0, 0), normalStrength: 4,
+    shader: { mode: 'tri', pom: false, wear: false, scale: 1.0, macro: 0.10, under: { amount: 1.0, pitch: 0.45, width: 0.14, ao: 0.35 }, underColor: C(0x7a6a56) },
   },
   PLASTER: {
     size: 256, seed: 304, period: 4, intendedAlbedo: 0.55, gain: 0.88,
@@ -99,7 +115,7 @@ export const RECIPES = Object.freeze({
     L0: V4(3, 5, 1, 1), L1: V4(1, 1, 2, 1), L2: V4(3, 5, 0, 0.012), L3: V4(80, 2, 0, 0), gate: V4(1, 8, 0.6, 0),
     remap: V4(0, 0, 0, 0), alb: V4(0, 0, 0, 0.3), hgt: V4(0.03, 0, 0.15, 0.03), rgh: V4(0.9, 0, 0, 0), aom: V4(0.2, 0, 0, 2),
     pat: V4(PAT.NONE, 0, 0, 0), normalStrength: 4,
-    shader: { mode: 'tri', pom: false, wear: true, scale: 1.0, wearColor: C(0x948168), wearWidth: 0.03, wearAmount: 0.5 },
+    shader: { mode: 'tri', pom: false, wear: true, scale: 1.0, wearColor: C(0x948168), wearWidth: 0.03, wearAmount: 0.5, macro: 0.10 }, // R1 D
   },
   LACQUER: {
     size: 256, seed: 606, period: 4, intendedAlbedo: 0.035, gain: 3.8,
@@ -136,10 +152,10 @@ export const RECIPES = Object.freeze({
   PACKED_DIRT: {
     size: 256, seed: 1010, period: 4, intendedAlbedo: 0.20, gain: 1.41,
     colA: C(0x806f5c), colB: C(0x6b5d4c), colC: C(0x6b5d4c), colD: C(0xa39d92),
-    L0: V4(2, 5, 1, 1), L1: V4(1, 1, 2, 1), L2: V4(30, 5, 1, 0.06), L3: V4(90, 2, 0, 0), gate: V4(8, 9, 0.72, 0),
-    remap: V4(0, 0, 0, 0), alb: V4(0.1, 0, 0.7, 0), hgt: V4(0.08, 0, 0, 0.03), rgh: V4(0.96, 0, 0, 0), aom: V4(0, 0, 0, 2),
-    pat: V4(PAT.NONE, 0, 0, 0), normalStrength: 5,
-    shader: { mode: 'tri', pom: true, wear: false, scale: 0.7, pomScale: 0.01 },
+    L0: V4(2, 5, 1, 1), L1: V4(1, 1, 2, 1), L2: V4(24, 5, 1, 0.05), L3: V4(90, 2, 0, 0), gate: V4(8, 9, 0.72, 0),
+    remap: V4(0, 0, 0, 0), alb: V4(0.05, 0, 0.4, 0), hgt: V4(0.08, 0, 0, 0.03), rgh: V4(0.96, 0, 0, 0), aom: V4(0, 0, 0, 2),
+    pat: V4(PAT.NONE, 0, 0, 0), normalStrength: 5, // R1 수정 D: '검은 타원 점(물방울무늬)' — 반점 밀도 30→24·크기·대비 .7→.4, 거시 변조 .18
+    shader: { mode: 'tri', pom: true, wear: false, scale: 0.7, pomScale: 0.01, macro: 0.18 },
   },
   HANJI: {
     size: 256, seed: 1111, period: 4, intendedAlbedo: 0.72, gain: 0.96,
@@ -193,7 +209,7 @@ for (const [name, k] of Object.entries(CHROMA_SCALE)) {
 }
 
 export const SURFACE_MAT = Object.freeze({
-  GRANITE: 'GRANITE', PACKED_DIRT: 'PACKED_DIRT', EARTH_WALL: 'EARTH_WALL', ROOF_SOIL: 'EARTH_WALL',
+  GRANITE: 'GRANITE', PACKED_DIRT: 'PACKED_DIRT', EARTH_WALL: 'EARTH_WALL', ROOF_SOIL: 'ROOF_SOIL', // R1 C: 보토 셸 전용 재질
   WOOD_COLUMN: 'WOOD_COLUMN', WOOD_PLANK: 'WOOD_PLANK', THATCH: 'THATCH', ROOF_TILE: 'ROOF_TILE',
   WOOD_LATTICE: 'WOOD_LATTICE', HANJI: 'HANJI', WATER: 'WATER', BRONZE: 'BRONZE', FABRIC: 'FABRIC',
 });
@@ -203,6 +219,9 @@ export const SURFACE_MAT = Object.freeze({
  * mats: 킷 Assembler가 쓰는 키→재질 맵 (GREY_* 키는 호환용으로 남긴다 — 기존 물성 유지 재질).
  * 셰이더 패치는 CSM 패치 이후여야 하므로 여기서는 하지 않는다 → finalizeSurfaceShaders(mats).
  */
+/** 창호지 불투명도 — R1 수정 F: 0.62 → 0.82. 격자 뒤 건물 너머 하늘까지 비치고 여러 겹 격자가 중첩돼 보였다(R1 S03·S09).
+ *  P2A 균일 불투명도 물성은 유지(값만), 국소 산란은 HANJI 레시피(섬유 결·hgt)가 맡는다. kit.js 호환 재질도 동일 값. */
+export const HANJI_OPACITY = 0.82;
 /** 등롱 발광 강도 — 점등(샷 lantern>0)/소등. applyShot이 LANTERN 재질에 적용 (C4) */
 export const LANTERN_EMISSIVE = Object.freeze({ lit: 6.0, unlit: 0.25 });
 
@@ -222,7 +241,7 @@ export function createSurfaceMaterials({ renderer }) {
       normalScale: new THREE.Vector2(1, 1),
     });
     if (r.emissive) { m.emissive = r.emissive; m.emissiveIntensity = r.emissiveIntensity; m.emissiveMap = tex.ormMap; /* R=산란 마스크 */ }
-    if (key === 'HANJI') { m.transparent = true; m.opacity = 0.62; m.side = THREE.DoubleSide; }
+    if (key === 'HANJI') { m.transparent = true; m.opacity = HANJI_OPACITY; m.side = THREE.DoubleSide; }
     if (key === 'WATER') { m.transparent = true; m.opacity = 0.85; }
     m.name = key;
     m.userData.albedoLum = tex.albedoLum;

@@ -52,6 +52,22 @@ const FRAG_PARS = /* glsl */`
   uniform float uWearWidth;   // 마모 폭 (m)
   uniform float uWearAmount;  // 마모 강도 0..1
   uniform float uLocalScale;  // LOCAL 모드: 치수 속성이 없을 때의 반복 (1/m)
+  uniform float uMacro;       // R1 수정 D: 저주파(10~30m) 거시 변조 진폭 0..1 (0 = 없음)
+  uniform vec4 uUnder;        // R1 수정 C: 지붕 셸 하면 서까래 — x 혼합량(0=없음), y 서까래 간격(m), z 서까래 폭(m), w 앙토 AO
+  uniform vec3 uUnderColor;   // 서까래 목재색 (선형)
+
+  // 결정적 정수 해시 값노이즈 (synth.js lowbias32와 동형) — 시간·난수·미분 입력 없음
+  uint sfLb(uint x) { x ^= x >> 16u; x *= 0x7feb352du; x ^= x >> 15u; x *= 0x846ca68bu; x ^= x >> 16u; return x; }
+  float sfH(ivec2 q, uint s) { return float(sfLb(uint(q.x + 65536) * 0x9E3779B1u ^ uint(q.y + 65536) * 0x85EBCA77u ^ s)) * (1.0 / 4294967296.0); }
+  float sfVn(vec2 q, uint s) {
+    vec2 f = fract(q); ivec2 i = ivec2(floor(q)); vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(sfH(i, s), sfH(i + ivec2(1, 0), s), u.x), mix(sfH(i + ivec2(0, 1), s), sfH(i + ivec2(1, 1), s), u.x), u.y);
+  }
+  // 거시 변조: 월드 xz 기준 ~17m·~6m 두 옥타브 (벽면은 y로 소폭 기울여 수평 띠를 피한다). 평균 0.5 → 알베도 평균 보존
+  float surfMacro(vec3 p) {
+    vec2 q = p.xz * 0.06 + p.y * 0.035;
+    return 0.65 * sfVn(q, 0x77u) + 0.35 * sfVn(q * 2.7 + vec2(11.3, 5.1), 0x99u);
+  }
 
   vec3 surfWeights(vec3 n) {
     vec3 w = pow(abs(n), vec3(8.0));
@@ -154,6 +170,26 @@ const FRAG_MAP = /* glsl */`
     vec3 nY = vec3(tY.x, sgn.y * tY.z, tY.y);
     vec3 nZ = vec3(tZ.x, tZ.y, sgn.z * tZ.z);
     surfTn = normalize(nX * surfW.x + nY * surfW.y + nZ * surfW.z);
+    // R1 수정 D: 저주파 거시 변조 — 근경·원경이 같은 잔점 질감(R1 S03·S06·S10·S12)에 10~30m 규모의 알베도·거칠기
+    // 변화를 준다. 유니폼 게이트(대부분 재질 0) — 프로그램 순열 불변.
+    if (uMacro > 0.0) {
+      float mac = surfMacro(p);
+      surfAlbedo.rgb *= 1.0 + uMacro * (mac - 0.5) * 2.0;
+      surfORM.g = clamp(surfORM.g + uMacro * 0.6 * (mac - 0.5), 0.0, 1.0);
+    }
+    // R1 수정 C: 지붕 셸(ROOF_SOIL) 하면 = 서까래 + 앙토. 눈높이에서 보이는 팔작지붕 면은 보토 셸 하면이라(C3 기록)
+    // 흙벽 잔점 질감이 '베이지 천·방수포'로 오독됐다(R1 S01·S02·S05·S06·S11). 서까래는 경사 방향(면 노멀의 수평 성분)과
+    // 평행하므로 그 수직 방향으로 간격 uUnder.y 마다 폭 uUnder.z 의 목재 띠를 놓는다. 하면(surfN.y<−0.3)에서만.
+    if (uUnder.x > 0.0 && surfN.y < -0.3) {
+      vec2 hn = surfN.xz; float hl = length(hn); hn = hl > 1e-3 ? hn / hl : vec2(1.0, 0.0);
+      float across = dot(p.xz, vec2(-hn.y, hn.x));
+      float ph = fract(across / uUnder.y);
+      float dm = abs(ph - 0.5) * uUnder.y;                 // 서까래 중심으로부터 거리 (m)
+      float rafter = 1.0 - smoothstep(uUnder.z * 0.5 - 0.01, uUnder.z * 0.5 + 0.01, dm);
+      surfAlbedo.rgb = mix(surfAlbedo.rgb, uUnderColor, rafter * uUnder.x);
+      surfORM.g = mix(surfORM.g, 0.85, rafter);
+      surfORM.r *= 1.0 - uUnder.w * (1.0 - rafter) * (1.0 - smoothstep(0.0, 0.12, dm - uUnder.z * 0.5)); // 서까래 옆 앙토 그늘
+    }
   }
   #endif
   float surfWear = 0.0;
@@ -198,7 +234,8 @@ const FRAG_AO = /* glsl */`
 
 /**
  * 재질에 표면 셰이더를 적용. 반드시 CSM 패치(pipeline.patchMaterial) 이후에 호출한다.
- * opts: { mode: 'tri'|'local', pom, wear, scale, pomScale, wearColor, wearWidth, wearAmount, localScale }
+ * opts: { mode: 'tri'|'local', pom, wear, scale, pomScale, wearColor, wearWidth, wearAmount, localScale,
+ *         macro (R1 D: 거시 변조 진폭), under: { amount, pitch, width, ao } + underColor (R1 C: 지붕 셸 하면 서까래) }
  * 텍스처: mat.map(알베도), mat.normalMap(노멀+높이), mat.roughnessMap=mat.aoMap=mat.metalnessMap(ORM)
  */
 export function applySurfaceShader(mat, opts = {}) {
@@ -214,6 +251,9 @@ export function applySurfaceShader(mat, opts = {}) {
     uWearWidth: { value: opts.wearWidth ?? 0.02 },
     uWearAmount: { value: opts.wearAmount ?? 0.6 },
     uLocalScale: { value: opts.localScale ?? 2.0 },
+    uMacro: { value: opts.macro ?? 0.0 },
+    uUnder: { value: { x: opts.under?.amount ?? 0.0, y: opts.under?.pitch ?? 0.45, z: opts.under?.width ?? 0.14, w: opts.under?.ao ?? 0.0 } },
+    uUnderColor: { value: opts.underColor ?? { r: 0.15, g: 0.11, b: 0.08 } },
   };
   mat.userData.surfUniforms = uniforms;
   const prev = mat.onBeforeCompile;
@@ -233,7 +273,7 @@ export function applySurfaceShader(mat, opts = {}) {
       .replace('#include <aomap_fragment>', FRAG_AO);
   };
   // 프로그램 캐시 키: 모드 정의는 material.defines로 이미 키에 포함된다(three) — 패치 버전만 보탠다
-  mat.customProgramCacheKey = () => 'surf2'; // C3 POM textureGrad 교정 후 키 갱신
+  mat.customProgramCacheKey = () => 'surf3'; // C3 POM textureGrad 교정(surf2) → R1 거시 변조·서까래 하면(surf3)
   mat.needsUpdate = true;
   return mat;
 }

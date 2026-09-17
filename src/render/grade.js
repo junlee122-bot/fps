@@ -15,9 +15,10 @@ import * as THREE from 'three';
 
 export const GRADE_DEFAULT = Object.freeze({
   size: 32,
-  contrast: 1.10, pivot: 0.42,
-  saturation: 0.94, shadowDesat: 0.80, shadowEnd: 0.25,
-  splitShadow: [0.62, 0.74, 1.00], splitHighlight: [1.00, 0.95, 0.86], splitAmount: 0.03,
+  // R1 수정 A: 대비 1.10→1.16, 채도 .94→.97, 암부 탈색 .80→.85, 스플릿톤 .03→.015 — 회청색 저대비·뿌옇음(R1 S03·S04·S07·S09·S10·S12)
+  contrast: 1.16, pivot: 0.42,
+  saturation: 0.97, shadowDesat: 0.85, shadowEnd: 0.25,
+  splitShadow: [0.62, 0.74, 1.00], splitHighlight: [1.00, 0.95, 0.86], splitAmount: 0.015,
   lift: 0.0,
   /**
    * 목재·흙 대역 채도 연성 상한 (§4: 20–40° sat ≤ 0.35). 재질 알베도는 대역 안(sat 0.28–0.35)이지만
