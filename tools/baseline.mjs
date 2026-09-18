@@ -8,7 +8,7 @@
  * 페이지는 fixed 모드로 떠서 자체 프레임 루프가 없다(lockstep) — 셔터 시점의
  * 시뮬레이션 프레임 인덱스가 부팅 소요 시간과 무관하게 상수다.
  *
- * 동일 커밋 2회 실행 → 11 PNG 전부 바이트 동일이어야 한다. 아니면
+ * 동일 커밋 2회 실행 → 12 PNG(+ 12 `.emask.png` 태그 마스크, PATCH-007-C) 전부 바이트 동일이어야 한다. 아니면
  * 게임 코드의 결정성(HARNESS.md §2) 위반이다. 하네스가 아니라 게임을 고쳐라.
  *
  *   node tools/baseline.mjs --out=baseline [--dpr=2] [--shots=a,b] [--settle=90]
@@ -18,7 +18,7 @@ import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { startServer } from './lib/server.mjs';
-import { launchBrowser, openGamePage, parseArgs, capturePng } from './lib/browser.mjs';
+import { launchBrowser, openGamePage, parseArgs, capturePng, captureMask } from './lib/browser.mjs';
 import { SHOTS, FIXED_STEP_FRAMES, VIEW } from './shots.js';
 
 const args = parseArgs();
@@ -83,7 +83,9 @@ async function captureShot(name) {
     // 페이지 이벤트(g.errors)만 보면 시뮬 창 난수 소비가 픽셀 게이트에 도달하지 않는다 (C2 검토)
     const harnessErrors = await g.page.evaluate(() => window.__harness.getErrors());
     const determinism = await g.page.evaluate(() => window.__harness.getDeterminism());
-    return { shot: name, sha256: sha, ...stats, determinism, errors: [...g.errors, ...harnessErrors] };
+    // PATCH-007-C: 자발광·일시광 태그 마스크 — 캡처·통계·오류 수집 **뒤** (오버라이드 재질 컴파일이 프레임 통계에 섞이지 않게)
+    const emissiveMask = await captureMask(g.page, `${OUTDIR}/${name}.emask.png`);
+    return { shot: name, sha256: sha, ...stats, determinism, emissiveMask, errors: [...g.errors, ...harnessErrors] };
   } finally {
     await g?.close().catch(() => {});
   }

@@ -107,5 +107,28 @@ export async function capturePng(page, path) {
   writeFileSync(path, Buffer.from(data, 'base64'));
 }
 
+/**
+ * PATCH-007-C 자발광·일시광 태그 마스크 저장 — 캡처와 같은 카메라·지터로 태그 오브젝트(src/render/tagmask.js 규칙)의
+ * 가시 픽셀을 흰색(255), 나머지를 검정(0)으로 그린 PNG. paletteaudit 가 `<shot>.emask.png` 를 읽어 그 픽셀에만
+ * 자발광 밴드를 적용한다. 캡처·getStats **뒤**에 호출한다 (오버라이드 재질 컴파일이 캡처 프레임 통계에 섞이지 않게).
+ * @returns {{width,height,taggedPixels,ratioPct,taggedObjects,taggedMaterials,drawCalls,rule}}
+ */
+export async function captureMask(page, path) {
+  const m = await page.evaluate(() => window.__harness.renderTagMask());
+  const { PNG } = await import('pngjs');
+  const { writeFileSync, mkdirSync } = await import('node:fs');
+  const { dirname } = await import('node:path');
+  const bytes = Buffer.from(m.bits, 'base64');
+  const png = new PNG({ width: m.width, height: m.height });
+  for (let i = 0; i < m.width * m.height; i++) {
+    const v = (bytes[i >> 3] >> (7 - (i & 7))) & 1 ? 255 : 0;
+    png.data[i * 4] = v; png.data[i * 4 + 1] = v; png.data[i * 4 + 2] = v; png.data[i * 4 + 3] = 255;
+  }
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, PNG.sync.write(png));
+  const { bits, ...meta } = m;
+  return meta;
+}
+
 // 인자 파서는 args.mjs가 소유 — playwright 의존이 없는 도구(imagediff)도 쓴다
 export { parseArgs } from './args.mjs';

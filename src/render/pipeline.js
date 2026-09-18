@@ -280,6 +280,8 @@ export class RenderPipeline {
     /** rendervariance 음성 테스트 전용 결함 주입 — reset()에 무관한 렌더 카운터로 지터를 흔든다 (harness.debugDrift) */
     this.debugDrift = false;
     this._renderCount = 0;
+    /** 직전 렌더의 TAA 지터 — 태그 마스크(render/tagmask.js)가 캡처 프레임과 같은 투영으로 그리는 데 쓴다 (PATCH-007-C) */
+    this.lastJitter = [0, 0];
   }
 
   /** C4 그레이드 LUT 재구성 (조정 프로브·설정 변경용 — 부팅 경로는 생성자 1회) */
@@ -426,6 +428,7 @@ export class RenderPipeline {
     // 결함 주입(음성 테스트): 리셋과 무관한 카운터로 서브픽셀 지터를 흔들어 '같은 입력 → 다른 HDR 프레임'을 만든다
     const j = this.debugDrift ? [j0[0] + 1e-3 * (this._renderCount % 5), j0[1]] : j0;
     this._renderCount++;
+    this.lastJitter = j;
     cam.setViewOffset(this._size.x, this._size.y, j[0], j[1], this._size.x, this._size.y);
 
     // 1. 씬(HDR+깊이) → sceneRT, GTAO 합성 → aoRT (패스별 계측 포함)

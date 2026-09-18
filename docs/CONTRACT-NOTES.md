@@ -1037,6 +1037,58 @@ DMR 120) + fx_muzzleflash 4 + sky_dome 12. 감사·테스트 카드는 **포함�
 가 world/viewmodel/fx/sky/other로 분해 출력하고 `userData.auditOnly` 객체는 총계에서 제외; §9 동결 검증은 `world` 성분(134,218)으로 한다
 (profile `trisScene.byGroup`). 사전점검 종료 후 적용(src 편집 대기).
 
+### PATCH-007 이행 기록 (2026-09-18)
+
+접수: A 마루·추녀 3종 셸 함수 추종 (i) 승인 / B chainaudit 추녀 관통 경로 (수정 전 실패 확인) / C 자발광 팔레트 밴드(태그 마스크·비율 상한 8%·케이스 20)
+후 muzzle_interior 재측정 / D 지평선 판독 런타임 경로 열거·히치 귀속·Apple Silicon 점검 / E 부연 미구현 → P1 이월. 캡처 조건 8항(006-A/B/C ✅ + 007-A/B, 006-D,
+007-C, 006-G). 작업은 워크트리(r3x)에서 하고 사전점검 종료 후 본 트리에 병합한다(캡처·프로브가 src 를 읽는 동안 편집 금지).
+
+**007-A 마루·추녀 셸 함수 추종 (승인 (i))**: kit.js 모서리 블록을 이음매 곡선 파생으로 교체 — `seam(e,s,v)=mainSlopeFn(s,0)(e>0?1:0,v)` 를 따라
+`segBox(name,surface,w,h,p0,p1,yOff,shrink)` 가 두 점 사이 상자를 놓는다(오일러 rx=atan2(−dy,dz), ry=atan2(dx,hypot(dy,dz)), 이음 틈 방지 shrink 1.06).
+추녀마루 4분할(yOff BOTO+.09+.06), 내림마루 6분할(첫 시도 4분할은 마지막 구간 −0.132 m 매몰 → 6), 추녀 4분할 v∈[0,.35](끝단 현 오차 +0.04~0.07 →
+분할 + −0.05), 사래는 물매 절반(dy·0.5, y −0.20; 첫 시도의 rx·0.5 는 ±π 근처에서 수직이 됐다). 결과: geometryaudit **6/6** + 보고용 [7] 파생 배치 전부
+정합(006-C 표의 불일치 3종 해소), chainaudit 16/16 유지, **tris_scene 134,218 → 135,274 (+1,056, +0.79%)** — 승인 조건(삼각형 보고) 충족.
+
+**007-B chainaudit 추녀 관통 경로**: `expectNoOverlap(name, seq, outer, inner)` — 바깥 층(보토) 퇴출 뒤 안쪽 층(목재) 진입이 두께 −5 mm 이내로 겹치면
+실패. 처마 모서리 (9.63, 12, −30.73) 하향 레이. **수정 전 코드(cc83bff)에서 실패 확인**(겹침 0.139 m — "추녀 상단 0.3 m 노출"의 실측), 수정 후 통과 →
+chainaudit **18/18**.
+
+**007-C 자발광 팔레트 밴드**: (1) `src/render/tagmask.js` — 태그 규칙 한 곳(FX_FLASH·FX_TRACER, emissive≠0 ∧ emissiveIntensity ≥ 1.0 = 등롱 점등 6.0;
+소등 .25·FX_PARTICLE·뷰모델·돔·HANJI 는 비태그). 캡처 프레임과 같은 카메라·TAA 지터로 (A) 전 오브젝트 검정(깊이) → (B) 태그만 흰색(깊이 검사)
+2패스 → 태그 오브젝트의 **가시 픽셀**만 1. 블룸 헤일로·발광체가 비춘 표면은 비태그(규율 그대로). (2) 하네스 `renderTagMask()` — 캡처·getStats 뒤에만,
+오버라이드 재질 컴파일은 컴파일 로그에 `tagMask` 표식(플레이 중 컴파일 아님). (3) baseline.mjs 가 `<shot>.emask.png` 동반 저장(비트 동일 게이트에 포함).
+(4) paletteaudit: 태그 픽셀에만 15–55° 추가 허용, 태그 비율 > 8% exit 1, 마스크 없는 구 baseline 은 `emissiveMask:'absent'` 로 종전 규칙. 음성 훅 3종
+`--inject-orange`(비태그 주황 3% → exit 1) / `--inject-orange-tagged`(태그 주황 → 면제, exit 0 대조) / `--inject-mask-ratio .12`(비율 상한 → exit 1) =
+harnesstest **케이스 20**. 재질 수준 주입을 쓰지 않은 이유: 비발광 재질의 주황은 출력 셰이더 대역 상한(12–46°)이 먼저 눌러 '밴드 누수'가 아니라 '상한'을
+시험하게 된다. 현재 빌드에서 일시광은 전부 무채색이다(화염 0xe8e5dc·예광 0xd8d6d0·트랜지언트 라이트 6500 K) — 밴드가 실제로 면제하는 것은 등롱 점등뿐.
+
+**007-C 재측정이 드러낸 측정 결함(내 사전점검 드라이버)**: 저해상 사전점검 팔레트 캡처(`c3pal.mjs`)는 **30프레임**에 찍었다. muzzle_interior 는 격발이
+atFrame 86, 화염 수명 6프레임이라 30프레임 캡처에는 **화염이 없고**, 노출 적응(rateDown 1.5/s → 0.5 s 에 53%)도 미수렴이다. 006-E 의 "muzzle_interior
+1.00%" 는 그 프레임의 수치였고, 위반 1,496 px 중 **1,358(91%)이 RGB (4,2,1)·(5,3,2)·(6,4,3)** — 미수렴 어두운 프레임의 바닥 널판(뷰 하단)이지 자발광
+픽셀이 아니었다(위반 지도·RGB 히스토그램 실측). 계약 프레임(settle 90)에서 같은 해상도(480×312)로 다시 찍으면 **0.164%**(245 px, 평균 V .15, 분산 분포).
+교정: 사전점검 팔레트는 이제 `baseline.mjs --dpr 1 --w 480 --h 312 --settle 90`(NON-CONTRACT 표식, 마스크 동반)으로 찍는다 — 임계값이 아니라 측정 대상을
+고쳤다. 006-E 표의 "1.00% → 계약 해상도에서 재확인, 초과 시 .7" 은 이 정정으로 대체된다(아래 재측정 표).
+**(4,2,1) 픽셀이 셰이더 대역 상한을 통과한 기전(런타임 프로브, 30프레임 프레임에서 출력 패스만 재실행)**: 상한 OFF → 위반 **45.7%**(상한이 실내
+목재 대부분을 누르고 있다), ON → 0.97%(그 중 (4,2,1)류 1,314), slope 0 → 0.95%(불변), LUT OFF → 0.09%. 즉 (4,2,1)류는 상한 분기 자체가 걸리지 않는
+픽셀이다: 부동소수 값의 색상이 12°(적 대역, 램프인 아래)인 (4.4, 2.0, 1.4)/255 가 8비트 반올림으로 (4,2,1)이 되며 **색상이 20°로 뛴다** — 크로마 3양자에서
+채널 ±0.5 반올림은 색상 ±10°다. 상한의 8비트 여유는 채도 반올림만 다루고 색상 반올림은 다루지 못한다. 계약 프레임(90)에서는 화염이 실내를 밝혀 이 부류가
+2 px 뿐이므로 조치 없음. **기록·판단 항목**: 크로마 3 근흑 픽셀의 색상 대역 판정은 ±10° 불확실성을 갖는다(C2 제외 기준 ≤2 바로 위). 향후 어두운 샷이
+이 부류로 실패하면 고칠 것은 임계값이 아니라 측정(반올림 셀 안에 허용 색이 있으면 위반으로 세지 않는 색상-불확실성 판정) — paletteaudit 의미 변경이라
+계약 판단이 필요하다.
+
+**007-D 지평선 판독 경로**: `_readHorizon()` 호출자는 `SkySystem.apply()` 하나. `sky.apply` ← `applySunConfig`(render/renderer.js) ← `applyShot` /
+`applyDefaultView`(main.js) ← 하네스 setShot·resetState·프리웜. **런타임 TOD 경로 없음**(실시간 루프에 호출자 없음, grep 전수). 히치 귀속: profile 의
+히치 항목은 newPrograms·drawCalls·triangles·lastEvent 만 실어 GPU 동기화 스톨은 "긴 프레임"으로 검출되지만 **귀속되지 않았다**(사각) → 누적
+`horizonReadbacksPerFrame`(stats) + 히치 항목 `horizonReadbacks` 차분 + `horizonReadbacksDuringPlay`(플레이 창 합, 0 이어야 함; gpuDependent 합계에도)
+추가. Apple Silicon 점검 항목(사용자 측): profile JSON 의 `horizonReadbacksDuringPlay_total === 0`, `bootGpuMs_median`, 히치 목록에 horizonReadbacks>0
+항목이 없을 것.
+
+**007-E 부연 미구현**: kit.js 처마는 서까래(원형, `rafter`) 한 단만 놓는다 — 부연(사각 겹처마 서까래)·초매기·평고대 없음. P1 이월(§9 지오메트리). R3 비평이
+"처마가 얇다·서까래 한 겹"을 지적하면 먼저 여기를 본다.
+
+**006-G 적용**: `getSceneTriangles` 가 world/viewmodel/fx/sky/other 분해(`byGroup`) + `userData.auditOnly` 제외, profile `trisScene.byGroup`. §9 동결 검증
+수치는 `world` 성분(007-A 후 135,274).
+
 ## C. 표류 방지 메모 (충돌은 아니지만 오해 소지)
 
 - `WATER`의 "거리 기반 감쇠"는 별도 코드 경로가 아니라 `computePenetration`의

@@ -243,6 +243,9 @@ for (let run = 0; run < RUNS; run++) {
       frame: endFrame,
       ms: +ft[i].toFixed(1),
       newPrograms: (stats.programCountPerFrame[endFrame] ?? 0) - (stats.programCountPerFrame[endFrame - 1] ?? 0),
+      // PATCH-007-D: 이 프레임에서 일어난 지평선 판독(readRenderTargetPixels GPU 동기화) 수 — 프레임 시간 자체는 히치로 잡히지만
+      // 원인이 컴파일·드로우가 아닌 동기화일 때 귀속 근거가 없었다 (프리웜 원인 분해에서 확인된 사각)
+      horizonReadbacks: (stats.horizonReadbacksPerFrame?.[endFrame] ?? 0) - (stats.horizonReadbacksPerFrame?.[endFrame - 1] ?? 0),
       drawCalls: stats.drawCallsPerFrame[endFrame] ?? 0,
       triangles: stats.trianglesPerFrame[endFrame] ?? 0,
       lastEvent,
@@ -319,6 +322,9 @@ for (let run = 0; run < RUNS; run++) {
         (stats.programCountPerFrame.at(-1) ?? 0) - (stats.programCountPerFrame[0] ?? 0),
         compileLog.length),
     },
+    // PATCH-007-D: 플레이 창(기록 전 구간)에서 일어난 지평선 판독(GPU 동기화) 수 — 런타임 TOD 경로가 없으므로 0이어야 한다.
+    // 0이 아니면 sky.apply 가 플레이 중 호출된 것이며 히치 항목의 horizonReadbacks 로 프레임을 특정한다.
+    horizonReadbacksDuringPlay: (stats.horizonReadbacksPerFrame?.at(-1) ?? 0) - (stats.horizonReadbacksPerFrame?.[0] ?? 0),
     harnessErrors,
     determinism,
     scenario: {
@@ -367,6 +373,7 @@ const cpuGatedP95 = environment.softwareGL
 const leading = {
   trisScene: {
     value: trisScene.total,
+    byGroup: trisScene.byGroup ?? null, // PATCH-006-G: world(§9 동결 검증 수치)/viewmodel/fx/sky/other — 감사 전용 제외
     budget: budget.trisScene,
     basis: '씬그래프 순회, 인스턴스 전개, 컬링 무관',
     invisibleColliders: trisScene.invisibleColliders,
@@ -442,6 +449,7 @@ const summary = {
     fps_p99_median: med(runs.map((r) => r.gpu.fps.p99)),
     frame_worst_max: Math.max(...runs.map((r) => r.gpu.frameMs.worst)),
     hitchCount_total: runs.reduce((a, r) => a + r.gpu.hitchCount, 0),
+    horizonReadbacksDuringPlay_total: runs.reduce((a, r) => a + (r.horizonReadbacksDuringPlay ?? 0), 0), // PATCH-007-D: 0 이어야 한다
   },
   perRun: runs,
 };

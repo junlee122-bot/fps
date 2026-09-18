@@ -25,6 +25,7 @@ import { RenderPipeline } from './render/pipeline.js';
 import { SkySystem } from './sky/index.js';
 import { OpacityApplier } from './render/opacity.js';
 import { setupAlbedoAudit } from './render/audit-cards.js';
+import { createTagMask } from './render/tagmask.js';
 import { PhysicsWorld } from './physics/index.js';
 import { collectRayChain } from './physics/raychain.js';
 import { buildWorld } from './world/level.js';
@@ -234,6 +235,7 @@ handleResize(renderer, camera, (r) => pipeline.setSize(r.domElement.width, r.dom
 let readyResolve;
 const readyPromise = new Promise((r) => { readyResolve = r; });
 
+const tagMask = createTagMask({ renderer, scene, camera, pipeline });
 const harness = installHarness({
   renderer, scene, camera, player, input, physics, world, pipeline,
   stats, shotsByName: SHOTS_BY_NAME, applyShot, applyDefaultView,
@@ -241,6 +243,7 @@ const harness = installHarness({
   // P2A 배선
   fire, viewmodel, hanji, fx,
   hanjiPanes, // C2 §8: HANJI 반투과 화면 면적 → overdraw_estimate 편입
+  tagMaskHook: () => tagMask.render(), // PATCH-007-C: 자발광 태그 마스크 (캡처 뒤 호출)
   viewmodelAuditHook: ({ boost }) => setupViewmodelAudit({
     scene, camera, boost,
     patchMaterial: (m) => pipeline.patchMaterial(m), // CSM — 미패치 카드는 3중 수광

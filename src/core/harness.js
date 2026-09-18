@@ -22,7 +22,7 @@ export function installHarness(ctx) {
     renderer, scene, camera, player, input, physics, world,
     stats, shotsByName, applyShot, applyDefaultView, readyPromise, mode,
     fire, viewmodel, hanji, fx, viewmodelAuditHook, albedoAuditHook, pipeline,
-    hanjiPanes,
+    hanjiPanes, tagMaskHook,
   } = ctx;
 
   /**
@@ -93,6 +93,8 @@ export function installHarness(ctx) {
     pendingActions: [],
     /** 비계약 표식 — 합성 부하 주입 시 설정, getStats 출력에 박힘. resetState로 해제 */
     testOverride: null,
+    /** renderTagMask 진행 중 — 이 구간의 프로그램 컴파일은 compileLog 에 tagMask 로 표식 (PATCH-007-C) */
+    tagMask: false,
   };
 
   /** 샷 액션 실행 — 즉시(applyShot)·지연(stepFrames) 공용 (P2B) */
@@ -142,7 +144,8 @@ export function installHarness(ctx) {
       pipeline.passStats.scenePass[0], // 단일 씬 패스 (게이트 지표 — P3 판정)
       pipeline.passStats.scenePass[1],
       sub ? sub.substeps : -1,          // realtime: 프레임당 물리 서브스텝 수·ms (CPU 지표 60fps 등가 정규화)
-      sub ? sub.substepMs : -1
+      sub ? sub.substepMs : -1,
+      pipeline.sky ? pipeline.sky.applyLog.length : 0 // PATCH-007-D: 누적 지평선 판독(GPU 동기화) — 히치 귀속·플레이 중 0 판정
     );
   }
 
@@ -388,6 +391,19 @@ export function installHarness(ctx) {
       return { ok: true, drift: !!on };
     },
 
+    /**
+     * PATCH-007-C 자발광·일시광 태그 마스크 — 직전 렌더 프레임과 같은 카메라·지터로 태그 오브젝트(render/tagmask.js 규칙)의
+     * 가시 픽셀을 1로 그려 비트 패킹(행 우선, 좌상단 원점) base64 로 돌려준다. 캡처·getStats **뒤**에 호출한다 —
+     * 오버라이드 재질 컴파일이 캡처 프레임 통계·"플레이 중 컴파일 0" 판정에 섞이지 않게 (컴파일 로그에 tagMask 표식).
+     */
+    renderTagMask() {
+      if (mode !== 'fixed') throw new Error('renderTagMask requires fixed mode');
+      if (state.busy) throw new Error('renderTagMask called while stepFrames in progress');
+      if (!tagMaskHook) throw new Error('renderTagMask: tagMask hook not wired');
+      state.tagMask = true;
+      try { return tagMaskHook(); } finally { state.tagMask = false; }
+    },
+
     /** 직전 프레임 패스별 [콜, 삼각형] 분해 — P3 지표 판정의 실측 근거 */
     getPassStats() {
       return JSON.parse(JSON.stringify(pipeline.passStats));
@@ -404,14 +420,28 @@ export function installHarness(ctx) {
       let invisible = 0;
       const byName = [];
       const invisibleByName = []; // §9 지오메트리 동결 감사용 — 비가시 전수 목록
+      // [PATCH-006-G] 구성 분해: world(월드 킷·레벨 = §9 동결 검증 대상) / viewmodel / fx / sky / other. 감사·테스트 전용 지오메트리
+      // (userData.auditOnly)는 총계에서 제외한다 — 동결 수치가 측정 문맥에 따라 흔들리지 않도록 정의를 고정.
+      const groups = { world: 0, viewmodel: 0, fx: 0, sky: 0, other: 0 };
+      const groupOf = (o) => {
+        for (let a = o; a; a = a.parent) { if (a.userData?.auditOnly) return 'audit'; if (a === world.group) return 'world'; }
+        const nm = o.name || '';
+        if (nm.startsWith('vm_')) return 'viewmodel';
+        if (nm.startsWith('fx_')) return 'fx';
+        if (nm === 'sky_dome') return 'sky';
+        return 'other';
+      };
       scene.traverse((o) => {
         if (!o.isMesh && !o.isInstancedMesh) return;
         const g = o.geometry;
         if (!g?.attributes?.position) return;
+        const grp = groupOf(o);
+        if (grp === 'audit') return; // 감사 카드·리그 — 씬 복잡도가 아니다
         const triPer = (g.index ? g.index.count : g.attributes.position.count) / 3;
         const n = o.isInstancedMesh ? o.count : 1;
         const t = triPer * n;
         total += t;
+        groups[grp] += t;
         if (!o.visible) {
           invisible += t;
           if (detail) invisibleByName.push({ name: o.name || o.type, tris: Math.round(t), instances: n });
@@ -419,7 +449,8 @@ export function installHarness(ctx) {
         if (t > 5000) byName.push({ name: o.name || o.type, tris: Math.round(t) });
       });
       byName.sort((a, b) => b.tris - a.tris);
-      const out = { total: Math.round(total), invisibleColliders: Math.round(invisible), top: byName.slice(0, 12) };
+      const out = { total: Math.round(total), invisibleColliders: Math.round(invisible), top: byName.slice(0, 12),
+        byGroup: Object.fromEntries(Object.entries(groups).map(([k, v]) => [k, Math.round(v)])) };
       if (detail) out.invisibleByName = invisibleByName.sort((a, b) => b.tris - a.tris);
       return out;
     },
@@ -494,6 +525,7 @@ export function installHarness(ctx) {
           .filter((t) => key.includes(t)),
         frame: clock.bootMs ? clock.frame : -1,
         shotFrame: state.shotFrame,
+        ...(state.tagMask ? { tagMask: true } : {}), // 캡처 뒤 마스크 렌더의 오버라이드 재질 — 플레이 중 컴파일이 아니다
         stack: (new Error().stack ?? '').split('\n').slice(2, 9).map((s) => s.trim()).join(' | '),
       });
       return origPush(p);

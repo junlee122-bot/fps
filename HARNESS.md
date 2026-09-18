@@ -83,6 +83,11 @@ window.__harness = {
 }
 ```
 
+> **[PATCH-007-C] `renderTagMask()`** — 캡처·`getStats()` **뒤**에만 호출하는 확장. 직전 프레임과 같은 카메라·TAA 지터로
+> 자발광·일시광 태그 오브젝트(규칙은 `src/render/tagmask.js` 한 곳: FX_FLASH·FX_TRACER, emissive≠0 ∧ emissiveIntensity ≥ 1.0)의
+> **가시 픽셀**을 1로 그린 비트 마스크를 돌려준다. `baseline.mjs`가 `<shot>.emask.png`로 저장하고 `paletteaudit.mjs`가 그 픽셀에만
+> 15°–55° 밴드를 적용한다. 마스크 렌더의 오버라이드 재질 컴파일은 컴파일 로그에 `tagMask`로 표식된다 — 플레이 중 컴파일이 아니다.
+
 ---
 
 ## 3. 샷 정의
@@ -133,8 +138,12 @@ node tools/baseline.mjs --out baseline/ [--dpr 2]
 **샷마다 새 페이지를 연다.** 각 페이지에서:
 `ready` 대기 → `resetState()` → `setShot(name)` → `stepFrames(FIXED_N)` → 촬영 → 페이지 폐기.
 
-동일 커밋에서 2회 실행 시 11개 PNG 전부 **바이트 단위로 동일**해야 한다.
+동일 커밋에서 2회 실행 시 12개 PNG 전부 **바이트 단위로 동일**해야 한다.
 동일하지 않으면 게임 코드의 결정성(§2) 위반이다. 하네스를 고치지 말고 게임을 고쳐라.
+
+> **[PATCH-007-C]** 샷마다 `<shot>.emask.png`(자발광·일시광 태그 마스크, §2 `renderTagMask`)를 동반 저장한다 — 촬영·통계 뒤에
+> 그리므로 캡처 픽셀·프레임 통계에 무영향. 마스크도 PNG이므로 `imagediff` 비트 동일 게이트에 함께 든다. `report.json`의
+> 샷 항목 `emissiveMask`에 태그 픽셀 수·비율·태그 재질이 실린다.
 
 ### `imagediff.mjs`
 ```
@@ -192,6 +201,10 @@ node tools/playtest.mjs                          # exit 0
 ```
 
 > **[PATCH-005-C]** `node tools/geometryaudit.mjs` 는 P4 이후 모든 패스의 종료 조건에 포함한다(exit 0). 팔작지붕 반전이 P1.5·C3를 통과한 뒤 신설.
+>
+> **[PATCH-007-C] 팔레트 게이트의 자발광 밴드.** `node tools/paletteaudit.mjs baseline/<pass>` 는 `<shot>.emask.png`가 있으면 태그 픽셀에만
+> 15°–55°를 추가 허용하고, 태그 픽셀 비율이 샷당 8%를 넘으면 exit 1 이다(상한을 올리지 마라). 태그되지 않은 픽셀(발광체가 비춘 표면·블룸
+> 헤일로)에는 종전 규칙(목재·흙 20–40° 채도 ≤.35, LIMIT 1.5%)이 그대로 적용된다. 음성 훅 3종은 harnesstest 케이스 20.
 >
 > **[PATCH-005-J] 게이트 체인은 순차 실행한다.** 병렬 실행으로 시간을 줄이려 하지 마라 — 감사 도구는 페이지 부팅·프레임 스텝의 시간
 > 상한을 가지며(harnesstest 케이스 10이 동시 부하로 시간 초과한 실측), 타임아웃으로 인한 실패는 결과를 신뢰할 수 없게 하고 그 상태의

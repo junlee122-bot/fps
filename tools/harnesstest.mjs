@@ -23,10 +23,11 @@
  * 15. profile — 음성 훅 (--inject-noroof: 사격 앙각 지면) → SCENARIO-INVALID + exit 1 (C2 검토)
  * 16. profile — 양성: 실제 동선이 ROOF_TILE 피격·기와 낙하를 실측 (축소 조건, 시나리오 유효성만)
  * 19. geometryaudit — 음성 훅 (--inject-flip-roof: 팔작 셸 y 반전) → exit 1 + testOverride (PATCH-005-C)
+ * 20. paletteaudit — 자발광 밴드: 비태그 주황 주입 exit 1 / 태그 주황 exit 0(대조) / 마스크 12% 강제 exit 1 (PATCH-007-C)
  */
 
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { PNG } from 'pngjs';
@@ -51,6 +52,7 @@ function record(id, name, pass, detail) {
  * 30분으로 두고, 타임아웃은 exit 코드와 별도로 명시 기록한다(무기록 금지).
  */
 const AUDIT_TIMEOUT_MS = 1800000;
+const LIMIT_FOR_20 = 1.5; // paletteaudit LIMIT_PCT — 케이스 20(a)의 패치(3%)가 단독으로 넘어야 하는 값
 function run(cmd, args, timeoutMs = AUDIT_TIMEOUT_MS) {
   const r = spawnSync(cmd, args, { cwd: ROOT, encoding: 'utf8', timeout: timeoutMs });
   const timedOut = r.error?.code === 'ETIMEDOUT';
@@ -362,6 +364,33 @@ const SHORT = ['--duration', '16', '--runs', '1', '--dpr', '1', '--w', '640', '-
     flipFails = (j.checks ?? []).filter((c) => !c.ok && /^\[[12]\] (dh|gs):/.test(c.name)).length;
   } catch { /* fail */ }
   record(19, 'geometryaudit 음성 (--inject-flip-roof → 팔작 [1]·[2] 실패 exit 1 + 표식)', r.code === 1 && marked && flipFails >= 2, `exit=${r.code} 표식=${marked} 팔작 [1]/[2] 실패=${flipFails}`);
+}
+
+/* ---- 20. paletteaudit 자발광 밴드 (PATCH-007-C) ----
+ * (a) 비태그 픽셀에 주황(30°, s .8) 패치 3% 주입 → 밴드가 태그 밖으로 새면 통과해 버린다 — 반드시 exit 1 + 표식.
+ * (b) 같은 패치를 태그 픽셀로 주입 → 밴드가 살아 있으면 패치는 면제(exemptedByEmissiveBand ≥ 패치 픽셀)이고 exit 0 (대조).
+ * (c) 마스크 12%를 강제 → 발광 비율 상한 8% 초과 → exit 1 + 표식.
+ * 입력은 케이스 5의 자급 디렉토리(courtyard_noon — baseline.mjs 가 .emask.png 를 동반 저장한다).
+ * 재질 수준 주입을 쓰지 않는 이유: 비발광 재질에 건 주황은 출력 셰이더의 목재 대역 채도 상한(12–46°)이 먼저 눌러
+ * 게이트 통과 여부가 '밴드 누수'가 아니라 '상한'을 시험하게 된다 — 픽셀·마스크 수준 주입이 밴드 게이팅을 직접 시험한다. */
+{
+  const dir = `${TMP}/base1`;
+  const maskPresent = existsSync(`${dir}/courtyard_noon.emask.png`);
+  const parse = (r) => { try { return JSON.parse(r.out); } catch { return null; } };
+  const a = run('node', ['tools/paletteaudit.mjs', dir, '--inject-orange']);
+  const b = run('node', ['tools/paletteaudit.mjs', dir, '--inject-orange-tagged']);
+  const c = run('node', ['tools/paletteaudit.mjs', dir, '--inject-mask-ratio', '0.12']);
+  const ja = parse(a), jb = parse(b), jc = parse(c);
+  const markedA = String(ja?.testOverride ?? '').includes('inject-orange(');
+  const markedB = String(jb?.testOverride ?? '').includes('inject-orange-tagged');
+  const markedC = String(jc?.testOverride ?? '').includes('inject-mask-ratio');
+  const patchB = jb?.shots?.[0]?.injectedPatchPixels ?? 0;
+  const exemptB = jb?.shots?.[0]?.exemptedByEmissiveBand ?? 0;
+  const passA = a.code === 1 && markedA && (ja?.shots?.[0]?.violationPct ?? 0) > LIMIT_FOR_20;
+  const passB = b.code === 0 && markedB && patchB > 0 && exemptB >= patchB;
+  const passC = c.code === 1 && markedC && jc?.shots?.[0]?.emissiveOk === false;
+  record(20, 'paletteaudit 자발광 밴드 (비태그 주황 → exit 1 / 태그 주황 → exit 0 / 마스크 12% → exit 1)', maskPresent && passA && passB && passC,
+    `mask=${maskPresent} a=${a.code}/${markedA}/${ja?.shots?.[0]?.violationPct}% b=${b.code}/${markedB}/exempt=${exemptB}/${patchB} c=${c.code}/${markedC}/emissive=${jc?.shots?.[0]?.emissivePct}%`);
 }
 
 const ok = results.every((r) => r.pass);

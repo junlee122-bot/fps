@@ -21,6 +21,8 @@ export class StatsRecorder {
   reset() {
     this.frameTimes = [];          // ms, 벽시계 프레임 간격
     this.programCountPerFrame = [];
+    /** PATCH-007-D: 누적 지평선 판독(GPU 동기화, sky.applyLog) 수 — 플레이 중 0이어야 한다. 차분은 profile 이 계산 */
+    this.horizonReadbacksPerFrame = [];
     /**
      * P3 지표 의미 정정 (P1.5 선례 — CONTRACT-NOTES P3 판정):
      * 멀티패스 파이프라인에서 renderer.info는 그림자 3캐스케이드·GTAO 프리패스·
@@ -53,13 +55,14 @@ export class StatsRecorder {
   }
 
   /** 렌더 직후 호출 */
-  record(cpuSimMs = -1, cpuSubmitMs = -1, overdraw = -1, particlesActive = -1, decalsUsed = -1, sceneCalls = -1, sceneTris = -1, substeps = -1, substepMs = -1) {
+  record(cpuSimMs = -1, cpuSubmitMs = -1, overdraw = -1, particlesActive = -1, decalsUsed = -1, sceneCalls = -1, sceneTris = -1, substeps = -1, substepMs = -1, horizonReadbacks = 0) {
     if (this.programCountPerFrame.length >= MAX_SAMPLES) return;
     const now = clock.wallNowMs();
     if (this._lastWall !== null) this.frameTimes.push(now - this._lastWall);
     this._lastWall = now;
     const info = this.renderer.info;
     this.programCountPerFrame.push(info.programs?.length ?? 0);
+    this.horizonReadbacksPerFrame.push(horizonReadbacks);
     this.drawCallsPerFrame.push(info.render.calls);
     this.trianglesPerFrame.push(info.render.triangles);
     this.drawCallsScenePerFrame.push(sceneCalls);
@@ -84,6 +87,7 @@ export class StatsRecorder {
     return {
       frameTimes: this.frameTimes.slice(),
       programCountPerFrame: this.programCountPerFrame.slice(),
+      horizonReadbacksPerFrame: this.horizonReadbacksPerFrame.slice(),
       triangles: last >= 0 ? this.trianglesPerFrame[last] : 0,
       drawCalls: last >= 0 ? this.drawCallsPerFrame[last] : 0,
       // 확장 (CONTRACT-NOTES B2)
