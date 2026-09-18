@@ -877,6 +877,19 @@ docs/critique/R2-SUMMARY.md. R3는 브리프 순서상 발주자 지시 대기.
   때문에 여전히 셸 안쪽이 보인다.
 
 
+**R1 스냅샷 (수정 라운드 코드 6a900cf = 병합 후 main, 최종 게이트, 2026-09-17 18:24 – 09-18 진행)**
+- 결정성 (드로잉 버퍼 3024×1964, tolerance 0): baseline/r1 ×2(샷마다 새 페이지) **12/12 바이트 동일**(첫 패스 18:24–23:27, 검증
+  23:27–04:22; 샷당 ≈25분). rendervariance 12샷 단일(사전점검 v2·v3).
+- 전환 imagediff c4→r1 (12샷, exit 1 정상): 변화 px% / maxΔ / meanΔ — silhouette 100/140/22.7 · backlit 99.99/128/18.3 · corridor
+  99.99/157/18.2 · closeup 99.91/132/14.3 · interior 99.97/148/14.2 · night 99.92/201/13.8 · pierced 100/92/12.4 · tile_fall 99.9/65/8.6 ·
+  noon 99.92/78/8.5 · viewmodel 99.61/90/8.3 · roofline 99.29/71/7.3 · fog 99.99/82/5.2. 해석: 창호지 투과 발광·환경광 중성화·태양 온색이
+  실내/창호 샷에 가장 크게, 주간 원경 샷에는 권운·안개 감소 위주로 작게.
+- profile p3 (단독 5.5h, 3런): 선행지표 전부 통과 — trisScene 134,554 / trisFrameP95 121,542 / drawCalls 407 / programs **45**(≤110,
+  C4 44 +1 WATER 분리) / cpuFrameMsP95 1.5ms / overdrawP95 2.001(worst 7.001) / particlesMax 731 / decalsMax 137 / 플레이 컴파일 **0** /
+  하네스 오류 0 / 시나리오 유효(ROOF_TILE 135·파편 135). **부팅 중앙값 15,520ms(15,381/15,565/15,520) — C4 15,572와 동일 수준, 잠정
+  8s 초과.** 프리웜 11,940ms(forward_base 25/552ms, first_shot 19/1,477ms, 샷 스윕 9,643ms, restore 268ms).
+- harnesstest / paletteaudit(baseline/r1) / albedoaudit / viewmodelaudit / playtest: 실행 중 — 결과는 아래 줄에 추가.
+
 ## C. 표류 방지 메모 (충돌은 아니지만 오해 소지)
 
 - `WATER`의 "거리 기반 감쇠"는 별도 코드 경로가 아니라 `computePenetration`의
