@@ -16,6 +16,7 @@
  */
 
 import { startServer } from './lib/server.mjs';
+import { HANJI_BASE_OPACITY } from '../src/materials/hanji.js';
 import { launchBrowser, openGamePage, parseArgs } from './lib/browser.mjs';
 
 const args = parseArgs();
@@ -161,7 +162,7 @@ try {
   const hanjiPanes = Object.keys(ws.hanji);
   check('hanji_hit_recorded', hanjiPanes.length >= 1, { panes: ws.hanji });
   if (hanjiPanes.length) {
-    check('hanji_opacity_drops', ws.hanji[hanjiPanes[0]].opacity < 0.62, { got: ws.hanji[hanjiPanes[0]] });
+    check('hanji_opacity_drops', ws.hanji[hanjiPanes[0]].opacity < HANJI_BASE_OPACITY, { got: ws.hanji[hanjiPanes[0]], base: HANJI_BASE_OPACITY }); // PATCH-005-D: 기본값은 materials 상수
   }
 
   // --- 7c. 무기 교체(산탄) → 1격발 = 9펠릿 독립 ---

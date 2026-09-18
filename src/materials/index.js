@@ -15,6 +15,7 @@
  */
 
 import * as THREE from 'three';
+import { HANJI_BASE_OPACITY } from './hanji.js';
 import { ProceduralSynth, PAT, V4 } from './synth.js';
 import { applySurfaceShader } from './surface-shader.js';
 
@@ -223,35 +224,92 @@ export const SURFACE_MAT = Object.freeze({
  * 셰이더 패치는 CSM 패치 이후여야 하므로 여기서는 하지 않는다 → finalizeSurfaceShaders(mats).
  */
 /**
- * 창호지 역광 투과 (R1 수정 F — P3 소유 '국소 산란'): 창호지는 투명체가 아니라 확산체다. 알파 블렌딩(불투명도 .62)은
- * 뒤 물체를 그대로 비치게 해 "격자 뒤 하늘까지 보임·격자 겹침"(R1 S03·S09)이 됐다. 불투명도 .62는 P0 동결 계약
- * (hanji.js HANJI_BASE_OPACITY, 조정 금지; 피격 리셋도 이 값으로 복원)이라 손대지 않고, 보이는 면 **뒤에서** 오는 태양광을
- * 종이색으로 발광시킨다: 복사휘도 += albedo · sunColor · I · T · max(0, n·travel) / π. 밝은 종이 위에 뒤 물체가 38%로
- * 섞여 실제 창호지처럼 그림자 실루엣으로만 남는다. 판별 클론(render OpacityApplier `HANJI@id`)과 원본을 모두 패치해
- * 프로그램을 공유한다. 감사 조명(applySunRawForAudit)에서는 0.
+ * 창호지 확산 투과 모델 (CONTRACT-PATCH-005-D). 창호지는 투명체가 아니라 **확산 투과체**다 — 빛을 통과시키되 산란시킨다.
+ * R1의 알파 블렌딩(.62)은 착색 유리로 읽혔고(뒤 물체·격자가 38% 그대로 비침), R1 F의 역광 발광은 그림자 없이 균일해 '실내가 하늘보다
+ * 밝은 빈 상자'(R2 N1)로 읽혔다. 이 모델:
+ *  - 종이는 거의 불투명(hanji.js HANJI_BASE_OPACITY .95 — P1.5-BRIEF §2: 동결은 surfaces.js 플래그, 값은 P3 조정).
+ *  - 보이는 면 **뒤에서** 오는 태양광을 종이색으로 발광: albedo · sunColor · I · T · max(0, n·travel)/π · S. 면 전체가 고르게 밝다(평면).
+ *  - S = 배면 그림자(CSM 그림자 맵)를 **PCSS**로 샘플: 차폐물 깊이(blocker search)와 수신면 깊이 차에 비례한 반경으로 PCF → 종이에
+ *    가까운 물체는 선명하고 먼 물체는 흐린 실루엣(거리 의존 흐림). 태양이 앞에 있으면 항(=0)이 사라져 그림자 실루엣도 없다.
+ *  - dynamicOpacity 상태(피격 누적 → opacity ↓)는 render OpacityApplier가 uHanjiScatter(산란 반경 배율)에도 반영해 찢긴 종이일수록
+ *    투과율은 오르고(알파) 흐림은 줄어든다(구멍은 P2B 데칼).
+ *  - 하늘 환경광의 확산 투과는 상수항 uHanjiAmbient(albedo 배율)로 근사 — 역광이 아닐 때도 종이가 '빛을 머금은' 정도.
+ * 판별 클론(HANJI@id)과 원본을 모두 패치(프로그램 공유). 감사 조명(applySunRawForAudit)에서는 transmit 0.
+ * 결정성: 고정 Poisson 탭 16개, 그림자 맵은 밉 없음 → 암시 미분 무관. 셰이더는 CSM 패치의 CSM_cascades·directionalShadowMap[i]를 그대로
+ * 읽는다(정의 집합 불변 — 프로그램 순열 불변).
  */
-export const HANJI_TRANSMIT = 0.4;
-const HANJI_TRANSMIT_GLSL = /* glsl */`
+export const HANJI_TRANSMIT = 0.25;
+/** 하늘광 확산 투과 근사 (albedo 배율, 선형) */
+export const HANJI_AMBIENT = 0.035;
+/** PCSS: blocker 탐색 반경(텍셀), 깊이차→반경 계수(텍셀/정규화 깊이), 최대 반경(텍셀) */
+export const HANJI_PCSS = Object.freeze({ search: 8.0, penumbra: 6000.0, maxRadius: 28.0 });
+const HANJI_PARS_GLSL = /* glsl */`
+  uniform vec3 uHanjiLightDir, uHanjiSunColor;
+  uniform float uHanjiTransmit, uHanjiAmbient, uHanjiScatter, uHanjiSearch, uHanjiPenumbra, uHanjiMaxRadius;
+  const vec2 HJ_POISSON[16] = vec2[16](
+    vec2(-0.94201624, -0.39906216), vec2(0.94558609, -0.76890725), vec2(-0.094184101, -0.92938870), vec2(0.34495938, 0.29387760),
+    vec2(-0.91588581, 0.45771432), vec2(-0.81544232, -0.87912464), vec2(-0.38277543, 0.27676845), vec2(0.97484398, 0.75648379),
+    vec2(0.44323325, -0.97511554), vec2(0.53742981, -0.47373420), vec2(-0.26496911, -0.41893023), vec2(0.79197514, 0.19090188),
+    vec2(-0.24188840, 0.99706507), vec2(-0.81409955, 0.91437590), vec2(0.19984126, 0.78641367), vec2(0.14383161, -0.14100790));
+  #if defined(USE_SHADOWMAP) && NUM_DIR_LIGHT_SHADOWS > 0
+  // PCSS: 1) blocker search — 수신면보다 가까운 깊이의 평균, 2) 반경 = (수신 깊이 − 차폐 깊이)·penumbra·scatter, 3) Poisson PCF
+  float hanjiPCSS(sampler2D map, vec2 mapSize, float bias, vec4 sc) {
+    vec3 c = sc.xyz / sc.w; c.z += bias;
+    if (c.x < 0.0 || c.x > 1.0 || c.y < 0.0 || c.y > 1.0 || c.z > 1.0) return 1.0;
+    vec2 texel = 1.0 / mapSize;
+    float blockerSum = 0.0, blockers = 0.0;
+    for (int k = 0; k < 16; k++) {
+      float d = unpackRGBAToDepth(texture2D(map, c.xy + HJ_POISSON[k] * texel * uHanjiSearch));
+      if (d < c.z) { blockerSum += d; blockers += 1.0; }
+    }
+    if (blockers < 0.5) return 1.0;
+    float dBlocker = blockerSum / blockers;
+    float radius = clamp((c.z - dBlocker) * uHanjiPenumbra, 1.0, uHanjiMaxRadius) * uHanjiScatter;
+    float lit = 0.0;
+    for (int k = 0; k < 16; k++) lit += step(c.z, unpackRGBAToDepth(texture2D(map, c.xy + HJ_POISSON[k] * texel * radius)));
+    return lit / 16.0;
+  }
+  #endif
+`;
+const HANJI_MAIN_GLSL = /* glsl */`
   {
     vec3 hjTravel = normalize(mat3(viewMatrix) * uHanjiLightDir);
-    float hjBack = max(0.0, dot(normal, hjTravel));
-    totalEmissiveRadiance += diffuseColor.rgb * uHanjiSunColor * (uHanjiTransmit * RECIPROCAL_PI * hjBack);
+    float hjBack = max(0.0, dot(normal, hjTravel));            // 보이는 면 뒤에서 오는 빛
+    float hjShadow = 1.0;
+    #if defined(USE_SHADOWMAP) && NUM_DIR_LIGHT_SHADOWS > 0 && defined(CSM_CASCADES)
+    if (hjBack > 0.0) {
+      float hjLinearDepth = (vViewPosition.z) / (shadowFar - cameraNear);
+      #pragma unroll_loop_start
+      for (int i = 0; i < NUM_DIR_LIGHT_SHADOWS; i++) {
+        if (hjLinearDepth >= CSM_cascades[ i ].x && (hjLinearDepth < CSM_cascades[ i ].y || UNROLLED_LOOP_INDEX == CSM_CASCADES - 1)) {
+          hjShadow = hanjiPCSS(directionalShadowMap[ i ], directionalLightShadows[ i ].shadowMapSize, directionalLightShadows[ i ].shadowBias, vDirectionalShadowCoord[ i ]);
+        }
+      }
+      #pragma unroll_loop_end
+    }
+    #endif
+    totalEmissiveRadiance += diffuseColor.rgb * (uHanjiSunColor * (uHanjiTransmit * RECIPROCAL_PI * hjBack * hjShadow) + vec3(uHanjiAmbient));
   }
 `;
 /** lightDirRef: 빛 진행 방향 Vector3(공유 참조 — CSM lightDirection), sunColorRef: 태양광 Color(공유 참조). 반환: 유니폼 묶음 */
 export function applyHanjiTransmit(mat, lightDirRef, sunColorRef) {
-  const uniforms = { uHanjiLightDir: { value: lightDirRef }, uHanjiSunColor: { value: sunColorRef }, uHanjiTransmit: { value: 0 } };
+  const uniforms = {
+    uHanjiLightDir: { value: lightDirRef }, uHanjiSunColor: { value: sunColorRef }, uHanjiTransmit: { value: 0 },
+    uHanjiAmbient: { value: HANJI_AMBIENT }, uHanjiScatter: { value: 1.0 },
+    uHanjiSearch: { value: HANJI_PCSS.search }, uHanjiPenumbra: { value: HANJI_PCSS.penumbra }, uHanjiMaxRadius: { value: HANJI_PCSS.maxRadius },
+  };
   mat.userData.hanjiUniforms = uniforms;
   const prev = mat.onBeforeCompile;
   mat.onBeforeCompile = function (shader, renderer) {
     if (prev) prev.call(this, shader, renderer);
     Object.assign(shader.uniforms, uniforms);
+    // 파스는 shadowmap_pars_fragment(directionalShadowMap·vDirectionalShadowCoord·unpackRGBAToDepth) 뒤에, 본문은 emissivemap_fragment에
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform vec3 uHanjiLightDir, uHanjiSunColor; uniform float uHanjiTransmit;')
-      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n' + HANJI_TRANSMIT_GLSL);
+      .replace('#include <shadowmap_pars_fragment>', '#include <shadowmap_pars_fragment>\n' + HANJI_PARS_GLSL)
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n' + HANJI_MAIN_GLSL);
   };
   const prevKey = mat.customProgramCacheKey;
-  mat.customProgramCacheKey = function () { return (prevKey ? prevKey.call(this) : '') + '|hanji_transmit_r1'; };
+  mat.customProgramCacheKey = function () { return (prevKey ? prevKey.call(this) : '') + '|hanji_diffuse_r3'; };
   mat.needsUpdate = true;
   return uniforms;
 }
@@ -274,7 +332,7 @@ export function createSurfaceMaterials({ renderer }) {
       normalScale: new THREE.Vector2(1, 1),
     });
     if (r.emissive) { m.emissive = r.emissive; m.emissiveIntensity = r.emissiveIntensity; m.emissiveMap = tex.ormMap; /* R=산란 마스크 */ }
-    if (key === 'HANJI') { m.transparent = true; m.opacity = 0.62; m.side = THREE.DoubleSide; } // .62 = hanji.js HANJI_BASE_OPACITY (P0 동결 계약 — 조정 금지)
+    if (key === 'HANJI') { m.transparent = true; m.opacity = HANJI_BASE_OPACITY; m.side = THREE.DoubleSide; } // hanji.js 상태 기본값 (PATCH-005-D: 값은 P3 조정)
     if (key === 'WATER') { m.transparent = true; m.opacity = 0.85; }
     m.name = key;
     m.userData.albedoLum = tex.albedoLum;

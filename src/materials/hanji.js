@@ -15,12 +15,16 @@
 
 import { bus } from '../core/events.js';
 
-/** P0 동결 기본 불투명도 (kit makeMaterials HANJI와 동일 값 — 조정 금지 계약) */
-export const HANJI_BASE_OPACITY = 0.62;
+/**
+ * 기본 불투명도 — P1.5-BRIEF §2: 동결 대상은 surfaces.js의 translucent/dynamicOpacity **플래그**이고 값은 P3가 조정한다
+ * (CONTRACT-PATCH-005-D). .62(P0 잠정값)는 착색 유리로 읽혔다 → .95: 종이는 거의 불투명한 확산 투과체이고 배면광은 발광으로 넣는다
+ * (materials/index.js applyHanjiTransmit). kit makeMaterials HANJI 호환값과 동일하게 유지한다.
+ */
+export const HANJI_BASE_OPACITY = 0.95;
 /** 완파 직전 하한 — 완전 투명은 P2B 국소 붕괴(breach) 소관 */
 export const HANJI_MIN_OPACITY = 0.08;
-/** 피격 1회당 불투명도 감소 (창호 한 짝 ~9발에 하한 도달) */
-export const HANJI_OPACITY_PER_HIT = 0.06;
+/** 피격 1회당 불투명도 감소 (창호 한 짝 ~10발에 하한 도달; .95→.08) */
+export const HANJI_OPACITY_PER_HIT = 0.09;
 
 export class HanjiState {
   constructor() {

@@ -29,10 +29,13 @@ export class OpacityApplier {
     const mesh = this.panes.get(paneId);
     if (!mesh) throw new Error(`surface:opacity for unknown pane: ${paneId}`); // PATCH-001-D
     mesh.material.opacity = opacity;
+    // PATCH-005-D: 피격 누적은 투과율(알파)과 산란 반경에 함께 반영 — 찢긴 종이일수록 실루엣 흐림이 줄어든다 (materials applyHanjiTransmit)
+    const u = mesh.material.userData.hanjiUniforms;
+    if (u) { const k = Math.max(0, Math.min(1, opacity / this.base.get(paneId))); u.uHanjiScatter.value = k * k; }
   }
 
   /** resetState 방어선 — materials.reset()이 이벤트로 복원하지만, 이중 안전 */
   restoreAll() {
-    for (const [id, mesh] of this.panes) mesh.material.opacity = this.base.get(id);
+    for (const [id, mesh] of this.panes) { mesh.material.opacity = this.base.get(id); const u = mesh.material.userData.hanjiUniforms; if (u) u.uHanjiScatter.value = 1; }
   }
 }
