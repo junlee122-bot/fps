@@ -138,6 +138,9 @@ C3·C4·R1 수치의 원 출력은 `docs/CONTRACT-NOTES.md`의 "C3 스냅샷", "
   저휘도) / E 007-C 전제 오류 기록·밴드 유지·크로마 .8 확정 / F R3→R4 비교 11샷. R4 착수 전 목록 5항(CONTRACT-NOTES).
 - **PATCH-009 접수(2026-09-18)**: A 샷 3 재정의 승인 / B `shotaudit.mjs`(샷 감시 대상 기계 검사: 절두체·가시성·최소 면적, 케이스 23) P4 편입 — R4 캡처 전
   12샷 1회 실행 / C `docs/P1-DEBT.md` 개설(4항) / D 창호지 '유리' 인상은 P4C 재평가 / E 측정 기록 확인. P4 브리프는 P3 종료 후 별도.
+- **PATCH-010 접수(2026-09-18)**: A/B/C 캐릭터 기하·애니메이션 에셋 허용(P4B 전 적용, R3 분류 무관; 게이트 파급표·삼각형 예산·라이선스 대장 기록) /
+  D 실측 플랫폼 = 실제 GPU(플랫폼 무관): r4wt 에 `--gpu`·`--headful` 경로 + 환경 식별 기록, `docs/PROFILE-RUN.md`(Windows 절차) — 실 GPU 테스트는
+  R3 게이트 뒤. shotaudit 판단 2건 반영(2% 회귀 가드 바닥, 샷 5 재조준 보류).
 - **007-E 부연 미구현**: kit.js 처마는 원형 서까래 한 단 — 부연·평고대 없음, P1 이월. R3 비평의 "처마 얇다"는 먼저 여기.
 - **006-G tris_scene 정의 고정**: `getSceneTriangles` byGroup(world/viewmodel/fx/sky/other)·`userData.auditOnly` 제외, profile `trisScene.byGroup`.
   §9 동결 검증 수치는 `world` 성분.

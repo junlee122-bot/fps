@@ -1264,6 +1264,32 @@ roofline_distant 지붕면 **2.6%**(예시 15% 는 이 카메라 구도에서 �
 구별할 수 있는지 재측정하고, 구별되면 가젯의 의도된 효과인지 공짜 정보 누출인지 판정. **009-E**: GTAO 기법 한계 확정 → 베이크 전환, N3 조명 구성 결과(수정
 대상 아님), 기둥 결 기전 수정 — 계약 작성자 확인.
 
+### PATCH-010 접수·대조·판정 기록 (2026-09-18)
+
+접수(발주자 적용 범위 지시 포함): **010-D 즉시 준비(문서·코드 경로까지)**, 실 GPU 플래그의 실제 테스트는 렌더 작업이라 R3 게이트 종료 후(PATCH-005-J);
+**010-A·B·C 는 P4B 착수 전 적용**, R3 결함 분류에 반영하지 않음; P4 브리프는 R3 종료(비평 완주 + 소유 분류) 후.
+
+**010-A/B/C 기록(적용은 P4B 전)**: 아트 에셋 0개 제약을 **캐릭터의 기하·애니메이션에 한해** 개정(스킨드 메시·리그·클립; 머티리얼·텍스처는 가져오지 않고
+`src/materials` 프로파일로 셰이딩, 팔레트 1.5% 를 캐릭터 포함 상태에서 유지; 임포트 텍스처는 팔레트 대역 재매핑 후 절차 텍스처와 동일 취급). 런타임 의존성
+`three` 단독(GLTFLoader 허용). 파급 표(PATCH-004-D): paletteaudit 캐릭터 포함 재측정 / silhouetteaudit 임포트 캐릭터도 6쌍 2축 이상 상이 /
+determinismaudit 스키닝·클립 시간은 `core/clock.js` 만 / baseline `ready` 에 에셋 로드 포함·2회 비트 동일 / profile 캐릭터 1종 ≤ 25k(4종 100k),
+tris_scene ≤ 600k·tris_frame_p95 ≤ 250k 유지, 초과 시 감면(예산 상향 금지) / surfaceaudit 캐릭터도 기본값 금지(PATCH-001-D) / boot_cpu 3 s 유지(초과
+시 메시 축소, 프리웜 축소 금지) / `docs/ASSET-LICENSES.md` 에셋별 출처·라이선스·상업적 사용 가부(출처 불명 금지). ARCHITECTURE §0·HARNESS §6 에 개정
+주석, 라이선스 대장 템플릿 개설. 기록: 에셋 0개는 참조 레포에서 빌린 자기 제약이었고, 캐릭터는 회피 불가 항목이라 가장 좁은 범위로 푼다.
+
+**010-D 준비(즉시)**: (1) 컨테이너 기본 기동은 SwiftShader **강제**(`--use-angle=swiftshader`)라 실기에서 그대로 돌리면 항상 GPU-INVALID 였다 —
+r4wt 에 `launchOptions({gpu, headful})`(소프트웨어 강제 해제 + `--ignore-gpu-blocklist`; 헤드풀 창 실행 경로) 와 `profile.mjs --gpu/--headful`
+(`FPS_GPU`/`FPS_HEADFUL` 환경변수 동등) 추가. (2) 환경 기록에 `renderer`(UNMASKED_RENDERER_WEBGL)·`vendor`·`platform`·`drawingBuffer`·`dpr`·
+`cssViewport`·`launch` 인자를 함께 실어 자기 시계열 비교가 가능하게. GPU 요청 실패 시 배너. (3) `docs/PROFILE-RUN.md` — Windows 절차(node 22·git·
+`npm ci`·`npx playwright install chromium`·실행·GPU-INVALID 확인·회신 항목 7종·문제 해결). (4) 정적 배포 경로: import map 이 `/node_modules/three/…`
+를 가리켜 번들 없이는 불가 — `npm run serve` + `?mode=realtime` 로 눈으로 보는 경로만 문서화(선택 항목 미제공으로 기록). Windows 실기 검증은
+발주자 실행분; 코드 경로 병합은 R3 게이트 뒤(캡처·게이트가 `tools/lib/browser.mjs` 를 매 샷 새 프로세스로 읽는다).
+
+**shotaudit 추가 판단 2건**: (1) roofline_distant 임계 2% 는 **회귀 가드 바닥**(대상 소실 검출)이지 품질 기준이 아니다 — "너무 작아 판단 불가"는 잡지
+못한다. 예시 15% 는 계약 작성자의 미측정 추정으로 틀림 → **원인 추정 오류 누적 4번째**(005-E PMREM / 005-I 12샷 / 007-C 화염 / 009-B 15%). shots.js note
+갱신(r4wt). (2) 샷 5 카메라 재조준 **보류** — 팔작 반전 때문에 정상 지붕으로 촬영된 적이 없고 R3 가 처음이다; 실루엣은 면적이 아니라 하늘 대비 윤곽이라 2.6%
+에서도 읽힐 수 있다. 비평가가 못 읽으면 그것이 R4 재조준 근거.
+
 ## C. 표류 방지 메모 (충돌은 아니지만 오해 소지)
 
 - `WATER`의 "거리 기반 감쇠"는 별도 코드 경로가 아니라 `computePenetration`의
