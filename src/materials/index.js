@@ -41,7 +41,7 @@ export const RECIPES = Object.freeze({
     L0: V4(3, 5, 3, 1), L1: V4(1, 1, 9, 1), L2: V4(40, 5, 1, 0.09), L3: V4(48, 7, 0, 0), gate: V4(6, 5, 0.62, 0),
     remap: V4(0, 0, 0, 0), alb: V4(0.02, 0, 0.35, 0), hgt: V4(0.18, 0, 0, 0.06), rgh: V4(0.9, 0, 0, 0.05), aom: V4(0, 0, 0, 2),
     pat: V4(PAT.CHISEL, 14, 0.08, 0.62), normalStrength: 6, // R1 수정 D: 반점 크기 .12→.09·대비 .5→.35, 거시 변조 .08
-    shader: { mode: 'tri', pom: true, wear: true, scale: 0.9, pomScale: 0.015, wearColor: C(0xb9b9b5), wearWidth: 0.03, wearAmount: 0.5, macro: 0.08 },
+    shader: { mode: 'tri', pom: true, wear: true, scale: 0.9, pomScale: 0.015, wearColor: C(0xb9b9b5), wearWidth: 0.03, wearAmount: 0.5, macro: 0.08, groundAo: true }, // R4: 기단·계단 상면 접지 음영
   },
   // R1 수정 D: 결 신장 14→8·알베도 결 대비 .8→.6·결 높이 .12→.08·노멀 5→3.5·반복 1.2→1.0·거칠기 .82→.88 —
   // 계약 해상도에서 세로 줄무늬 모아레, 야간 등롱광 스페큘러가 노멀 잡음을 드러냄(R1 S02·S03·S06·S10)
@@ -59,7 +59,7 @@ export const RECIPES = Object.freeze({
     L0: V4(1, 3, 4, 1), L1: V4(1, 4, 5, 10), L2: V4(1, 0, 2, 0.9), L3: V4(60, 9, 0, 0), gate: V4(1, 0, 0, 0),
     remap: V4(0, 0, 0.3, 0.7), alb: V4(0, 0.6, 0, 0), hgt: V4(0.03, 0.07, 0, 0.03), rgh: V4(0.82, -0.08, 0, 0), aom: V4(0, 0, 0, 2),
     pat: V4(PAT.KNOTS, 2, 0.85, 0.18), normalStrength: 3, // R1 수정 D (WOOD_COLUMN 주석): 신장 18→10·결 대비·노멀·반복 완화, 옹이 반경 .28→.18
-    shader: { mode: 'tri', pom: false, wear: true, scale: 0.8, wearColor: C(0xb8a68a), wearWidth: 0.015, wearAmount: 0.4 },
+    shader: { mode: 'tri', pom: false, wear: true, scale: 0.8, wearColor: C(0xb8a68a), wearWidth: 0.015, wearAmount: 0.4, groundAo: true }, // R4: 마루 접지 음영
   },
   WOOD_LATTICE: {
     size: 256, seed: 204, period: 4, intendedAlbedo: 0.10, gain: 3.15,
@@ -157,7 +157,7 @@ export const RECIPES = Object.freeze({
     L0: V4(2, 5, 1, 1), L1: V4(1, 1, 2, 1), L2: V4(24, 5, 1, 0.05), L3: V4(90, 2, 0, 0), gate: V4(8, 9, 0.72, 0),
     remap: V4(0, 0, 0, 0), alb: V4(0.05, 0, 0.4, 0), hgt: V4(0.08, 0, 0, 0.03), rgh: V4(0.96, 0, 0, 0), aom: V4(0, 0, 0, 2),
     pat: V4(PAT.NONE, 0, 0, 0), normalStrength: 5, // R1 수정 D: '검은 타원 점(물방울무늬)' — 반점 밀도 30→24·크기·대비 .7→.4, 거시 변조 .18
-    shader: { mode: 'tri', pom: true, wear: false, scale: 0.7, pomScale: 0.01, macro: 0.18 },
+    shader: { mode: 'tri', pom: true, wear: false, scale: 0.7, pomScale: 0.01, macro: 0.18, groundAo: true }, // R4: 지면 접지 음영
   },
   HANJI: {
     size: 256, seed: 1111, period: 4, intendedAlbedo: 0.72, gain: 0.96,
@@ -428,12 +428,13 @@ export function createSurfaceMaterials({ renderer }) {
 }
 
 /** CSM 패치(pipeline.patchScene) 이후 호출 — 표면 셰이더 모드 적용 */
-export function finalizeSurfaceShaders(mats) {
+/** groundAo: { texture, bounds } — 레시피 shader.groundAo === true 인 재질에만 접지 음영 맵을 건다 (R4, render/groundao.js) */
+export function finalizeSurfaceShaders(mats, { groundAo = null } = {}) {
   let n = 0;
   for (const m of Object.values(mats)) {
     const o = m.userData.surfaceOpts;
     if (!o || o.mode === 'uv') continue;
-    applySurfaceShader(m, o);
+    applySurfaceShader(m, o.groundAo === true && groundAo ? { ...o, groundAo } : o);
     n++;
   }
   return n;

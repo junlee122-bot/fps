@@ -26,6 +26,7 @@ import { SkySystem } from './sky/index.js';
 import { OpacityApplier } from './render/opacity.js';
 import { setupAlbedoAudit } from './render/audit-cards.js';
 import { createTagMask } from './render/tagmask.js';
+import { bakeGroundAo } from './render/groundao.js';
 import { PhysicsWorld } from './physics/index.js';
 import { collectRayChain } from './physics/raychain.js';
 import { buildWorld } from './world/level.js';
@@ -81,6 +82,10 @@ const surfaceMaterials = createSurfaceMaterials({ renderer });
 phase('materials_synth');
 const world = buildWorld(scene, physics, surfaceMaterials);
 phase('world_build');
+// R4 접지 음영 맵 — 정적 월드에서 1회 베이크 (render/groundao.js). 상향면 재질(지면·마루·기단)이 월드 XZ 로 샘플
+const groundAo = bakeGroundAo(world.group);
+console.info(`[boot] groundAo occluders=${groundAo.occluders} bake=${groundAo.ms}ms`);
+phase('ground_ao');
 const bvhInfo = physics.build();
 console.info(`[boot] bvh tris=${bvhInfo.tris} nodes=${bvhInfo.nodes} build=${bvhInfo.buildMs.toFixed(1)}ms`);
 console.info(`[boot] instanced: ${world.instanced.map((i) => `${i.key}×${i.count}`).join(' ')}`);
@@ -267,7 +272,7 @@ const harness = installHarness({
 /* ------------------------------------------------------------- 부팅 */
 pipeline.patchScene();   // CSM 재질 패치 — 클론·fx 포함 전 재질 (C1)
 // C3: 표면 셰이더(트라이플래너·POM·마모)는 CSM 훅을 체인하므로 CSM 패치 다음에 적용
-finalizeSurfaceShaders({ ...surfaceMaterials.mats, FX_DEBRIS_TILE: debrisMaterial });
+finalizeSurfaceShaders({ ...surfaceMaterials.mats, FX_DEBRIS_TILE: debrisMaterial }, { groundAo });
 // R1 F: 창호지 역광 투과 — 원본 HANJI + 판별 클론(HANJI@id) 모두 패치 (CSM 패치 뒤, 프로그램 공유). materials 주석 참조
 {
   const seen = new Set();
