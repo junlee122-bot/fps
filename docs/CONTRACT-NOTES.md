@@ -888,7 +888,16 @@ docs/critique/R2-SUMMARY.md. R3는 브리프 순서상 발주자 지시 대기.
   C4 44 +1 WATER 분리) / cpuFrameMsP95 1.5ms / overdrawP95 2.001(worst 7.001) / particlesMax 731 / decalsMax 137 / 플레이 컴파일 **0** /
   하네스 오류 0 / 시나리오 유효(ROOF_TILE 135·파편 135). **부팅 중앙값 15,520ms(15,381/15,565/15,520) — C4 15,572와 동일 수준, 잠정
   8s 초과.** 프리웜 11,940ms(forward_base 25/552ms, first_shot 19/1,477ms, 샷 스윕 9,643ms, restore 268ms).
-- harnesstest / paletteaudit(baseline/r1) / albedoaudit / viewmodelaudit / playtest: 실행 중 — 결과는 아래 줄에 추가.
+- harnesstest **18/18**(재시도 0, 단독). paletteaudit baseline/r1: **12/12 ≤1.5%** — lantern_night 0.168, daecheong_backlit 0.147,
+  dancheong_closeup 0.127, hanji_silhouette 0.030, noon 0.022, viewmodel 0.021, muzzle_interior 0.016(C4 0.746 — 셰이더 대역 상한 효과),
+  roofline 0.014, pierced 0.012, corridor 0.008, fog 0.001, tile_fall 0. albedoaudit: ok — L018/L004 **4.47**(기대 4.5, C4 4.365),
+  L090/L018 **5.045**(기대 5, C4 4.97), 흑카드 0, manifest 편차 0 — 비율 변화는 GTAO 반경 확대(.25→.7 m)가 감사 리그 암카드 주변
+  접지 폐색을 더한 결과로 해석(감사 조명은 NoToneMapping·환경광 차단·투과 발광 0 — 노출·LUT·창호지 무영향). viewmodelaudit: ok —
+  휘도비 0.9972. playtest: ok(오류 0). 종료 12:01.
+- **PATCH-004-D 3항 점검 (R1)**: (1) 여유: 팔레트 최악 0.168/1.5(11%) — C4 0.746에서 크게 개선; overdraw·programs·tris·cpu 여유 큼;
+  부팅 15.5s 잠정 8s 초과(C4와 동일 수준, 실패 상태 보고 유지). (2) 측정 대상 일치: 팔레트 게이트가 표시 픽셀의 8비트 양자화까지
+  포함해 규율을 보게 됐고(셰이더 상한의 1LSB 여유), albedo 비율이 GTAO에 민감함을 확인 — 감사 리그의 AO 영향은 기록(허용치 안).
+  (3) 새 실패 모드: 32³ LUT 암부 무력(사전점검에서 검출, 셰이더 상한으로 교정), 게이트 동시 실행 오염(규칙화).
 
 ## C. 표류 방지 메모 (충돌은 아니지만 오해 소지)
 
