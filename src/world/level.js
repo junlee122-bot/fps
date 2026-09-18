@@ -578,11 +578,12 @@ export function buildWorld(scene, physics, materials = null) {
     A.group.add(light);
     lanternLights.push(light);
   }
-  // [PATCH-008-B, P1 미세 예외] 내아 실내 등롱 — 실루엣 더미 뒤(실내 쪽) 1.5 m, 높이 2.05 m: 야간 창호지 폐색 실루엣의 광원.
-  // lanternLights 에 편입(샷 lantern 강도로 점등). 판 뒤 4 m, 더미는 판 뒤 2.5 m(플레이 거리) 그대로.
+  // [PATCH-008-B, P1 미세 예외] 내아 실내 등롱 — 실루엣 더미 뒤(실내 쪽) 3.5 m, 높이 2.05 m: 야간 창호지 폐색 실루엣의 광원.
+  // lanternLights 에 편입(샷 lantern 강도로 점등). 판 뒤 6 m, 더미는 판 뒤 2.5 m(플레이 거리) 그대로. 1.5 m 뒤면 그림자 확대 2.7×·경계 25 px 로
+  // 형태가 뭉개지고, 3.5 m 뒤면 1.7×·12 px 로 사람 비례가 읽힌다(실측 hj5).
   {
     const dummy = A.group.getObjectByName('silhouette_dummy');
-    const lx = dummy.position.x + 1.5, lz = dummy.position.z;
+    const lx = dummy.position.x + 3.5, lz = dummy.position.z;
     A.box('na_lantern_head', 'FABRIC', 0.3, 0.3, 0.3, lx, 2.05, lz, { matKey: 'LANTERN', collide: false, shadow: false });
     const naLight = new THREE.PointLight(0xfff6e8, 0, 24, 1.5);
     naLight.name = 'lantern_light_na';

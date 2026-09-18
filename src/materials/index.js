@@ -254,7 +254,7 @@ export const HANJI_AMBIENT = 0.035;
 /** PCSS: blocker 탐색 반경(텍셀), 깊이차→반경 계수(텍셀/정규화 깊이), 최대 반경(텍셀) */
 export const HANJI_PCSS = Object.freeze({ search: 8.0, penumbra: 6000.0, maxRadius: 28.0 });
 /** [PATCH-008-B] 점광 투과율(albedo 배율) · 광원 반지름(m, 반그림자) · 종이 산란 폭(m) */
-export const HANJI_POINT = Object.freeze({ transmit: 0.25, lightSize: 0.12, paperBlur: 0.03 });
+export const HANJI_POINT = Object.freeze({ transmit: 0.6, lightSize: 0.12, paperBlur: 0.03 }); // T_p .6: 실측(hj5) .25 대비 실루엣 대비 .21→.32, 종이 발광이 알파 비침을 누른다
 const HANJI_PARS_GLSL = /* glsl */`
   uniform vec3 uHanjiLightDir, uHanjiSunColor;
   uniform float uHanjiTransmit, uHanjiAmbient, uHanjiScatter, uHanjiSearch, uHanjiPenumbra, uHanjiMaxRadius;
