@@ -160,6 +160,23 @@ expectChain('동헌 추녀 교차부: TILE→보토→서까래', surfaceSequenc
   });
 }
 
+/* 9. [PATCH-007-B] 처마 모서리 추녀 관통 경로 — 추녀(WOOD_COLUMN)는 보토 하면 **아래**에 있어야 한다. 진입 순서만 보는 expectChain은
+ * 부재가 보토 층 안으로 파고들어도(진입 순서 기와→보토→목재 유지) 통과하므로, 보토 **퇴출**(진입+두께) 이후에 목재가 진입하는지를
+ * 검사한다. 이 경로는 006-C 감사가 잡은 추녀 관통(+0.33 m)을 수정 전 코드에서 실패로 드러내야 한다(패치 요구). */
+function expectNoOverlap(name, seq, outer, inner) {
+  const o = seq.find((s) => s.surface === outer), i = seq.find((s) => s.surface === inner);
+  if (!o || !i) { checks.push({ name, ok: false, expected: [outer, inner], got: seq.map((s) => s.surface).slice(0, 12) }); return; }
+  const outerExit = o.t + o.thicknessCm / 100;
+  const ok = i.t >= outerExit - 0.005; // 5 mm 수치 여유
+  checks.push({ name, ok, got: { [`${outer}_entry`]: o.t, [`${outer}_exit`]: +outerExit.toFixed(3), [`${inner}_entry`]: i.t, overlapM: +(outerExit - i.t).toFixed(3) } });
+}
+{
+  // 동헌 남동 모서리 추녀 중심 xz (bboxprobe: dh_chunyeo_1_-1 center (9.63, 6.27, −30.73))
+  const seq = surfaceSequence(9.63, 12, -30.73, 0, -1, 0, 12);
+  expectChain('동헌 처마 모서리 추녀: TILE→보토→추녀(WOOD_COLUMN) 진입 순서', seq, ['ROOF_TILE', 'ROOF_SOIL', 'WOOD_COLUMN']);
+  expectNoOverlap('동헌 처마 모서리 추녀: 보토 퇴출 후 목재 진입 (관통 금지)', seq, 'ROOF_SOIL', 'WOOD_COLUMN');
+}
+
 /* 7. 담장: 상부(y 1.85) 기와 관통 (화강암 없음) / 하부(y 1.0) 화강암 차단 */
 expectChain('담장 상부: 기와만', surfaceSequence(-40, 1.95, -10, -1, 0, 0, 8),
   ['ROOF_TILE'], { forbid: ['GRANITE'] });

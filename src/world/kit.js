@@ -581,31 +581,45 @@ export function addHipRoof(A, {
   /* 용마루 */
   A.box(`${namePrefix}_ridge`, 'ROOF_TILE', topHalfX * 2 + 0.6, 0.22, 0.36, cx, ridgeY + 0.11, cz);
 
-  /* 모서리 4곳: 추녀마루 + 추녀 + 사래 */
+  /* [PATCH-007-A] 마루·추녀 3종 — 셸 함수(주경사면 u=±1 가장자리 = 합각하부면과의 이음매 곡선)에서 **분할 파생**. 종전의 직선 상자는
+   * 반전 셸(볼록)에서는 위에 떠 있었고 바로잡힌 오목 셸에서는 안으로 매몰됐다(006-C: 추녀마루 −0.16~−0.21 m, 내림마루 −0.68~−0.76 m, 추녀
+   * +0.28~+0.33 m 관통). 셸 함수를 유일한 진실의 원천으로 삼아 곡선을 4분할(마루)·3분할(추녀) 현으로 추종한다 — 매개변수가 바뀌어도 함께 옳다.
+   * 위치: 추녀마루·내림마루 하단 = 기와 셸 외피(이음매 + BOTO_T) 위, 추녀 상단 = 보토 하면(이음매 − BOTO_T) 아래. geometryaudit [7b][7c]·
+   * chainaudit '처마 모서리 추녀' 겹침 검사가 검증. 세그먼트 현은 곡선 아래로 처지므로 길이를 6% 늘여 이음을 덮는다. */
+  const seam = (e, s, v) => mainSlopeFn(s, 0)(e > 0 ? 1 : 0, v);
+  const segBox = (name, surface, w, h, p0, p1, yOff, shrink = 1.06) => {
+    const dx = p1.x - p0.x, dy = p1.y - p0.y, dz = p1.z - p0.z;
+    const len = Math.hypot(dx, dy, dz) * shrink;
+    // Euler 'XYZ': local +z → (sin ry, −cos ry sin rx, cos ry cos rx)
+    const rx = Math.atan2(-dy, dz);
+    const ry = Math.atan2(dx, Math.hypot(dy, dz));
+    A.box(name, surface, w, h, len, (p0.x + p1.x) / 2, (p0.y + p1.y) / 2 + yOff, (p0.z + p1.z) / 2, { rx, ry });
+  };
+  const SEG_RIDGE = 4, SEG_NAERIM = 6, SEG_CHUNYEO = 4, CHUNYEO_V = 0.35; // 현 처짐(볼록 곡선 위의 현은 곡선 위) 허용치 안: 내림마루 6·추녀 4분할
   for (const e of [1, -1]) {
     for (const s of [1, -1]) {
-      const x0 = e * (eaveHalfX + anheori), z0 = s * (eaveHalfZ + anheori), y0 = eaveY + angok;
-      const x1 = e * topHalfX, z1 = s * gableZ, y1 = yBreak;
-      const dx = x1 - x0, dy = y1 - y0, dz = z1 - z0;
-      const len = Math.hypot(dx, dy, dz);
-      // Euler 'XYZ': local +z → (sin ry, -cos ry sin rx, cos ry cos rx)
-      const rx = Math.atan2(-dy, dz);
-      const ry = Math.atan2(dx, Math.hypot(dy, dz));
-      const lift = T.BOTO_T + T.TILE_T;
-      A.box(`${namePrefix}_hipridge_${e}_${s}`, 'ROOF_TILE', 0.26, 0.18, len,
-        cx + (x0 + x1) / 2, (y0 + y1) / 2 + lift + 0.06, cz + (z0 + z1) / 2, { rx, ry });
-      A.box(`${namePrefix}_chunyeo_${e}_${s}`, 'WOOD_COLUMN', 0.22, 0.24, len * 0.6,
-        cx + x0 + dx * 0.28, y0 + dy * 0.28 - 0.18, cz + z0 + dz * 0.28, { rx, ry });
+      // 추녀마루: 이음매 v∈[0, hipRatio] — 기와 셸 외피(+BOTO_T) 위 반높이 0.09 + 0.06
+      for (let k = 0; k < SEG_RIDGE; k++) {
+        const p0 = seam(e, s, hipRatio * k / SEG_RIDGE), p1 = seam(e, s, hipRatio * (k + 1) / SEG_RIDGE);
+        segBox(`${namePrefix}_hipridge_${e}_${s}_${k}`, 'ROOF_TILE', 0.26, 0.18, p0, p1, T.BOTO_T + 0.09 + 0.06);
+      }
+      // 내림마루: 이음매 v∈[hipRatio, 1] (x=topHalfX 고정 구간 = 합각 빗변) — 반높이 0.08 + 0.06
+      for (let k = 0; k < SEG_NAERIM; k++) {
+        const p0 = seam(e, s, hipRatio + (1 - hipRatio) * k / SEG_NAERIM), p1 = seam(e, s, hipRatio + (1 - hipRatio) * (k + 1) / SEG_NAERIM);
+        segBox(`${namePrefix}_naerim_${e}_${s}_${k}`, 'ROOF_TILE', 0.24, 0.16, p0, p1, T.BOTO_T + 0.08 + 0.06);
+      }
+      // 추녀: 이음매 v∈[0, 0.35] — 보토 하면(−BOTO_T) 아래 반높이 0.12 + 0.02
+      for (let k = 0; k < SEG_CHUNYEO; k++) {
+        const p0 = seam(e, s, CHUNYEO_V * k / SEG_CHUNYEO), p1 = seam(e, s, CHUNYEO_V * (k + 1) / SEG_CHUNYEO);
+        segBox(`${namePrefix}_chunyeo_${e}_${s}_${k}`, 'WOOD_COLUMN', 0.22, 0.24, p0, p1, -T.BOTO_T - 0.12 - 0.02 - 0.05); // −0.05: 현이 볼록 곡선 위로 뜨는 처짐분
+      }
+      // 사래: 처마 모서리 밖(이음매 방향으로 돌출) — 모서리 기준 독립 배치 유지
+      const c0 = seam(e, s, 0), c1 = seam(e, s, CHUNYEO_V / SEG_CHUNYEO);
+      // 사래는 추녀의 절반 물매: 방향 벡터의 dy만 절반 (종전 `rx * 0.5`는 rx가 ±π 근처(s=+1)일 때 부재를 세워 버렸다 — 006-C 후속 실측 0.295 m 관통)
+      const dx = c1.x - c0.x, dy = (c1.y - c0.y) * 0.5, dz = c1.z - c0.z;
+      const rx = Math.atan2(-dy, dz), ry = Math.atan2(dx, Math.hypot(dy, dz));
       A.box(`${namePrefix}_sarae_${e}_${s}`, 'WOOD_COLUMN', 0.16, 0.17, 0.85,
-        cx + x0 - e * 0.1, y0 - 0.14, cz + z0 - s * 0.1, { rx: rx * 0.5, ry });
-    }
-    /* 내림마루 — 합각 빗변 2 */
-    for (const s of [1, -1]) {
-      const dx2 = 0 - 0, dy2 = ridgeY - yBreak, dz2 = 0 - s * gableZ;
-      const len2 = Math.hypot(dy2, dz2);
-      A.box(`${namePrefix}_naerim_${e}_${s}`, 'ROOF_TILE', 0.24, 0.16, len2,
-        cx + e * topHalfX, (yBreak + ridgeY) / 2 + 0.06, cz + s * gableZ / 2,
-        { rx: Math.atan2(-dy2, dz2), ry: 0 });
+        c0.x - e * 0.1, c0.y - 0.20, c0.z - s * 0.1, { rx, ry });
     }
   }
 
