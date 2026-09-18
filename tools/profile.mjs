@@ -155,6 +155,13 @@ for (let run = 0; run < RUNS; run++) {
     query: 'mode=realtime',
   });
   const bootMs = await g.page.evaluate(() => window.__harness.getBootMs());
+  // PATCH-005-E: 부팅 2계층. boot_gpu = GPU 작업 단계(절차 텍스처 합성 = 렌더-투-텍스처, 프리웜 = 컴파일·PMREM·웜렌더, 웜렌더).
+  // boot_cpu = 나머지(모듈 로드·렌더러/파이프라인 생성·월드 조립·배선). 합성은 패치 표에서 CPU 계층으로 적혔으나 이 구현은 GPU 렌더라
+  // GPU 계층에 둔다 — 분류 근거·분해값을 함께 출력한다(materialsSynthMs). SwiftShader에서 boot_gpu는 GPU-INVALID.
+  const bootPhases = await g.page.evaluate(() => window.__bootPhases ?? []);
+  const phaseMs = (name) => bootPhases.find((p) => p.phase === name)?.ms ?? 0;
+  const bootGpuMs = phaseMs('materials_synth') + phaseMs('prewarm') + phaseMs('warm_render+reset');
+  const bootCpuMs = Math.max(0, Math.round(bootMs - bootGpuMs));
   const internal = await g.page.evaluate(() => {
     const c = document.getElementById('game');
     const gl = c.getContext('webgl2');
@@ -245,6 +252,7 @@ for (let run = 0; run < RUNS; run++) {
   runs.push({
     run: run + 1,
     bootMs: Math.round(bootMs),
+    bootCpuMs, bootGpuMs, bootPhases, materialsSynthMs: phaseMs('materials_synth'),
     frames: ft.length,
     leading: {
       trianglesMax: Math.max(...tris),
@@ -422,6 +430,11 @@ const summary = {
   determinism_simWindowTotal_max: Math.max(...runs.map((r) => r.determinism?.simWindowTotal ?? 0)),
   prewarmBreakdown: runs[0]?.prewarm ?? null,
   bootMs_median: med(runs.map((r) => r.bootMs)),
+  // PATCH-005-E: 2계층 — boot_cpu는 게이트(≤3 s), boot_gpu는 기록(GPU-INVALID 배너 대상)
+  bootCpuMs_median: med(runs.map((r) => r.bootCpuMs)),
+  bootGpuMs_median: med(runs.map((r) => r.bootGpuMs)),
+  bootCpu: { value: med(runs.map((r) => r.bootCpuMs)), budget: 3000, pass: med(runs.map((r) => r.bootCpuMs)) <= 3000, basis: 'bootMs − (materials_synth + prewarm + warm_render) — 모듈·렌더러·월드·배선 (PATCH-005-E)' },
+  bootGpu: { value: med(runs.map((r) => r.bootGpuMs)), phases: runs[0]?.bootPhases ?? null, materialsSynthMs_median: med(runs.map((r) => r.materialsSynthMs)), note: environment.softwareGL ? 'GPU-INVALID — 소프트웨어 렌더러 컴파일·PMREM·합성 비용. 실기 측정 전 판정 불가' : '실기 측정값' },
   /** GPU 의존 — softwareGL이면 참고치 */
   gpuDependent: {
     valid: !environment.softwareGL,

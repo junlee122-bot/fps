@@ -194,6 +194,8 @@ export class SkySystem {
     this.horizonColor = [0, 0, 0];
     /** 환경광 재생성 소요 로그 [{material, cubeMs, pmremMs}] — 부팅 분해 계측 (PATCH-004-A) */
     this.envLog = [];
+    /** apply 호출별 지평선 판독(동기화) 시간 — 프리웜 샷 스윕 applyMs 분해 (PATCH-005-E) */
+    this.applyLog = [];
     /** 현재 안개 구성 — 파이프라인 안개 패스가 읽는다 (world:weather와 동일 값) */
     this.fog = { density: 0, heightFalloff: 0.12, baseY: 0 };
 
@@ -286,7 +288,10 @@ export class SkySystem {
       this._pmremWarmed.add(this.sky.material);
     }
     this.scene.environment = this._envRT.texture;
+    const th = clock.wallNowMs();
     this._readHorizon(); // C4: 인스캐터 색 = 돔 지평선 실측 (큐브는 위에서 갱신됨 — 프리웜 스킵 시 직전 돔)
+    // PATCH-005-E: 판독은 GPU 동기화(readRenderTargetPixels) — 직전 프레임의 GPU 작업 완료를 여기서 기다린다. applyLog로 분해 계측
+    this.applyLog.push({ night, horizonMs: Math.round(clock.wallNowMs() - th) });
     // 환경광 강도는 샷 주변광(hemi)에 종속. C2의 clamp(hemi·0.7, 0.03, 0.5)는 과대 돔(지평선 2.5)에 대한
     // 억제였다 — C4에서 돔을 선형 복사휘도 × DOME_SCALE로 물리 비율에 맞추고 계수를 ENV_PER_HEMI로 재정의
     // (noon hemi 0.55 → 1.0 = 돔 그대로, 실내 0.15 → 0.3). 야간은 C3 교정 NIGHT_ENV_INTENSITY 유지(야간 돔은
