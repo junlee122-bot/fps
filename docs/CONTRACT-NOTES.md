@@ -1075,6 +1075,11 @@ atFrame 86, 화염 수명 6프레임이라 30프레임 캡처에는 **화염이 
 2 px 뿐이므로 조치 없음. **기록·판단 항목**: 크로마 3 근흑 픽셀의 색상 대역 판정은 ±10° 불확실성을 갖는다(C2 제외 기준 ≤2 바로 위). 향후 어두운 샷이
 이 부류로 실패하면 고칠 것은 임계값이 아니라 측정(반올림 셀 안에 허용 색이 있으면 위반으로 세지 않는 색상-불확실성 판정) — paletteaudit 의미 변경이라
 계약 판단이 필요하다.
+**007-C 재측정 (저해상 480×312 · settle 90 · 마스크 동반, r3x 8850eee)**: paletteaudit **12/12** — muzzle_interior **0.164%**(태그 1.42% =
+화염 쿼드+예광, 면제 0), lantern_night 0.120%(태그 0.345% = 등롱 점등, 면제 0), dancheong_closeup 0.361%, daecheong_backlit 0.268%, hanji_silhouette
+0.164%, 나머지 ≤0.033%. **밴드로 면제된 픽셀은 전 샷 0** — 현재 빌드의 발광체는 무채색(화염·예광)이거나 이미 허용 대역(등롱 43°)이라 밴드는 수치를
+바꾸지 않는 구조적 보호 장치다. 태그 비율 최대 1.42% ≤ 8%. 판정: 크로마 **.8 유지**(muzzle_interior 0.164/1.5 = 11%; "1.00%"는 30프레임 측정
+결함이었고 .7 후퇴 근거가 아니다). 최종 판정은 계약 해상도 baseline/r3 의 paletteaudit.
 
 **007-D 지평선 판독 경로**: `_readHorizon()` 호출자는 `SkySystem.apply()` 하나. `sky.apply` ← `applySunConfig`(render/renderer.js) ← `applyShot` /
 `applyDefaultView`(main.js) ← 하네스 setShot·resetState·프리웜. **런타임 TOD 경로 없음**(실시간 루프에 호출자 없음, grep 전수). 히치 귀속: profile 의

@@ -111,6 +111,31 @@ C3·C4·R1 수치의 원 출력은 `docs/CONTRACT-NOTES.md`의 "C3 스냅샷", "
   `node tools/profile.mjs --phase p3 --runs 3` → JSON의 gpuDependent(fps p50/p99·최악 프레임)·bootMs(신 커밋에선 bootCpu/bootGpu)·cpuFrameMsP95 회신.
   R3 코드 작업은 이 실측과 독립이라 병행한다(측정은 해당 커밋에서 언제든 가능).
 
+## 5-3. PATCH-006/007 이행 현황 (2026-09-18)
+- **006-A/B 승인 적용**: 팔작 셸 감김 통일(구조 제거 → geometryaudit 6/6), 서까래 y 정정(chainaudit 16/16). **006-C** 파생 배치 전수표(CONTRACT-NOTES) —
+  불일치 3종(추녀마루·내림마루 매몰, 추녀 관통)은 **007-A (i) 승인**으로 셸 함수 4/6/4분할 추종 + 사래 물매 절반 → geometryaudit [7] 파생 배치 전부
+  정합, **tris 134,218 → 135,274 (+0.79%)**. **007-B** chainaudit 처마 모서리 추녀 경로(보토 퇴출 후 목재 진입 겹침 검사) — 수정 전 코드에서
+  실패(겹침 0.139 m) 확인 후 통과, **18/18**.
+- **007-C 자발광 팔레트 밴드**: 태그 마스크(`src/render/tagmask.js` 규칙 한 곳, 하네스 `renderTagMask`, `baseline.mjs`가 `<shot>.emask.png` 동반
+  저장) + paletteaudit 태그 픽셀 15–55° 허용·태그 비율 상한 8% + 음성 훅 3종 = harnesstest **케이스 20**. 현재 빌드의 일시광(화염·예광·트랜지언트
+  라이트)은 전부 무채색이라 밴드가 실제로 면제하는 것은 등롱 점등뿐이다.
+- **007-C 재측정이 드러낸 내 측정 결함(정정)**: 006-E의 "muzzle_interior 1.00%"는 사전점검 드라이버가 **30프레임**에 찍은 프레임(격발 atFrame 86 →
+  화염 없음, 노출 미수렴)의 수치였고, 위반 픽셀의 91%는 RGB (4,2,1)류 근흑 바닥 픽셀(자발광 아님)이었다. 계약 프레임(settle 90, 같은 저해상)에서는
+  **0.164%**. 사전점검 팔레트는 `baseline.mjs` 저해상·settle 90·마스크 동반으로 교정(임계값이 아니라 측정 대상을 고침). 근흑 (4,2,1)이 셰이더
+  대역 상한을 통과한 기전은 **크로마 3양자에서 8비트 반올림이 색상을 ±10° 옮기는 것**(부동소수 12° → 정수 20°) — 계약 프레임에서 2 px라 조치 없음,
+  paletteaudit 의미(색상 불확실성 판정)는 계약 판단 항목으로 기록.
+- **007-C 재측정(저해상·settle 90·마스크)**: 12/12, muzzle_interior **0.164%**(태그 1.42%), lantern_night 0.120%(태그 0.345%), 밴드 면제 픽셀 전 샷 0,
+  태그 비율 최대 1.42% ≤ 8% → 크로마 **.8 유지**(.7 후퇴 불필요). 최종은 계약 해상도 게이트.
+- **007-D 지평선 판독**: 호출 경로는 `sky.apply ← applySunConfig ← applyShot/applyDefaultView`뿐, 런타임 TOD 경로 없음. profile 히치 귀속에 GPU 동기화
+  사각이 있어 누적 판독 수(`horizonReadbacksPerFrame`)·히치별 `horizonReadbacks`·`horizonReadbacksDuringPlay`(0이어야 함)를 추가. Apple Silicon
+  실측(005-H, 사용자 측) 회신 항목에 `horizonReadbacksDuringPlay_total === 0`·`bootGpuMs_median` 추가.
+- **007-E 부연 미구현**: kit.js 처마는 원형 서까래 한 단 — 부연·평고대 없음, P1 이월. R3 비평의 "처마 얇다"는 먼저 여기.
+- **006-G tris_scene 정의 고정**: `getSceneTriangles` byGroup(world/viewmodel/fx/sky/other)·`userData.auditOnly` 제외, profile `trisScene.byGroup`.
+  §9 동결 검증 수치는 `world` 성분.
+- **R3 미착수 P3 후보(기록, R4 후보)**: N3 저조도 실내 그림자 줄무늬, N5 단청 로컬 매핑 원경 앨리어싱, 접지 음영 판독(GTAO/페더), 기둥 결 인스턴스
+  다양화 — PATCH-007 캡처 조건 8항 밖이라 이번 캡처에는 넣지 않았다(승인 범위 준수). N1(창호지 확산 투과 모델)·N2(앙토 .30 + 서까래 하면 분기)·
+  회백색 목재(크로마 .8)·지붕 형태 일부(007-A)는 반영됐다.
+
 ## 6. 정직한 한계
 - 모든 성능 절대값은 소프트웨어 렌더러 스케일. 결정성·팔레트·알베도·프로그램 수·컴파일 0은 환경 무관 성질이다.
 - 결정성은 SwiftShader에서 입증됐다. 실제 GPU 드라이버는 다른 비결정 경로(예: 병렬 리덕션)를 가질 수 있어 §10
