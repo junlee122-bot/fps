@@ -962,6 +962,25 @@ PACKED_DIRT·THATCH·BRONZE — 선언 채도 sRGB ≈.17–.25로 하향, 매�
 암부 AgX 증폭은 상한이 흡수)을 저해상 팔레트·히스토그램으로 검증한 뒤 채택 여부를 정한다. 선언 채도값 표는 실험 결과와 함께 기록.
 참조 레포의 실패 형태("텍스처가 없다"에 알베도를 깎음)와 같은 오류를 피하기 위해 증상('회백색')이 아니라 측정으로 원인을 고정했다.
 
+**005-D 창호지 확산 투과 모델 구현** (`materials/index.js applyHanjiTransmit`, `hanji.js`, `render/opacity.js`): 불투명도 .62→**.95**(값 조정,
+플래그 불변; 피격당 .09, 하한 .08 — playtest 기준값은 상수 참조로 변경). 배면광 = albedo·sunColor·I·T(.25)·max(0,n·travel)/π·S + 하늘광 근사
+albedo·.035. S = CSM 그림자 맵 **PCSS**(blocker search 16탭 Poisson·반경 8텍셀 → 반경 = (수신 깊이 − 차폐 깊이)·6000·scatter, 1~28텍셀 →
+PCF 16탭): 종이에 가까운 물체는 선명, 먼 물체는 흐린 실루엣. 피격 상태는 uHanjiScatter=(opacity/base)²로 흐림 반경에도 반영(찢길수록 선명·
+투명). 캐스케이드 선택은 CSM 셰이더와 동일(linearDepth vs CSM_cascades, unrolled loop). 결정성: 고정 탭·밉 없는 그림자 맵. 프로그램 순열
+불변(HANJI 프로그램 내부 코드 변경). 저해상 확인·팔레트·rendervariance는 사전점검에서.
+
+**005-E 부팅 2계층 구현** (`tools/profile.mjs`): 런별 `__bootPhases`로 boot_gpu = materials_synth + prewarm + warm_render, boot_cpu = bootMs −
+boot_gpu; 출력 `bootCpu {value, budget 3000, pass}`·`bootGpu {value, phases, materialsSynthMs, note(GPU-INVALID)}`·중앙값. 분류 근거: 절차
+텍스처 합성은 패치 표에서 CPU 계층이지만 이 구현은 GPU 렌더-투-텍스처(SwiftShader에서 2.4 s)라 GPU 계층에 두고 값을 별도 출력한다 —
+발주자가 재분류하면 한 줄 변경. 저해상 참고치(r1p 프로브): 부팅 12,758 = synth 2,401 + world 93 + wiring 112 + prewarm 10,056 + 모듈 ≈100 →
+boot_cpu ≈ 0.3 s, boot_gpu ≈ 12.5 s. 프리웜 샷 스윕(≈10 s)의 applyMs 원인은 `sky.applyLog`(지평선 판독 = readRenderTargetPixels 동기화)로
+분해 계측 중 — 가설: PMREM이 아니라 직전 샷 드로우의 GPU 완료를 판독 지점에서 기다리는 시간(=샷당 GPU 프레임 비용). 결과 확정 후
+TOD 캐싱 필요 여부 판정(샷 12개의 태양 구성은 전부 달라 정확 키 캐시 적중은 0 — 캐싱보다 판독 지연/생략이 대안).
+
+**005-A 4항 R2 결함 소유 분류** (`docs/critique/R2-OWNERSHIP.md`): 131 = **P3 62** / P1 49 / P2 10 / P4 3 / 계약 6 / 불가 1. P3 62건 묶음
+(a) 그림자·접지·조명 (b) 창호지(N1 → 확산 투과 모델) (c) 앙토 과명(N2 → .30 + 줄무늬 원거리 페이드) (d) 앨리어싱·모아레 (e) 재질 반복성
+(f) 노출·하늘 (g) 실내 그림자 줄무늬(N3, 기록). 미분류 1건(S11 진녹색 얼룩 물체)은 R3 캡처에서 조사.
+
 ## C. 표류 방지 메모 (충돌은 아니지만 오해 소지)
 
 - `WATER`의 "거리 기반 감쇠"는 별도 코드 경로가 아니라 `computePenetration`의
