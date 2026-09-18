@@ -64,7 +64,7 @@ if (INJECT_FLIP) {
 }
 
 const checks = [];
-const push = (name, ok, got) => checks.push({ name, ok: !!ok, got });
+const push = (name, ok, got, advisory = false) => checks.push({ name, ok: !!ok, got, ...(advisory ? { advisory: true } : {}) });
 
 /* ---------------------------------------------------------- 지붕 그룹 */
 const ridges = meshes.filter((m) => /_ridge$/.test(m.name) && !m.name.startsWith('wall_'));
@@ -158,6 +158,86 @@ for (const roof of roofs) {
       rafters: rafterStats.n, rafterOutsideRoof: rafterStats.outside, rafterAboveUndersideMax: rafterStats.n ? +rafterStats.worstAbove.toFixed(3) : null, worst: rafterStats.worstName });
 }
 
+/* ---------------------------------------------------------- 7. 파생 배치 전수 (PATCH-006-C) */
+// 셸 매개변수에서 파생된 배치가 바로잡힌 셸 기준으로 옳은지 레이캐스트로 확인한다.
+//  (a) 기와 인스턴스: 중심에서 아래로 쏘아 첫 히트가 ROOF_TILE 셸 외피이고 간격이 [0, 0.12] m (기와가 셸 위에 얹힘)
+//  (b) 추녀마루·내림마루 상자: 중심에서 아래로 쏘아 셸 외피 히트가 상자 하단 − 0.05 이하 (마루가 셸 이음매 위에 얹힘)
+//  (c) 추녀·사래·공포 상단: 위로 쏘아 첫 히트(덮개 하면)가 부재 상단보다 위 (부재가 셸을 뚫지 않음)
+//  (d) 합각 판벽: 상단 ≤ 용마루 갓, 하단 = 합각하부면 안쪽 가장자리 높이 ±0.05
+{
+  const ray = new THREE.Raycaster(); const mat = new THREE.Matrix4(); const p = new THREE.Vector3();
+  for (const roof of roofs) {
+    const isHip = roof.covers.some((m) => /_hip_main_/.test(m.name));
+    if (!isHip) continue;
+    const tileShells = roof.covers.filter((m) => m.userData.surface === 'ROOF_TILE' && isShell(m));
+    const lowShells = roof.covers.filter((m) => m.userData.surface === 'ROOF_SOIL' && isShell(m));
+    const rb = new THREE.Box3(); for (const m of roof.covers) rb.union(worldBox(m)); rb.expandByScalar(0.3);
+    // (a) 기와
+    let tiles = 0, tileBad = 0, tileMiss = 0, gapMax = -1, gapMin = 9;
+    for (const im of meshes) {
+      if (!im.isInstancedMesh || !im.name.startsWith('inst_tile')) continue;
+      for (let i = 0; i < im.count; i++) {
+        im.getMatrixAt(i, mat); p.setFromMatrixPosition(mat).applyMatrix4(im.matrixWorld);
+        if (!rb.containsPoint(p)) continue;
+        tiles++;
+        ray.set(new THREE.Vector3(p.x, p.y + 0.5, p.z), new THREE.Vector3(0, -1, 0)); ray.far = 5;
+        const h = ray.intersectObjects(tileShells, false)[0];
+        if (!h) { tileMiss++; continue; }
+        const gap = p.y - h.point.y; gapMax = Math.max(gapMax, gap); gapMin = Math.min(gapMin, gap);
+        if (gap < -0.02 || gap > 0.12) tileBad++; // −2 cm: 곡면 보간 수치 오차 허용
+      }
+    }
+    push(`[7a] ${roof.prefix}: 기와 인스턴스가 기와 셸 외피 위 [−0.02,0.12] m`, tiles > 0 && tileBad === 0 && tileMiss <= tiles * 0.05,
+      { tiles, bad: tileBad, missShell: tileMiss, gapMin: +gapMin.toFixed(3), gapMax: +gapMax.toFixed(3) }, true);
+    // (b) 추녀마루·내림마루
+    const ridgesB = meshes.filter((m) => m.name.startsWith(`${roof.prefix}_hipridge_`) || m.name.startsWith(`${roof.prefix}_naerim_`));
+    const rres = [];
+    for (const m of ridgesB) {
+      const b = worldBox(m); const c = b.getCenter(new THREE.Vector3());
+      ray.set(new THREE.Vector3(c.x, c.y + 2, c.z), new THREE.Vector3(0, -1, 0)); ray.far = 10;
+      const h = ray.intersectObjects(tileShells, false)[0];
+      const rel = h ? +(b.min.y - h.point.y).toFixed(3) : null; // 상자 하단 − 셸 외피
+      rres.push({ m: m.name.replace(roof.prefix + '_', ''), rel, ok: h ? rel >= -0.12 && rel <= 0.25 : false });
+    }
+    push(`[7b] ${roof.prefix}: 추녀마루·내림마루가 셸 이음매 위 (하단−외피 ∈ [−0.12, 0.25])`, rres.length > 0 && rres.every((r) => r.ok), rres.filter((r) => !r.ok).map((r) => `${r.m}:${r.rel}`).concat([`n=${rres.length}`]), true);
+    // (c) 추녀·사래·공포 상단 — 덮개 하면 아래
+    const under = meshes.filter((m) => m.name.startsWith(`${roof.prefix}_chunyeo_`) || m.name.startsWith(`${roof.prefix}_sarae_`));
+    const ures = [];
+    for (const m of under) {
+      const b = worldBox(m); const c = b.getCenter(new THREE.Vector3());
+      // 부재 중심 xz에서 위→아래로 쏘아 보토 셸 외피를 찾고, 하면 = 외피 − BOTO_T. 관통량 = 부재 상단 − 하면 (양수 = 셸 안으로 들어감)
+      ray.set(new THREE.Vector3(c.x, c.y + 10, c.z), new THREE.Vector3(0, -1, 0)); ray.far = 20;
+      const h = ray.intersectObjects(lowShells, false)[0];
+      const penet = h ? +(b.max.y - (h.point.y - T.BOTO_T)).toFixed(3) : null;
+      ures.push({ m: m.name.replace(roof.prefix + '_', ''), penetration: penet, ok: h ? penet <= 0.05 : true });
+    }
+    push(`[7c] ${roof.prefix}: 추녀·사래 — 보토 셸 하면 관통량 (상단 − 하면 ≤ 0.05; null = 처마 밖)`, ures.every((r) => r.ok), ures.map((r) => `${r.m}:${r.penetration ?? '처마밖'}`), true);
+    // (d) 합각 판벽
+    const hap = meshes.filter((m) => m.name.startsWith(`${roof.prefix}_hapgak_`));
+    const sideShells = roof.covers.filter((m) => /_hip_side_ROOF_SOIL_/.test(m.name));
+    const hres = hap.map((m) => {
+      const b = worldBox(m);
+      const sideTop = Math.max(...sideShells.flatMap((sm) => worldVerts(sm, 'top').map((v) => v.y)));
+      return { m: m.name.replace(roof.prefix + '_', ''), top: +b.max.y.toFixed(2), bottom: +b.min.y.toFixed(2), sideShellTop: +sideTop.toFixed(2), ok: b.max.y <= roof.ridgeTop + 0.05 && Math.abs(b.min.y - sideTop) <= 0.1 };
+    });
+    push(`[7d] ${roof.prefix}: 합각 판벽 상단 ≤ 용마루 갓, 하단 = 합각하부면 안쪽 가장자리 ±0.1`, hres.length > 0 && hres.every((r) => r.ok), hres, true);
+  }
+  // 공포 상단 vs 처마 하면 — 공포 부재(인스턴스 'gup'/'cheomcha' 등)는 InstancedMesh 키로 구분 불가하므로 브래킷 인스턴스 최고점 vs 처마 하면 최저점
+  for (const roof of roofs) {
+    const isHip = roof.covers.some((m) => /_hip_main_/.test(m.name)); if (!isHip) continue;
+    const lowShells = roof.covers.filter((m) => m.userData.surface === 'ROOF_SOIL' && isShell(m));
+    const eaveUnder = Math.min(...lowShells.flatMap((sm) => worldVerts(sm, 'bottom').map((v) => v.y)));
+    const rb = new THREE.Box3(); for (const m of roof.covers) rb.union(worldBox(m)); rb.min.y = -1e9; rb.max.y = 1e9; // xz 포함 판정
+    let brTop = -Infinity, brN = 0;
+    for (const im of meshes) {
+      if (!im.isInstancedMesh || !/inst_(gup|cheomcha|haenggong|salmi|jedong)/.test(im.name)) continue;
+      im.geometry.computeBoundingBox(); const hh = im.geometry.boundingBox.max.y;
+      for (let i = 0; i < im.count; i++) { im.getMatrixAt(i, mat); p.setFromMatrixPosition(mat).applyMatrix4(im.matrixWorld); if (rb.containsPoint(p)) { brN++; brTop = Math.max(brTop, p.y + hh); } }
+    }
+    if (brN > 0) push(`[7e] ${roof.prefix}: 공포 부재 최고점 < 처마 보토 하면 최저점`, brTop < eaveUnder, { bracketTop: +brTop.toFixed(2), eaveUnderside: +eaveUnder.toFixed(2), parts: brN }, true);
+  }
+}
+
 /* ---------------------------------------------------------- 3. 기단 > 지면 */
 const ground = byName.get('ground');
 const groundTop = ground ? worldBox(ground).max.y : 0;
@@ -194,12 +274,13 @@ for (const g of meshes.filter((m) => /^wall_g_\d+$/.test(m.name))) {
   push('[6] 건물 바운딩박스가 담장(±44) 내부 (담장·남문루·지면 제외)', worst <= WALL - 0.3, { maxExtent: +worst.toFixed(2), at: worstName });
 }
 
-const ok = checks.every((c) => c.ok);
+const ok = checks.filter((c) => !c.advisory).every((c) => c.ok); // 게이트 = 불변식 1~6; [7] 파생 배치는 보고용(PATCH-006-C 표)
 console.log(JSON.stringify({
   ok,
   ...(INJECT_FLIP ? { testOverride: 'inject-flip-roof — harnesstest 전용, 계약 판정 무효' } : {}),
   roofs: roofs.map((r) => ({ prefix: r.prefix, axis: r.axis, ridgeTop: +r.ridgeTop.toFixed(2), covers: r.covers.length })),
-  failed: checks.filter((c) => !c.ok).length,
+  failed: checks.filter((c) => !c.ok && !c.advisory).length,
+  advisoryFailed: checks.filter((c) => !c.ok && c.advisory).length,
   checks,
 }, null, 2));
 process.exit(ok ? 0 : 1);

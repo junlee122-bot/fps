@@ -186,6 +186,7 @@ const FRAG_MAP = /* glsl */`
       float ph = fract(across / uUnder.y);
       float dm = abs(ph - 0.5) * uUnder.y;                 // 서까래 중심으로부터 거리 (m)
       float rafter = 1.0 - smoothstep(uUnder.z * 0.5 - 0.01, uUnder.z * 0.5 + 0.01, dm);
+      rafter *= 1.0 - smoothstep(12.0, 30.0, length(cameraPosition - vSurfWPos)); // R3: 원거리 줄무늬 앨리어싱(R2 S10 스페클) — 12~30 m 페이드
       surfAlbedo.rgb = mix(surfAlbedo.rgb, uUnderColor, rafter * uUnder.x);
       surfORM.g = mix(surfORM.g, 0.85, rafter);
       surfORM.r *= 1.0 - uUnder.w * (1.0 - rafter) * (1.0 - smoothstep(0.0, 0.12, dm - uUnder.z * 0.5)); // 서까래 옆 앙토 그늘

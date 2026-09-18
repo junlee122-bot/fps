@@ -439,12 +439,26 @@ export function shellGeometry(fn, segU, segV, t) {
   }
   const bottom = top.map((p, k) => p.clone().addScaledVector(normals[k], -t));
 
+  // [PATCH-006-A] 감김 의존 제거: 매개변수화(u,v) 방향에 따라 외피 사각형의 기하 법선이 바깥 법선(위)과 반대가 되는 셸이 있었다
+  // (팔작 `_n` 주경사·`_p` 합각 — 외피 컬링, 8 cm 아래 내피 노출). 셸 전체의 외피 기하 법선·바깥 법선 내적 합의 부호로 한 번 판정해
+  // 모든 사각형의 감김을 뒤집는다 — P2B 와인딩 반전을 패리티로 제거한 것과 같은 계열(보정이 아니라 제거). geometryaudit [2]가 검증.
+  let orient = 0;
+  {
+    const e1 = new THREE.Vector3(), e2 = new THREE.Vector3(), gn = new THREE.Vector3();
+    for (let j = 0; j < segV; j++) for (let i = 0; i < segU; i++) {
+      const k = j * nu + i;
+      e1.copy(top[k + 1]).sub(top[k]); e2.copy(top[k + nu]).sub(top[k]); gn.copy(e1).cross(e2);
+      orient += gn.dot(normals[k]);
+    }
+  }
+  const flip = orient < 0;
+
   const pos = [];
   const idx = [];
   const push = (p) => { pos.push(p.x, p.y, p.z); return pos.length / 3 - 1; };
   const topIdx = top.map(push);
   const botIdx = bottom.map(push);
-  const quad = (a, b, c, d) => idx.push(a, b, c, a, c, d);
+  const quad = flip ? (a, b, c, d) => idx.push(a, d, c, a, c, b) : (a, b, c, d) => idx.push(a, b, c, a, c, d);
   for (let j = 0; j < segV; j++) {
     for (let i = 0; i < segU; i++) {
       const k = j * nu + i;
@@ -605,7 +619,9 @@ export function addHipRoof(A, {
         const yaw = e * t * (Math.PI / 4);
         const px = e * (eaveHalfX - 0.9 - t * 1.3);
         const pz = s * (eaveHalfZ - 0.5 - (1 - t) * 0.35);
-        A.place('rafter', cx + px, eaveY + angok * (1 - t) * 0.6 + 0.1, cz + pz,
+        // [PATCH-006-B] eaveY + 0.1은 뒤집힌 셸 기준(서까래가 셸 3 m 아래)이었다 — 바로잡힌 셸에서는 처마 보토 하면 아래로:
+        // 중심 y = eaveY(+앙곡 근사) − BOTO_T − 서까래 반지름 − 0.02 (geometryaudit [4] 레이캐스트가 검증)
+        A.place('rafter', cx + px, eaveY + angok * (1 - t) * 0.6 - T.BOTO_T - T.DORI_D / 2 - 0.02, cz + pz,
           s > 0 ? eaveSlope : -eaveSlope, yaw, 0);
       }
     }
@@ -619,7 +635,7 @@ export function addHipRoof(A, {
     for (const s of [1, -1]) {
       for (let k = 0; k < count; k++) {
         const x = -plainHalf + (2 * plainHalf) * (k / (count - 1));
-        A.place('rafter', cx + x, eaveY + 0.1, cz + s * (eaveHalfZ - 0.9),
+        A.place('rafter', cx + x, eaveY - T.BOTO_T - T.DORI_D / 2 - 0.02, cz + s * (eaveHalfZ - 0.9), // [PATCH-006-B] 셸 하면 아래
           s > 0 ? eaveSlope : -eaveSlope, 0, 0);
       }
     }

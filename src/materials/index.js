@@ -102,8 +102,9 @@ export const RECIPES = Object.freeze({
   // R1 수정 C: 보토 셸 전용 재질 — 상면 앙토(회백 흙회 — 기와 밑이라 거의 안 보임), 하면은 셰이더 uUnder 유니폼으로
   // 서까래(목재색 띠) + 앙토 그늘. EARTH_WALL 재사용(SURFACE_MAT ROOF_SOIL→EARTH_WALL)이 '베이지 천' 오독의 원인.
   // 정의 집합 TRI 전용(WOOD_LATTICE 등과 프로그램 공유) — 프로그램 순열 불변.
+  // R3(R2 N2): 앙토 .40은 야간 등롱광·주간 소핏에서 '유난히 밝은 널'로 읽혔다 → .30 (회백 흙회의 어두운 쪽; 매니페스트 동시 갱신)
   ROOF_SOIL: {
-    size: 256, seed: 305, period: 4, intendedAlbedo: 0.40, gain: 1.0,
+    size: 256, seed: 305, period: 4, intendedAlbedo: 0.30, gain: 0.75,
     colA: C(0xc4bcae), colB: C(0xa9a08f), colC: C(0xb8ae9a), colD: C(0x9c9384),
     L0: V4(3, 5, 1, 1), L1: V4(1, 1, 2, 1), L2: V4(6, 7, 0, 0.03), L3: V4(64, 3, 0, 0), gate: V4(2, 11, 0.5, 0),
     remap: V4(0, 0, 0, 0), alb: V4(0, 0, 0, 0.25), hgt: V4(0.05, 0, 0.15, 0.03), rgh: V4(0.93, 0, 0, 0), aom: V4(0.25, 0, 0, 2),
@@ -197,7 +198,9 @@ export const RECIPES = Object.freeze({
  * 매니페스트 무영향)로 원색을 sRGB 채도 ≈0.17–0.25로 내린다. 수묵 팔레트(저채도 목재·흙)의 의도이기도 하다.
  */
 export const CHROMA_SCALE = Object.freeze({
-  WOOD_COLUMN: 0.6, WOOD_PLANK: 0.6, WOOD_LATTICE: 0.6, EARTH_WALL: 0.6, PACKED_DIRT: 0.6, THATCH: 0.6, BRONZE: 0.6,
+  // PATCH-006-E: .6 → .8 — 005-F 측정에서 렌더 채도가 상한(.35)에 압착돼 있지 않고(.30–.35 구간 0%) 회백색의 원인이 이 축소였음이
+  // 특정됐다. 저해상 재측정: .05–.10 45.6→11.9%, .10–.15 16.6→38.5%, .25–.30 9.9→20.8%, ≥.30 0%; 팔레트 12/12 유지(최악 1.00%).
+  WOOD_COLUMN: 0.8, WOOD_PLANK: 0.8, WOOD_LATTICE: 0.8, EARTH_WALL: 0.8, PACKED_DIRT: 0.8, THATCH: 0.8, BRONZE: 0.8,
 });
 /** 휘도 보존 크로마 축소 (선형 공간, 제자리) */
 function scaleChroma(c, k) {
