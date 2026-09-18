@@ -15,7 +15,7 @@
  */
 
 import { startServer } from './lib/server.mjs';
-import { launchBrowser, openGamePage, parseArgs } from './lib/browser.mjs';
+import { launchBrowser, launchOptions, openGamePage, parseArgs } from './lib/browser.mjs';
 import { percentile, sortedAsc, pairSum } from './lib/stats.mjs';
 import { VIEW, SHOTS, FIXED_STEP_FRAMES } from './shots.js';
 
@@ -142,7 +142,9 @@ function buildScript(duration) {
 const SOFTWARE_GL = /swiftshader|llvmpipe|software|swangle/i;
 
 const server = await startServer();
-const browser = await launchBrowser();
+// [PATCH-010-D] 실 GPU 측정: --gpu (소프트웨어 강제 해제) · --headful (창 실행). 기본은 종전 SwiftShader 강제(컨테이너 결정성)
+const LAUNCH = launchOptions({ gpu: args.gpu === true || process.env.FPS_GPU === '1', headful: args.headful === true || process.env.FPS_HEADFUL === '1' });
+const browser = await launchBrowser(LAUNCH);
 const runs = [];
 let environment = null;
 
@@ -171,9 +173,13 @@ for (let run = 0; run < RUNS; run++) {
       drawingBuffer: [gl.drawingBufferWidth, gl.drawingBufferHeight],
       megapixels: +((gl.drawingBufferWidth * gl.drawingBufferHeight) / 1e6).toFixed(2),
       renderer: d ? gl.getParameter(d.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER),
+      vendor: d ? gl.getParameter(d.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR),
+      cssViewport: [innerWidth, innerHeight],
+      userAgent: navigator.userAgent,
     };
   });
-  environment ??= { ...internal, softwareGL: SOFTWARE_GL.test(internal.renderer) };
+  // [PATCH-010-D] 자기 자신과의 시계열 비교가 목적 — GPU 식별자·플랫폼·해상도·DPR·기동 경로를 함께 기록
+  environment ??= { ...internal, softwareGL: SOFTWARE_GL.test(internal.renderer), platform: `${process.platform}/${process.arch}`, node: process.version, launch: { gpu: LAUNCH.gpu, headful: LAUNCH.headful, args: LAUNCH.args } };
 
   await g.page.evaluate(() => window.__harness.resetState());
   const script = buildScript(DURATION);
@@ -420,6 +426,7 @@ const leadingPass = Object.values(leading).every((v) => v.pass);
 const banners = [];
 if (NON_CONTRACT) banners.push('NON-CONTRACT MEASUREMENT — 계약 조건(30s/3runs/DPR2) 미달. 게이트 판정에 쓰지 마라');
 if (environment.softwareGL) banners.push('GPU-INVALID — 소프트웨어 렌더러. gpuDependent 섹션은 절대 성능 판정에 무효');
+if (environment.softwareGL && LAUNCH.gpu) banners.push('GPU 요청(--gpu)했으나 소프트웨어 렌더러가 잡혔다 — 헤드풀 경로(--headful) 또는 GPU 드라이버·원격 세션 확인 (docs/PROFILE-RUN.md)');
 const scenarioValid = runs.every((r) => r.scenario?.valid);
 if (!scenarioValid) banners.push('SCENARIO-INVALID — 최악 시나리오(ROOF_TILE 피격·기와 낙하)가 실측되지 않았다. 측정치는 최악 부하가 아니며 게이트 판정 무효');
 

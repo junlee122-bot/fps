@@ -91,7 +91,7 @@ export const SHOTS = Object.freeze([
   {
     name: 'roofline_distant',
     watch: 'LOD·대기원근 (기와지붕 원경 — 팔작 vs 맞배 실루엣)',
-    audit: { targets: [{ surface: 'ROOF_TILE' }, { surface: 'ROOF_SOIL' }, { surface: 'THATCH' }], minAreaPct: 2, note: '원경 지붕면 전체(기와 상면·보토·초가). 실측 2.6% — PATCH-009-B 예시 15% 는 이 카메라 구도에서 불가(계약 판단 항목)' },
+    audit: { targets: [{ surface: 'ROOF_TILE' }, { surface: 'ROOF_SOIL' }, { surface: 'THATCH' }], minAreaPct: 2, note: '원경 지붕면 전체(기와 상면·보토·초가). 실측 2.6% — 2% 는 회귀 가드 바닥(대상 소실 검출)이지 품질 기준이 아니다; 실루엣은 하늘 대비 윤곽이라 면적과 별개(PATCH-010 판단). 예시 15% 는 미측정 추정으로 무효' },
     // [P1.5 재조준] 팔작 전환에 맞춰 카메라를 남동 담장 상공으로 — 팔작 2동(동헌·객사)과
     // 맞배 계열(내아·행랑·누각·회랑) 실루엣 차이가 한 프레임에 들어온다.
     // (누각 데크 시점은 누각 자기 지붕이, 남서 상공은 누각이 경내를 가려 기각)
