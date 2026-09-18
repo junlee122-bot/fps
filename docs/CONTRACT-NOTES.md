@@ -1111,6 +1111,14 @@ atFrame 86, 화염 수명 6프레임이라 30프레임 캡처에는 **화염이 
 **006-G 적용**: `getSceneTriangles` 가 world/viewmodel/fx/sky/other 분해(`byGroup`) + `userData.auditOnly` 제외, profile `trisScene.byGroup`. §9 동결 검증
 수치는 `world` 성분(007-A 후 135,274).
 
+**R3 캡처 조건 8항 충족 확인 + 병합 사전점검 (본 트리 d47fbe5, 2026-09-18 16:05–16:28, 순차)**: 1 006-A ✅ 2 006-B ✅ 3 006-C ✅ 4 007-A ✅
+5 007-B ✅ 6 006-D ✅(실측 기록) 7 007-C ✅(구현 + 재측정, 케이스 20 단독 검증) 8 006-G ✅. 사전점검: geometryaudit 6/6·[7] 전부 정합(7동), chainaudit
+18/18, albedo 4.47/5.045 편차 0, 12샷 프로브 프로그램 45·부팅 오류 0·플레이 중 컴파일 0·오류 0, 팔레트(저해상·settle 90·마스크) 12/12,
+rendervariance 12/12 단일(3회, 640×416). 종전 사전점검의 30프레임 팔레트 단계는 무효화(위 정정)하고 rendervariance 는 병합 트리에서 다시 돌렸다.
+→ **R3 계약 캡처 시작 16:28** (`baseline/r3` + `tmp/r3_verify`, 12샷 + .emask.png, 샷 단위 재개) → 전환 imagediff(r1→r3) → profile p3 → harnesstest(20)
+→ 감사(팔레트·알베도·뷰모델·플레이테스트·geometry·chain·rendervariance) 전부 순차. 비평 12세션은 캡처 비트 동일 확인 뒤 착수(렌더 작업이 아니라
+게이트와 겹쳐도 무방).
+
 ## C. 표류 방지 메모 (충돌은 아니지만 오해 소지)
 
 - `WATER`의 "거리 기반 감쇠"는 별도 코드 경로가 아니라 `computePenetration`의
