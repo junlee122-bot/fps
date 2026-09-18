@@ -55,11 +55,13 @@ export const SHOTS = Object.freeze([
   },
   {
     name: 'hanji_silhouette',
-    watch: '반투과 (창호지 너머 실루엣)',
+    // [PATCH-008-B] 재정의: 야간 실내 광원 폐색 — 판 뒤 4 m 실내 등롱(lantern_light_na), 그 앞 더미(판 뒤 2.5 m, 플레이 거리).
+    // 종전(주간 저태양 28°·역광 3.0)은 그림자가 판 아래로 떨어져 플레이 거리에서 실루엣이 맺히지 않았다(006-D 실측). 조명은 lantern_night 와 동일.
+    watch: '반투과 산란 + 실내 광원 폐색 실루엣 판독성',
     cam: { pos: [-36.8, 1.9, -10], target: [-32, 1.9, -10], fov: 60 },
-    sun: { elev: 28, azim: 90, intensity: 3.0 },
-    hemi: 0.35,
-    lantern: 0,
+    sun: { elev: 35, azim: 300, intensity: 0.02 },
+    hemi: 0.05,
+    lantern: 9,
   },
   {
     name: 'dancheong_closeup',

@@ -342,7 +342,9 @@ export function buildWorld(scene, physics, materials = null) {
     // 실루엣 더미 (hanji_silhouette)
     const dummy = new THREE.Mesh(new THREE.CapsuleGeometry(0.28, 1.1, 4, 12), mats.FABRIC ?? mats.GREY_LIGHT);
     dummy.name = 'silhouette_dummy';
-    dummy.position.set(cx - 2.5, 1.0 + 0.83, cz);
+    // [PATCH-008-B, P1 미세 예외] z 를 판(na_w_-3, z −12.85..−10.15) 중심으로 — 종전 z=cz 는 샷 카메라 축 위의 중앙 기둥 바로 뒤라 판 너머로 보이지 않았다.
+    // 판 뒤 거리 2.5 m(플레이 거리)는 그대로.
+    dummy.position.set(cx - 2.5, 1.0 + 0.83, cz - 1.5);
     dummy.castShadow = true;
     dummy.receiveShadow = true;
     dummy.userData.surface = 'FABRIC';
@@ -575,6 +577,18 @@ export function buildWorld(scene, physics, materials = null) {
     light.position.set(x, 2.45, z);
     A.group.add(light);
     lanternLights.push(light);
+  }
+  // [PATCH-008-B, P1 미세 예외] 내아 실내 등롱 — 실루엣 더미 뒤(실내 쪽) 1.5 m, 높이 2.05 m: 야간 창호지 폐색 실루엣의 광원.
+  // lanternLights 에 편입(샷 lantern 강도로 점등). 판 뒤 4 m, 더미는 판 뒤 2.5 m(플레이 거리) 그대로.
+  {
+    const dummy = A.group.getObjectByName('silhouette_dummy');
+    const lx = dummy.position.x + 1.5, lz = dummy.position.z;
+    A.box('na_lantern_head', 'FABRIC', 0.3, 0.3, 0.3, lx, 2.05, lz, { matKey: 'LANTERN', collide: false, shadow: false });
+    const naLight = new THREE.PointLight(0xfff6e8, 0, 24, 1.5);
+    naLight.name = 'lantern_light_na';
+    naLight.position.set(lx, 2.0, lz);
+    A.group.add(naLight);
+    lanternLights.push(naLight);
   }
 
   /* ---------------------------------------------------- 동적 상자 ×3 */

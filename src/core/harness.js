@@ -501,7 +501,7 @@ export function installHarness(ctx) {
     },
 
     /* 내부 배선 (main.js 전용) */
-    _internal: { state, stepSim, simSubstep, renderFrame, scriptTick, pipeline }, // pipeline: 프로브 전용 (A/B 계측)
+    _internal: { state, stepSim, simSubstep, renderFrame, scriptTick, pipeline, hanjiOccluders: ctx.hanjiOccluders ?? null }, // pipeline·hanjiOccluders: 프로브 전용 (A/B 계측)
   };
 
   /**

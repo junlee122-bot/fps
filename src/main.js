@@ -35,6 +35,7 @@ import { Player } from './player/player.js';
 import { FireControl } from './weapons/firecontrol.js';
 import { Viewmodel, setupViewmodelAudit } from './weapons/viewmodel.js';
 import { HanjiState } from './materials/hanji.js';
+import { HanjiOccluders } from './materials/hanji-occluders.js';
 import { FxSystem } from './fx/index.js';
 import { SHOTS, SHOTS_BY_NAME, DEFAULT_VIEW } from '../tools/shots.js';
 
@@ -113,6 +114,10 @@ for (const id of hanjiPanes.keys()) hanji.register(id);
 const opacityApplier = new OpacityApplier(hanjiPanes);
 // R1 F: 창호지 역광 투과 유니폼 묶음 (패치는 CSM 패치 뒤 — 아래 finalize 직후). 샷 태양 강도 × T
 const hanjiTransmitUniforms = [];
+// [PATCH-008-B] 점광 투과의 해석적 캡슐 차폐 — 등록 캡슐(실루엣 더미; P4 적 캡슐)을 프레임마다 뷰 공간 유니폼으로
+const hanjiOccluders = new HanjiOccluders();
+{ const d = scene.getObjectByName('silhouette_dummy'); if (d) hanjiOccluders.setFromMesh('silhouette_dummy', d); }
+pipeline.beforeRender.push((cam) => hanjiOccluders.update(cam.matrixWorldInverse));
 const setHanjiTransmit = (sunIntensity) => { for (const u of hanjiTransmitUniforms) u.uHanjiTransmit.value = sunIntensity * HANJI_TRANSMIT; };
 
 // P2B FX — 기와 낙하 강체는 콜백 주입 (fx는 physics를 import하지 않는다)
@@ -243,6 +248,7 @@ const harness = installHarness({
   // P2A 배선
   fire, viewmodel, hanji, fx,
   hanjiPanes, // C2 §8: HANJI 반투과 화면 면적 → overdraw_estimate 편입
+  hanjiOccluders, // PATCH-008-B: 프로브가 더미 이동 후 재등록
   tagMaskHook: () => tagMask.render(), // PATCH-007-C: 자발광 태그 마스크 (캡처 뒤 호출)
   viewmodelAuditHook: ({ boost }) => setupViewmodelAudit({
     scene, camera, boost,
@@ -267,7 +273,7 @@ finalizeSurfaceShaders({ ...surfaceMaterials.mats, FX_DEBRIS_TILE: debrisMateria
   const seen = new Set();
   const patchHanji = (m) => {
     if (!m || seen.has(m) || !(m.name === 'HANJI' || m.name.startsWith('HANJI@'))) return;
-    seen.add(m); hanjiTransmitUniforms.push(applyHanjiTransmit(m, pipeline.sunTravelDirection, pipeline.sunColor));
+    seen.add(m); hanjiTransmitUniforms.push(applyHanjiTransmit(m, pipeline.sunTravelDirection, pipeline.sunColor, hanjiOccluders));
   };
   patchHanji(surfaceMaterials.mats.HANJI);
   scene.traverse((o) => { if (o.isMesh) patchHanji(o.material); });
