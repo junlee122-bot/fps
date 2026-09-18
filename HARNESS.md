@@ -44,6 +44,7 @@ Retina DPR 실제 게임플레이(내부 해상도 3.34MP, 2.07MP 아님)에서 
 | `tools/profile.mjs` | 통계적 | 프레임타임 분포·히치 귀속 | ✓ |
 | `tools/playtest.mjs` | — | 이동·사격 스모크 | ✓ |
 | `tools/geometryaudit.mjs` | **구조 불변식** | 씬그래프 정적 검사(브라우저·렌더 없음): [1]용마루>처마 [2]외피 법선 위·바깥 [3]기단>지면 [4]기와>보토>서까래(레이캐스트) [5]담장 하부<상부 [6]건물 담장 내부 = 게이트; [7] 파생 배치(기와·마루·추녀·합각·공포)는 보고용(advisory, PATCH-006-C). 음성 `--inject-flip-roof` (PATCH-005-C; P4 이후 종료 조건) | ✓ |
+| `tools/shotaudit.mjs` | **관측 검사** | 샷 감시 대상 등록(`shots.js` `audit`)을 노드 헤드리스로 기계 검사 — [1]절두체 [2]가시성(격자 레이 중 대상 도달 ≥1, 반투과 통과, 완전 차폐 시 차폐 오브젝트 보고) [3]최소 면적. R4 캡처 전 12샷 1회 실행(PATCH-009-B). 음성 `--inject-occluder`(케이스 23). 한계: 카메라 부착(뷰모델·화염)·런타임 스폰(파편)은 배경 대상으로 대체 | ✓ |
 | `tools/rendervariance.mjs` | **HDR 해시 단일** | 같은 입력 반복 렌더의 씬 RT(HalfFloat) 해시 동일성 — 8비트 게이트가 못 보는 서브LSB 변동 검출 (C3) | ✓ |
 
 > **`shotset.mjs`를 게이트로 쓰지 마라.** 빠르지만 재현되지 않는다.
@@ -203,6 +204,8 @@ node tools/playtest.mjs                          # exit 0
 ```
 
 > **[PATCH-005-C]** `node tools/geometryaudit.mjs` 는 P4 이후 모든 패스의 종료 조건에 포함한다(exit 0). 팔작지붕 반전이 P1.5·C3를 통과한 뒤 신설.
+>
+> **[PATCH-009-B]** `node tools/shotaudit.mjs` 는 R4 이후 캡처 전 종료 조건(exit 0)이다 — 샷이 선언한 감시 대상이 실제로 관측되는지(절두체·가시성·최소 면적) 검사한다. 대상을 옮겨 통과시키지 말고 샷 정의(계약) 또는 배치(P1)를 고친다.
 >
 > **[PATCH-007-C] 팔레트 게이트의 자발광 밴드.** `node tools/paletteaudit.mjs baseline/<pass>` 는 `<shot>.emask.png`가 있으면 태그 픽셀에만
 > 15°–55°를 추가 허용하고, 태그 픽셀 비율이 샷당 8%를 넘으면 exit 1 이다(상한을 올리지 마라). 태그되지 않은 픽셀(발광체가 비춘 표면·블룸

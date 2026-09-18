@@ -40,6 +40,11 @@ export const SHOTS = Object.freeze([
   {
     name: 'courtyard_noon',
     watch: '노출·그림자 (마당 정오 직사광)',
+    // [PATCH-009-B] 관측 검사 등록 — shotaudit.mjs (절두체·가시성·최소 면적). 마당 지면 + 그림자를 드리우는 동헌 지붕 상면
+    audit: [
+      { targets: [{ name: 'ground' }], minAreaPct: 30, note: '마당 정오 직사광이 닿는 지면' },
+      { targets: [{ match: '^dh_hip_main_ROOF_TILE' }], minAreaPct: 0.3, note: '그림자 캐스케이드를 만드는 동헌 기와 상면' },
+    ],
     cam: { pos: [7, 1.7, 8], target: [0, 3.2, -22], fov: 70 },
     sun: { elev: 68, azim: 190, intensity: 3.2 },
     hemi: 0.55,
@@ -48,6 +53,10 @@ export const SHOTS = Object.freeze([
   {
     name: 'daecheong_backlit',
     watch: 'EV 적응 (대청 역광, 실내→마당)',
+    audit: [
+      { targets: [{ name: 'dh_floor' }], minAreaPct: 20, note: '실내(어두운 쪽) 마루' },
+      { targets: [{ name: 'ground' }], minAreaPct: 2, note: '역광 마당(밝은 쪽)' },
+    ],
     cam: { pos: [0, 2.2, -26.5], target: [0, 1.3, 20], fov: 70 },
     sun: { elev: 32, azim: 180, intensity: 3.4 },
     hemi: 0.4,
@@ -58,6 +67,10 @@ export const SHOTS = Object.freeze([
     // [PATCH-008-B] 재정의: 야간 실내 광원 폐색 — 판 뒤 4 m 실내 등롱(lantern_light_na), 그 앞 더미(판 뒤 2.5 m, 플레이 거리).
     // 종전(주간 저태양 28°·역광 3.0)은 그림자가 판 아래로 떨어져 플레이 거리에서 실루엣이 맺히지 않았다(006-D 실측). 조명은 lantern_night 와 동일.
     watch: '반투과 산란 + 실내 광원 폐색 실루엣 판독성',
+    audit: [
+      { targets: [{ name: 'na_w_-3_hanji' }], minAreaPct: 8, note: '실루엣이 맺히는 창호지 판(반투과 대상) — 창살(불투명)이 판 앞을 ≈30% 가려 실측 9.5%' },
+      { targets: [{ name: 'silhouette_dummy' }], minAreaPct: 0.5, note: '판 뒤 2.5 m 더미 — 반투과 판 너머로 보여야 하며 기둥 등 불투명체에 가리면 실패' },
+    ],
     cam: { pos: [-36.8, 1.9, -10], target: [-32, 1.9, -10], fov: 60 },
     sun: { elev: 35, azim: 300, intensity: 0.02 },
     hemi: 0.05,
@@ -66,6 +79,7 @@ export const SHOTS = Object.freeze([
   {
     name: 'dancheong_closeup',
     watch: '머티리얼 최악 케이스 (처마·공포 근접)',
+    audit: { targets: [{ match: '^inst_(cheomcha|salmi|judu|soro|haenggong|rafter)@' }, { match: '^dh_(changbang|pyeongbang|dori_)' }, { match: '^dh_hip_main_ROOF_SOIL' }, { match: '^inst_lat_v' }, { match: '^inst_col_' }], minAreaPct: 60, note: '처마 조립(공포·창방·평방·도리·서까래·보토 하면·창살·기둥) — PATCH-009-B 예시 60%' },
     // [P1.5 재조준] 다포 3출목 재구축(주두·소로·첨차·살미·행공·장혀도리)에 맞춰
     // 공포 출목 구조가 프레임 60% 이상을 채우도록 — 공포대 y 4.35..5.9, 외목선 z -18.66.
     // 2~3조가 처마 곡선과 함께 걸리도록 반 발 물러선 앵글
@@ -77,6 +91,7 @@ export const SHOTS = Object.freeze([
   {
     name: 'roofline_distant',
     watch: 'LOD·대기원근 (기와지붕 원경 — 팔작 vs 맞배 실루엣)',
+    audit: { targets: [{ surface: 'ROOF_TILE' }, { surface: 'ROOF_SOIL' }, { surface: 'THATCH' }], minAreaPct: 2, note: '원경 지붕면 전체(기와 상면·보토·초가). 실측 2.6% — PATCH-009-B 예시 15% 는 이 카메라 구도에서 불가(계약 판단 항목)' },
     // [P1.5 재조준] 팔작 전환에 맞춰 카메라를 남동 담장 상공으로 — 팔작 2동(동헌·객사)과
     // 맞배 계열(내아·행랑·누각·회랑) 실루엣 차이가 한 프레임에 들어온다.
     // (누각 데크 시점은 누각 자기 지붕이, 남서 상공은 누각이 경내를 가려 기각)
@@ -88,6 +103,10 @@ export const SHOTS = Object.freeze([
   {
     name: 'lantern_night',
     watch: '자발광·블룸 (야간 등롱)',
+    audit: [
+      { targets: [{ match: '^lantern_head_' }], minAreaPct: 0.2, note: '점등 등롱 머리(자발광 대상)' },
+      { targets: [{ match: '^wall_g_4$' }, { match: '^gate_' }], minAreaPct: 10, note: '등롱광이 닿는 담장·문루(블룸·감쇠 도달 판독면)' },
+    ],
     cam: { pos: [1.2, 1.6, 36.5], target: [5, 2.2, 40], fov: 60 },
     sun: { elev: 35, azim: 300, intensity: 0.02 },
     hemi: 0.05,
@@ -96,6 +115,7 @@ export const SHOTS = Object.freeze([
   {
     name: 'fog_wall',
     watch: '볼류메트릭 (안개 담장)',
+    audit: { targets: [{ name: 'wall_g_1' }], minAreaPct: 10, note: '안개 속으로 멀어지는 담장면' },
     cam: { pos: [-41.6, 1.8, 0], target: [-43.6, 2.0, -28], fov: 65 },
     sun: { elev: 18, azim: 250, intensity: 2.2 },
     hemi: 0.4,
@@ -106,6 +126,7 @@ export const SHOTS = Object.freeze([
   {
     name: 'muzzle_interior',
     watch: '트랜지언트 라이트 (실내 총구화염)',
+    audit: { targets: [{ name: 'gs_floor' }, { match: '^gs_(n|e)_' }], minAreaPct: 40, note: '화염광이 닿는 실내 바닥·벽. 화염 자체(카메라 부착 fx)는 헤드리스 씬에 없어 검사 불가 — 한계' },
     cam: { pos: [24.8, 1.9, -7.2], target: [30, 1.6, -11.8], fov: 68 },
     sun: { elev: 12, azim: 270, intensity: 1.0 },
     hemi: 0.15,
@@ -122,6 +143,7 @@ export const SHOTS = Object.freeze([
   {
     name: 'hanji_pierced',
     watch: '동적 투과율 (피격 누적 창호지)',
+    audit: { targets: [{ match: '^dh_bay_.*_hanji$' }], minAreaPct: 10, note: '피격 대상 동헌 전면 창호지 판(반투과 대상)' },
     cam: { pos: [3.2, 2.2, -17.3], target: [3.2, 2.4, -19.6], fov: 55 },
     sun: { elev: 45, azim: 185, intensity: 3.0 },
     hemi: 0.5,
@@ -137,6 +159,10 @@ export const SHOTS = Object.freeze([
   {
     name: 'corridor_columns',
     watch: '그림자 이음매 (회랑 기둥 리듬)',
+    audit: [
+      { targets: [{ match: '^inst_col_2\\.9@' }], minAreaPct: 5, note: '회랑 기둥 열' },
+      { targets: [{ name: 'cr_floor' }], minAreaPct: 10, note: '기둥 그림자 이음매가 보이는 회랑 마루' },
+    ],
     cam: { pos: [39.1, 1.7, 17], target: [39.1, 1.9, -30], fov: 62 },
     sun: { elev: 16, azim: 255, intensity: 2.8 },
     hemi: 0.35,
@@ -145,6 +171,7 @@ export const SHOTS = Object.freeze([
   {
     name: 'viewmodel_ads',
     watch: '뷰모델 조명 리그 (P2A부터 실제 뷰모델 감시)',
+    audit: { targets: [{ name: 'ground' }], minAreaPct: 30, note: '뷰모델(카메라 부착)은 헤드리스 씬에 없어 검사 불가 — viewmodelaudit 가 담당. 배경 지면만 등록' },
     cam: { pos: [0, 1.64, 10], target: [0, 1.5, -24], fov: 58 },
     sun: { elev: 50, azim: 205, intensity: 3.0 },
     hemi: 0.5,
@@ -159,6 +186,10 @@ export const SHOTS = Object.freeze([
     // 픽셀 게이트(baseline ×2·imagediff)에 편입된다. 시드 스트림 산포라 2회 캡처 비트 동일.
     name: 'tile_fall',
     watch: '낙하 기와 (파편 재질·강체·데칼 — 픽셀 게이트 편입)',
+    audit: [
+      { targets: [{ match: '^wall_cap_2_' }, { name: 'wall_ridge_2' }], minAreaPct: 5, note: '피격되는 담장 기와 갓(낙하 기와의 출처)' },
+      { targets: [{ name: 'ground' }], minAreaPct: 5, note: '기와가 떨어지는 지면. 낙하 파편(런타임 스폰)은 헤드리스에서 검사 불가 — 한계' },
+    ],
     cam: { pos: [40.4, 1.9, 18.0], target: [43.6, 1.55, 18.6], fov: 60 },
     sun: { elev: 40, azim: 200, intensity: 3.0 },
     hemi: 0.5,
