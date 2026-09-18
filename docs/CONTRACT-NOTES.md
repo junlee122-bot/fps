@@ -967,7 +967,11 @@ PACKED_DIRT·THATCH·BRONZE — 선언 채도 sRGB ≈.17–.25로 하향, 매�
 albedo·.035. S = CSM 그림자 맵 **PCSS**(blocker search 16탭 Poisson·반경 8텍셀 → 반경 = (수신 깊이 − 차폐 깊이)·6000·scatter, 1~28텍셀 →
 PCF 16탭): 종이에 가까운 물체는 선명, 먼 물체는 흐린 실루엣. 피격 상태는 uHanjiScatter=(opacity/base)²로 흐림 반경에도 반영(찢길수록 선명·
 투명). 캐스케이드 선택은 CSM 셰이더와 동일(linearDepth vs CSM_cascades, unrolled loop). 결정성: 고정 탭·밉 없는 그림자 맵. 프로그램 순열
-불변(HANJI 프로그램 내부 코드 변경). 저해상 확인·팔레트·rendervariance는 사전점검에서.
+불변(HANJI 프로그램 내부 코드 변경). 저해상 확인(640×416, r3h): 컴파일 오류 0·프로그램 45 유지. hanji_silhouette — 종이가 거의 불투명한
+백색으로 읽히고 창살이 실루엣, 뒤쪽 개구부만 밝은 사각으로 투과(배면 그림자 실루엣 작동), 실내 구조물은 흐린 실루엣만. daecheong_backlit —
+측면 창호가 불투명한 종이로 읽힘(R2 '격자 하단 밝은 띠' 소멸). hanji_pierced — 다발 피격 후 불투명도가 .14까지 떨어져 뒤가 훤히 보이는데,
+이는 dynamicOpacity(균일 불투명도 감소) 상태의 의도된 표현이나 '찢긴 종이'가 아니라 '유리'로 읽힐 여지가 있다 — 구멍 국소화(P2B 데칼과
+결합한 알파 마스크)는 P3 소유 후속 후보로 기록. 팔레트·rendervariance는 사전점검에서.
 
 **005-E 부팅 2계층 구현** (`tools/profile.mjs`): 런별 `__bootPhases`로 boot_gpu = materials_synth + prewarm + warm_render, boot_cpu = bootMs −
 boot_gpu; 출력 `bootCpu {value, budget 3000, pass}`·`bootGpu {value, phases, materialsSynthMs, note(GPU-INVALID)}`·중앙값. 분류 근거: 절차
