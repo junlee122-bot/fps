@@ -129,6 +129,9 @@ C3·C4·R1 수치의 원 출력은 `docs/CONTRACT-NOTES.md`의 "C3 스냅샷", "
 - **007-D 지평선 판독**: 호출 경로는 `sky.apply ← applySunConfig ← applyShot/applyDefaultView`뿐, 런타임 TOD 경로 없음. profile 히치 귀속에 GPU 동기화
   사각이 있어 누적 판독 수(`horizonReadbacksPerFrame`)·히치별 `horizonReadbacks`·`horizonReadbacksDuringPlay`(0이어야 함)를 추가. Apple Silicon
   실측(005-H, 사용자 측) 회신 항목에 `horizonReadbacksDuringPlay_total === 0`·`bootGpuMs_median` 추가.
+- **006-D 창호지 실루엣(프로브 실측)**: .95에서 판 뒤 ≤1 m 는 판독 가능(대비 .24–.33, 희미), 2 m 는 불가(태양 고도 28°에서 그림자가 판 아래로 —
+  흐림 탓 아님), 흐림은 지우지 않음, 피격(.5/.15)은 직접 가시로 판독 크게 개선. **판단 항목(P1/계약)**: 샷의 `silhouette_dummy` 가 판 뒤 2.5 m 라 계약
+  샷에는 실루엣이 맺히지 않는다 — 더미 이동(P1) 또는 샷 태양 고도(계약).
 - **007-E 부연 미구현**: kit.js 처마는 원형 서까래 한 단 — 부연·평고대 없음, P1 이월. R3 비평의 "처마 얇다"는 먼저 여기.
 - **006-G tris_scene 정의 고정**: `getSceneTriangles` byGroup(world/viewmodel/fx/sky/other)·`userData.auditOnly` 제외, profile `trisScene.byGroup`.
   §9 동결 검증 수치는 `world` 성분.
