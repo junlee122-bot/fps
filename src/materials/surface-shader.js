@@ -70,10 +70,10 @@ const FRAG_PARS = /* glsl */`
   uniform float uLocalScale;  // LOCAL 모드: 치수 속성이 없을 때의 반복 (1/m)
   uniform float uMacro;       // R1 수정 D: 저주파(10~30m) 거시 변조 진폭 0..1 (0 = 없음)
   uniform vec4 uUnder;        // R1 수정 C: 지붕 셸 하면 서까래 — x 혼합량(0=없음), y 서까래 간격(m), z 서까래 폭(m), w 앙토 AO
-  #ifdef SURF_GROUND_AO
-  uniform sampler2D uGroundAoMap; // R4 접지 음영 맵 (render/groundao.js 베이크, R8, 월드 XZ)
+  // R4 접지 음영 맵 (render/groundao.js 베이크, R8, 월드 XZ) — 유니폼 게이트(uGroundAo 0/1): 순열 불변, 전 표면 재질이 같은 샘플러를 갖는다
+  uniform sampler2D uGroundAoMap;
   uniform vec4 uGroundAoBounds;   // minX, minZ, 1/sizeX, 1/sizeZ
-  #endif
+  uniform float uGroundAo;        // 0 = 미적용(벽·부재), 1 = 상향면 재질(지면·마루·기단)
   uniform vec3 uUnderColor;   // 서까래 목재색 (선형)
 
   // 결정적 정수 해시 값노이즈 (synth.js lowbias32와 동형) — 시간·난수·미분 입력 없음
@@ -220,15 +220,13 @@ const FRAG_MAP = /* glsl */`
     }
   }
   #endif
-  #ifdef SURF_GROUND_AO
-  {
+  if (uGroundAo > 0.0) {
     // R4 접지 음영: 정적 수직 구조물 풋프린트에서 베이크한 탑다운 AO 를 상향면에만 곱한다 (GTAO 합성과 같은 의미 — 직사·간접 모두).
     // 화면 공간 GTAO 가 눈높이에서 바닥 옆 기둥을 못 보는 한계(측정 1.00)를 메운다.
     vec2 gUv = (vSurfWPos.xz - uGroundAoBounds.xy) * uGroundAoBounds.zw;
     float gao = texture2D(uGroundAoMap, clamp(gUv, 0.0, 1.0)).r;
-    surfAlbedo.rgb *= mix(1.0, gao, max(surfN.y, 0.0));
+    surfAlbedo.rgb *= mix(1.0, gao, uGroundAo * max(surfN.y, 0.0));
   }
-  #endif
   float surfWear = 0.0;
   #ifdef SURF_WEAR
   {
@@ -281,7 +279,6 @@ export function applySurfaceShader(mat, opts = {}) {
   if (mode === 'local') mat.defines.SURF_LOCAL = 1; else mat.defines.SURF_TRI = 1;
   if (opts.pom && mode === 'tri') mat.defines.SURF_POM = 1;
   if (opts.wear) mat.defines.SURF_WEAR = 1;
-  if (opts.groundAo?.texture) mat.defines.SURF_GROUND_AO = 1;
   const uniforms = {
     uSurfScale: { value: opts.scale ?? 1.0 },
     uPomScale: { value: opts.pomScale ?? 0.02 },
@@ -292,10 +289,10 @@ export function applySurfaceShader(mat, opts = {}) {
     uMacro: { value: opts.macro ?? 0.0 },
     uUnder: { value: { x: opts.under?.amount ?? 0.0, y: opts.under?.pitch ?? 0.45, z: opts.under?.width ?? 0.14, w: opts.under?.ao ?? 0.0 } },
     uUnderColor: { value: opts.underColor ?? { r: 0.15, g: 0.11, b: 0.08 } },
-    ...(opts.groundAo?.texture ? {
-      uGroundAoMap: { value: opts.groundAo.texture },
-      uGroundAoBounds: { value: { x: opts.groundAo.bounds.minX, y: opts.groundAo.bounds.minZ, z: 1 / opts.groundAo.bounds.sizeX, w: 1 / opts.groundAo.bounds.sizeZ } },
-    } : {}),
+    // R4 접지 음영 — 맵·경계는 전 재질 공유(유니폼 게이트로 순열 불변), 적용 여부는 uGroundAo
+    uGroundAoMap: { value: opts.groundAoMap?.texture ?? null },
+    uGroundAoBounds: { value: opts.groundAoMap ? { x: opts.groundAoMap.bounds.minX, y: opts.groundAoMap.bounds.minZ, z: 1 / opts.groundAoMap.bounds.sizeX, w: 1 / opts.groundAoMap.bounds.sizeZ } : { x: 0, y: 0, z: 0, w: 0 } },
+    uGroundAo: { value: opts.groundAo === true && opts.groundAoMap ? 1.0 : 0.0 },
   };
   mat.userData.surfUniforms = uniforms;
   const prev = mat.onBeforeCompile;

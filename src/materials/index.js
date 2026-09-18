@@ -434,7 +434,7 @@ export function finalizeSurfaceShaders(mats, { groundAo = null } = {}) {
   for (const m of Object.values(mats)) {
     const o = m.userData.surfaceOpts;
     if (!o || o.mode === 'uv') continue;
-    applySurfaceShader(m, o.groundAo === true && groundAo ? { ...o, groundAo } : o);
+    applySurfaceShader(m, groundAo ? { ...o, groundAoMap: groundAo } : o); // 맵은 전 재질 공유, o.groundAo 가 적용 스위치
     n++;
   }
   return n;

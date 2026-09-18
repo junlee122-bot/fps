@@ -12,7 +12,7 @@
 import * as THREE from 'three';
 import { clock } from '../core/clock.js';
 
-export const GROUND_AO = Object.freeze({ res: 1024, falloff: 0.6, minHeight: 0.5, maxBaseY: 1.3, strength: 0.55, heightRef: 2.0 });
+export const GROUND_AO = Object.freeze({ res: 1024, falloff: 0.5, minHeight: 0.5, maxBaseY: 1.3, strength: 0.45, heightRef: 2.0 }); // 강도 .45/폭 .5 m: .55/.6 은 회랑 저해상에서 밑동 타원이 과하게 읽혀 한 단계 완화 (값 선택, P3)
 
 const _bb = new THREE.Box3(); const _m = new THREE.Matrix4(); const _v = new THREE.Vector3();
 
