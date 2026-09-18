@@ -500,7 +500,10 @@ export function addHipRoof(A, {
   const eaveHalfX = ridgeLen / 2 + overhangEnd;
   const eaveHalfZ = span / 2 + overhangSide;
   const drop = ridgeY - eaveY;
-  const yProfile = (v) => ridgeY - drop * (1 - Math.pow(1 - v, sag));
+  // [PATCH-005-B] v는 mainSlopeFn/hipSlopeFn에서 0=처마(z=±eaveHalfZ), 1=용마루(z=0)다. 종전 식 ridgeY − drop·(1−(1−v)^sag)는
+  // v=0에 ridgeY, v=1에 eaveY를 주어 지붕이 뒤집혔다(처마 8.2 m > 용마루 5.9 m — CONTRACT-NOTES R1-G1 실증, P1.5·C3 게이트 미검출).
+  // 매개변수 방향만 바로잡는다: v=0→eaveY, v=1→ridgeY, sag>1이면 용마루 쪽이 급하고 처마 쪽이 완만한 오목 곡선(의도 그대로).
+  const yProfile = (v) => ridgeY - drop * (1 - Math.pow(v, sag));
   const yBreak = yProfile(hipRatio);
   const topHalfX = Math.max(1.2, eaveHalfX - eaveHalfZ * hipRatio);
   const zAtV = (v) => eaveHalfZ * (1 - v);

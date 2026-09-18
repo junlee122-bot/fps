@@ -43,6 +43,7 @@ Retina DPR 실제 게임플레이(내부 해상도 3.34MP, 2.07MP 아님)에서 
 | `tools/imagediff.mjs` | — | 픽셀 비교 | ✓ |
 | `tools/profile.mjs` | 통계적 | 프레임타임 분포·히치 귀속 | ✓ |
 | `tools/playtest.mjs` | — | 이동·사격 스모크 | ✓ |
+| `tools/geometryaudit.mjs` | **구조 불변식** | 씬그래프 정적 검사(브라우저·렌더 없음): 용마루>처마, 외피 법선 위·바깥, 기단>지면, 기와>보토>서까래(레이캐스트), 담장 하부<상부, 건물 담장 내부. 음성 `--inject-flip-roof` (PATCH-005-C; P4 이후 종료 조건) | ✓ |
 | `tools/rendervariance.mjs` | **HDR 해시 단일** | 같은 입력 반복 렌더의 씬 RT(HalfFloat) 해시 동일성 — 8비트 게이트가 못 보는 서브LSB 변동 검출 (C3) | ✓ |
 
 > **`shotset.mjs`를 게이트로 쓰지 마라.** 빠르지만 재현되지 않는다.
@@ -190,6 +191,8 @@ node tools/profile.mjs --runs 3                  # p50/p99가 목표 이상
 node tools/playtest.mjs                          # exit 0
 ```
 
+> **[PATCH-005-C]** `node tools/geometryaudit.mjs` 는 P4 이후 모든 패스의 종료 조건에 포함한다(exit 0). 팔작지붕 반전이 P1.5·C3를 통과한 뒤 신설.
+>
 > **[PATCH-005-J] 게이트 체인은 순차 실행한다.** 병렬 실행으로 시간을 줄이려 하지 마라 — 감사 도구는 페이지 부팅·프레임 스텝의 시간
 > 상한을 가지며(harnesstest 케이스 10이 동시 부하로 시간 초과한 실측), 타임아웃으로 인한 실패는 결과를 신뢰할 수 없게 하고 그 상태의
 > "통과"는 통과가 아니다. 게이트가 도는 동안 같은 기계에서 다른 렌더 작업(프로브·캡처)도 돌리지 않는다.

@@ -22,6 +22,7 @@
  * 14. determinismaudit — 음성 훅 (Math.random 가상 주입) → exit 1 (PATCH-004-B)
  * 15. profile — 음성 훅 (--inject-noroof: 사격 앙각 지면) → SCENARIO-INVALID + exit 1 (C2 검토)
  * 16. profile — 양성: 실제 동선이 ROOF_TILE 피격·기와 낙하를 실측 (축소 조건, 시나리오 유효성만)
+ * 19. geometryaudit — 음성 훅 (--inject-flip-roof: 팔작 셸 y 반전) → exit 1 + testOverride (PATCH-005-C)
  */
 
 import { spawnSync } from 'node:child_process';
@@ -348,6 +349,19 @@ const SHORT = ['--duration', '16', '--runs', '1', '--dpr', '1', '--w', '640', '-
   let bad = null, marked = false;
   try { const j = JSON.parse(r.out); bad = j.varying; marked = String(j.testOverride ?? '').includes('debugDrift'); } catch { /* fail */ }
   record(18, 'rendervariance 음성 (--inject-drift → 변동 검출 exit 1 + 표식)', r.code === 1 && Array.isArray(bad) && bad.length === 2 && marked, `exit=${r.code} varying=${JSON.stringify(bad)} 표식=${marked}`);
+}
+
+/* ---- 19. geometryaudit 음성 (PATCH-005-C): 팔작 셸 정점을 인위로 뒤집은 입력에서 반드시 exit 1 + testOverride ----
+ * 팔작지붕 프로파일 반전(처마 > 용마루)이 P1.5·C3·픽셀 게이트를 전부 통과한 사례 — 정적 불변식 감사가 이를 잡는지 검증한다.
+ * 뒤집힌 셸에서 불변식 [1](용마루>처마)·[2](외피 법선 위·바깥)가 팔작 2동(dh·gs) 모두에서 실패해야 한다. */
+{
+  const r = runAudit('node', ['tools/geometryaudit.mjs', '--inject-flip-roof']);
+  let marked = false, flipFails = 0;
+  try {
+    const j = JSON.parse(r.out); marked = String(j.testOverride ?? '').includes('inject-flip-roof');
+    flipFails = (j.checks ?? []).filter((c) => !c.ok && /^\[[12]\] (dh|gs):/.test(c.name)).length;
+  } catch { /* fail */ }
+  record(19, 'geometryaudit 음성 (--inject-flip-roof → 팔작 [1]·[2] 실패 exit 1 + 표식)', r.code === 1 && marked && flipFails >= 2, `exit=${r.code} 표식=${marked} 팔작 [1]/[2] 실패=${flipFails}`);
 }
 
 const ok = results.every((r) => r.pass);
