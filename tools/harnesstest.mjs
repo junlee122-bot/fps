@@ -25,6 +25,7 @@
  * 19. geometryaudit — 음성 훅 (--inject-flip-roof: 팔작 셸 y 반전) → exit 1 + testOverride (PATCH-005-C)
  * 20. paletteaudit — 자발광 밴드: 비태그 주황 주입 exit 1 / 태그 주황 exit 0(대조) / 마스크 12% 강제 exit 1 (PATCH-007-C)
  * 23. shotaudit — 양성(12샷 등록 전부 통과) + 음성 훅 (--inject-occluder: 대상 앞 불투명 상자 → exit 1 + 표식 + 차폐 이름) (PATCH-009-B; 21·22 는 P4 예약)
+ * 24. geometryaudit [8] 창살 방향 톱니 — 양성(위반 4 = 상한, exit 0) + 음성 훅 (--inject-lattice-flip: 정상 판 1개 반사 → 위반 5 > 상한 → exit 1 + 표식)
  */
 
 import { spawnSync } from 'node:child_process';
@@ -365,6 +366,26 @@ const SHORT = ['--duration', '16', '--runs', '1', '--dpr', '1', '--w', '640', '-
     flipFails = (j.checks ?? []).filter((c) => !c.ok && /^\[[12]\] (dh|gs):/.test(c.name)).length;
   } catch { /* fail */ }
   record(19, 'geometryaudit 음성 (--inject-flip-roof → 팔작 [1]·[2] 실패 exit 1 + 표식)', r.code === 1 && marked && flipFails >= 2, `exit=${r.code} 표식=${marked} 팔작 [1]/[2] 실패=${flipFails}`);
+}
+
+/* ---- 24. geometryaudit [8] 창살 방향 톱니 모드 (PATCH-014 후속) ----
+ * 방향 부호 오류가 세 번째다(팔작 반전 005-B · 셸 와인딩 P2B · 창살 방향) — 셋 다 게이트가 아니라 육안으로 찾았다.
+ * 톱니: 알려진 위반 4건(대청 전면)은 통과시키되 5건이 되면 실패. 허용 목록이 아니라 **위반 수 상한**이다(PATCH-004-B 와 충돌 없음).
+ * 양성: 현재 트리에서 위반 = 상한 4, exit 0. 음성: 정상 판 하나를 판 평면 기준으로 반사 → 5건 → exit 1 + 표식. */
+{
+  const pos = runAudit('node', ['tools/geometryaudit.mjs']);
+  const neg = runAudit('node', ['tools/geometryaudit.mjs', '--inject-lattice-flip']);
+  let posViol = -1, negViol = -1, marked = false, capOk = false;
+  const pick = (j) => (j.checks ?? []).find((c) => /^\[8\]/.test(c.name));
+  try {
+    const jp = JSON.parse(pos.out), jn = JSON.parse(neg.out);
+    posViol = pick(jp)?.got?.위반 ?? -1; negViol = pick(jn)?.got?.위반 ?? -1;
+    capOk = (pick(jp)?.got?.상한 ?? -1) === 4 && (pick(jp)?.got?.검사한_실외접면_판 ?? 0) >= 12;
+    marked = String(jn.testOverride ?? '').includes('inject-lattice-flip');
+  } catch { /* fail */ }
+  const ok = pos.code === 0 && posViol === 4 && capOk && neg.code === 1 && negViol === 5 && marked;
+  record(24, 'geometryaudit [8] 창살 방향 톱니 (양성 위반4=상한 exit0 / 음성 반사 → 위반5 exit1 + 표식)', ok,
+    `양성 exit=${pos.code} 위반=${posViol} / 음성 exit=${neg.code} 위반=${negViol} 표식=${marked}`);
 }
 
 /* ---- 20. paletteaudit 자발광 밴드 (PATCH-007-C) ----

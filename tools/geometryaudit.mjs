@@ -13,7 +13,13 @@
  *  4. 레이어 순서: 기와 상면 > ROOF_SOIL 상면 > 서까래 상면 (처마 외곽 기준)
  *  5. 담장 하부(GRANITE) 높이 < 담장 상부(ROOF_TILE 갓) 높이
  *  6. 모든 건물의 바운딩박스가 담장(±44) 내부 (담장·남문루·지면 제외)
+ *  8. [PATCH-014 후속, 톱니 모드] 실외에 면한 창호 판의 창살은 판의 **실외 쪽**에 있을 것 — 전통 한옥은 창호지를 창살 안쪽(실내)에 붙인다.
+ *     양쪽이 다 실내인 칸막이 판은 제외한다. 실외/실내 판별은 **건물 수직 벽 메시(HANJI·WOOD_PLANK·EARTH_WALL, 높이 ≥0.8 m · 바닥에서 올라온 것만 — 마루와 박공벽은 벽선보다 내밀어 제외) 외피 바운딩박스**로 한다 —
+ *     판이 그 경계면(±0.2 m)에 있으면 실외 접면이고, 바깥 방향은 박스 중심의 반대쪽이다. 지붕은 처마가 벽보다 내밀어 기준이 될 수 없다.
+ *     **지금은 보고 전용(톱니)**: 알려진 위반 4 건(대청 전면 `dh_bay` ×4, 창살이 실내 쪽)을 기록하고 **4 건을 넘으면 exit 1**.
+ *     P1 회귀 패스가 방향+패턴을 고치면 상한을 0 으로 내리고 정식 게이트로 전환한다(허용 목록이 아니라 위반 수 상한 — PATCH-004-B 와 충돌 없음).
  *
+ * 음성 훅 (harnesstest 케이스 24): --inject-lattice-flip — 정상 판 하나의 창살을 판 평면 기준으로 반사(위반 5 건) → 반드시 exit 1 + testOverride.
  * 음성 훅 (harnesstest 케이스 19): --inject-flip-roof — 팔작 셸 정점 y를 평균 기준으로 뒤집은 입력 → 반드시 exit 1 + testOverride.
  * 출력: JSON { ok, checks[], testOverride? }, exit 0/1.
  *
@@ -28,6 +34,8 @@ import { parseArgs } from './lib/args.mjs';
 
 const args = parseArgs();
 const INJECT_FLIP = args['inject-flip-roof'] === true;
+const INJECT_LAT = args['inject-lattice-flip'] === true;
+const LATTICE_VIOLATION_CAP = 4; // 톱니: 알려진 위반(대청 전면 4베이). P1 수정 후 0 으로 내린다
 const WALL = 44;
 
 const scene = new THREE.Scene();
@@ -64,6 +72,7 @@ if (INJECT_FLIP) {
 }
 
 const checks = [];
+let latticeRows = [];
 const push = (name, ok, got, advisory = false) => checks.push({ name, ok: !!ok, got, ...(advisory ? { advisory: true } : {}) });
 
 /* ---------------------------------------------------------- 지붕 그룹 */
@@ -274,10 +283,89 @@ for (const g of meshes.filter((m) => /^wall_g_\d+$/.test(m.name))) {
   push('[6] 건물 바운딩박스가 담장(±44) 내부 (담장·남문루·지면 제외)', worst <= WALL - 0.3, { maxExtent: +worst.toFixed(2), at: worstName });
 }
 
+/* ---- [8] 창호 창살 방향 (톱니 모드) ---------------------------------------------- */
+{
+  const WALL_SURF = new Set(['HANJI', 'WOOD_PLANK', 'EARTH_WALL']);
+  const prefixOf = (n) => n.split('_')[0];
+  // 건물별 벽 메시 외피 박스 (지붕 제외 — 처마가 벽보다 내밀어 기준이 될 수 없다)
+  const encl = new Map();
+  for (const m of meshes) {
+    const s = m.userData?.surface;
+    if (!s || !WALL_SURF.has(s)) continue;
+    const pf = prefixOf(m.name);
+    if (!/^(dh|na|gs)$/.test(pf)) continue;
+    const b = worldBox(m);
+    const sz = b.getSize(new THREE.Vector3());
+    if (sz.y < 0.8) continue;   // 마루(수평 널)는 벽보다 내밀어 외피 기준이 될 수 없다 — 수직 벽만
+    if (b.min.y > 1.6) continue; // 박공벽은 처마 밑에서 벽선보다 내밀어 있다(내아 실측 1.5 m) — 바닥에서 올라온 벽만
+    const cur = encl.get(pf);
+    if (!cur) encl.set(pf, b.clone()); else cur.union(b);
+  }
+  // 창살 인스턴스 월드 좌표 (판 매칭용)
+  const latInst = [];
+  {
+    const mat = new THREE.Matrix4(), p = new THREE.Vector3();
+    scene.traverse((im) => {
+      if (!im.isInstancedMesh || !/^inst_lat_/.test(im.name)) return;
+      for (let i = 0; i < im.count; i++) {
+        im.getMatrixAt(i, mat); p.setFromMatrixPosition(mat).applyMatrix4(im.matrixWorld);
+        latInst.push({ im, i, pos: p.clone() });
+      }
+    });
+  }
+  const panes = meshes.filter((m) => /_hanji$/.test(m.name) && m.geometry?.parameters?.width);
+  const rows = [];
+  for (const pane of panes) {
+    const pf = prefixOf(pane.name);
+    const box = encl.get(pf);
+    if (!box) continue;
+    const ry = pane.rotation.y;
+    const axis = Math.abs(ry) < 0.1 ? 'z' : 'x';           // 법선 축
+    const pos = pane.getWorldPosition(new THREE.Vector3());
+    const pc = axis === 'z' ? pos.z : pos.x;
+    const lo = axis === 'z' ? box.min.z : box.min.x;
+    const hi = axis === 'z' ? box.max.z : box.max.x;
+    const EPS = 0.2;
+    const atLo = Math.abs(pc - lo) <= EPS, atHi = Math.abs(pc - hi) <= EPS;
+    if (!atLo && !atHi) { rows.push({ pane: pane.name, kind: 'partition(양쪽 실내)', skipped: true }); continue; }
+    const outward = atHi ? +1 : -1;                         // 실외 = 박스 바깥
+    const hw = pane.geometry.parameters.width / 2, hh = pane.geometry.parameters.height / 2;
+    let sum = 0, n = 0;
+    for (const li of latInst) {
+      const d = axis === 'z' ? li.pos.z - pos.z : li.pos.x - pos.x;
+      if (Math.abs(d) > 0.06) continue;
+      const lat = axis === 'z' ? li.pos.x - pos.x : li.pos.z - pos.z;
+      if (Math.abs(lat) > hw + 0.05 || Math.abs(li.pos.y - pos.y) > hh + 0.05) continue;
+      sum += d; n++;
+      if (INJECT_LAT && pane.name === 'na_w_-3_hanji') {    // 음성 훅: 정상 판 하나를 판 평면 기준 반사
+        const mat = new THREE.Matrix4(); li.im.getMatrixAt(li.i, mat);
+        const q = new THREE.Vector3().setFromMatrixPosition(mat);
+        if (axis === 'z') q.z = 2 * pos.z - li.pos.z; else q.x = 2 * pos.x - li.pos.x;
+        mat.setPosition(q); li.im.setMatrixAt(li.i, mat);
+        sum += -2 * d; // 반사된 오프셋으로 대체
+      }
+    }
+    if (n === 0) { rows.push({ pane: pane.name, kind: '창살 없음', skipped: true }); continue; }
+    const meanOff = sum / n;
+    const latticeSide = Math.sign(meanOff) || 0;
+    const ok7 = latticeSide === outward;
+    rows.push({ pane: pane.name, axis, kind: '실외 접면', outward, latticeSide, meanOffset: +meanOff.toFixed(4), instances: n, ok: ok7 });
+  }
+  const viol = rows.filter((r) => r.ok === false);
+  const checked = rows.filter((r) => !r.skipped).length;
+  push(`[8] 창호 창살 방향 — 실외 접면 판의 창살이 실외 쪽 (톱니 상한 ${LATTICE_VIOLATION_CAP}건)`,
+    viol.length <= LATTICE_VIOLATION_CAP,
+    { 검사한_실외접면_판: checked, 칸막이_제외: rows.filter((r) => r.skipped).length, 위반: viol.length,
+      상한: LATTICE_VIOLATION_CAP, 위반목록: viol.map((v) => v.pane) });
+  latticeRows = rows;
+}
+
 const ok = checks.filter((c) => !c.advisory).every((c) => c.ok); // 게이트 = 불변식 1~6; [7] 파생 배치는 보고용(PATCH-006-C 표)
 console.log(JSON.stringify({
   ok,
   ...(INJECT_FLIP ? { testOverride: 'inject-flip-roof — harnesstest 전용, 계약 판정 무효' } : {}),
+  ...(INJECT_LAT ? { testOverride: 'inject-lattice-flip — harnesstest 전용, 계약 판정 무효' } : {}),
+  latticeOrientation: latticeRows,
   roofs: roofs.map((r) => ({ prefix: r.prefix, axis: r.axis, ridgeTop: +r.ridgeTop.toFixed(2), covers: r.covers.length })),
   failed: checks.filter((c) => !c.ok && !c.advisory).length,
   advisoryFailed: checks.filter((c) => !c.ok && c.advisory).length,
