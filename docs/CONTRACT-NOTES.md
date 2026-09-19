@@ -1350,7 +1350,10 @@ dev 와 픽셀 동일하면 "배포된 것이 곧 게이트된 것"이 증명되
   particlesMax 731, decalsMax 137. **플레이 중 셰이더 컴파일 0, 하네스 오류 0, 결정성 창 위반 0, 지평선 판독 0**. boot_cpu 중앙값 211 ms(예산 3 s, 통과);
   boot_gpu 11.4 s(SwiftShader 컴파일·PMREM·합성 — GPU-INVALID 배너, 실기 측정 전 판정 불가; 프리웜 45 프로그램 9.5 s 중 shot_sweep 7.4 s는 apply 비용).
   시나리오 유효(ROOF_TILE 피격 135·파편 135). gpuDependent 무효(소프트웨어 렌더러) — 010-D 실기 측정 대상.
-- harnesstest 06:11 시작 → 감사 7종 순차. (아래에 이어 기록)
+- **harnesstest (06:11–06:43, 32 min, exit 0): 20/20 통과** — 케이스 1–20 전부(음성 훅 포함: imagediff·surfaceaudit·coveraudit·chainaudit·viewmodelaudit·
+  fxaudit·paletteaudit 자색·albedoaudit·determinismaudit·profile 시나리오·rendervariance 드리프트·geometryaudit 지붕 반전·paletteaudit 자발광 밴드 3분기).
+  케이스 23(shotaudit 차폐 주입)은 r4wt 병합 뒤 전체 재실행에서 검증.
+- 감사 7종 06:43 시작 → 팔레트 exit 0 … (아래에 이어 기록)
 
 ## C. 표류 방지 메모 (충돌은 아니지만 오해 소지)
 
