@@ -20,7 +20,9 @@ const MIME = {
   '.wasm': 'application/wasm',
 };
 
-export async function startServer(root = resolve(import.meta.dirname, '../..')) {
+// FPS_SERVE_ROOT: 서빙 루트 재지정 (기본 리포 루트). 프로덕션 빌드(dist/)에 baseline 을 1회 돌려 dev 와 픽셀 동일한지
+// 확인하는 선택 경로(docs/DEPLOY.md). 게이트 판정은 기본 루트(dev 빌드)에서만 유효 — 이 값이 설정된 실행은 계약 판정이 아니다.
+export async function startServer(root = resolve(process.env.FPS_SERVE_ROOT ?? resolve(import.meta.dirname, '../..'))) {
   const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url, 'http://localhost');

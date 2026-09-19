@@ -26,6 +26,7 @@ import { SkySystem } from './sky/index.js';
 import { OpacityApplier } from './render/opacity.js';
 import { setupAlbedoAudit } from './render/audit-cards.js';
 import { createTagMask } from './render/tagmask.js';
+import { bakeGroundAo } from './render/groundao.js';
 import { PhysicsWorld } from './physics/index.js';
 import { collectRayChain } from './physics/raychain.js';
 import { buildWorld } from './world/level.js';
@@ -35,6 +36,7 @@ import { Player } from './player/player.js';
 import { FireControl } from './weapons/firecontrol.js';
 import { Viewmodel, setupViewmodelAudit } from './weapons/viewmodel.js';
 import { HanjiState } from './materials/hanji.js';
+import { HanjiOccluders } from './materials/hanji-occluders.js';
 import { FxSystem } from './fx/index.js';
 import { SHOTS, SHOTS_BY_NAME, DEFAULT_VIEW } from '../tools/shots.js';
 
@@ -80,6 +82,10 @@ const surfaceMaterials = createSurfaceMaterials({ renderer });
 phase('materials_synth');
 const world = buildWorld(scene, physics, surfaceMaterials);
 phase('world_build');
+// R4 접지 음영 맵 — 정적 월드에서 1회 베이크 (render/groundao.js). 상향면 재질(지면·마루·기단)이 월드 XZ 로 샘플
+const groundAo = bakeGroundAo(world.group);
+console.info(`[boot] groundAo occluders=${groundAo.occluders} bake=${groundAo.ms}ms`);
+phase('ground_ao');
 const bvhInfo = physics.build();
 console.info(`[boot] bvh tris=${bvhInfo.tris} nodes=${bvhInfo.nodes} build=${bvhInfo.buildMs.toFixed(1)}ms`);
 console.info(`[boot] instanced: ${world.instanced.map((i) => `${i.key}×${i.count}`).join(' ')}`);
@@ -113,6 +119,10 @@ for (const id of hanjiPanes.keys()) hanji.register(id);
 const opacityApplier = new OpacityApplier(hanjiPanes);
 // R1 F: 창호지 역광 투과 유니폼 묶음 (패치는 CSM 패치 뒤 — 아래 finalize 직후). 샷 태양 강도 × T
 const hanjiTransmitUniforms = [];
+// [PATCH-008-B] 점광 투과의 해석적 캡슐 차폐 — 등록 캡슐(실루엣 더미; P4 적 캡슐)을 프레임마다 뷰 공간 유니폼으로
+const hanjiOccluders = new HanjiOccluders();
+{ const d = scene.getObjectByName('silhouette_dummy'); if (d) hanjiOccluders.setFromMesh('silhouette_dummy', d); }
+pipeline.beforeRender.push((cam) => hanjiOccluders.update(cam.matrixWorldInverse));
 const setHanjiTransmit = (sunIntensity) => { for (const u of hanjiTransmitUniforms) u.uHanjiTransmit.value = sunIntensity * HANJI_TRANSMIT; };
 
 // P2B FX — 기와 낙하 강체는 콜백 주입 (fx는 physics를 import하지 않는다)
@@ -243,6 +253,7 @@ const harness = installHarness({
   // P2A 배선
   fire, viewmodel, hanji, fx,
   hanjiPanes, // C2 §8: HANJI 반투과 화면 면적 → overdraw_estimate 편입
+  hanjiOccluders, // PATCH-008-B: 프로브가 더미 이동 후 재등록
   tagMaskHook: () => tagMask.render(), // PATCH-007-C: 자발광 태그 마스크 (캡처 뒤 호출)
   viewmodelAuditHook: ({ boost }) => setupViewmodelAudit({
     scene, camera, boost,
@@ -261,13 +272,13 @@ const harness = installHarness({
 /* ------------------------------------------------------------- 부팅 */
 pipeline.patchScene();   // CSM 재질 패치 — 클론·fx 포함 전 재질 (C1)
 // C3: 표면 셰이더(트라이플래너·POM·마모)는 CSM 훅을 체인하므로 CSM 패치 다음에 적용
-finalizeSurfaceShaders({ ...surfaceMaterials.mats, FX_DEBRIS_TILE: debrisMaterial });
+finalizeSurfaceShaders({ ...surfaceMaterials.mats, FX_DEBRIS_TILE: debrisMaterial }, { groundAo });
 // R1 F: 창호지 역광 투과 — 원본 HANJI + 판별 클론(HANJI@id) 모두 패치 (CSM 패치 뒤, 프로그램 공유). materials 주석 참조
 {
   const seen = new Set();
   const patchHanji = (m) => {
     if (!m || seen.has(m) || !(m.name === 'HANJI' || m.name.startsWith('HANJI@'))) return;
-    seen.add(m); hanjiTransmitUniforms.push(applyHanjiTransmit(m, pipeline.sunTravelDirection, pipeline.sunColor));
+    seen.add(m); hanjiTransmitUniforms.push(applyHanjiTransmit(m, pipeline.sunTravelDirection, pipeline.sunColor, hanjiOccluders));
   };
   patchHanji(surfaceMaterials.mats.HANJI);
   scene.traverse((o) => { if (o.isMesh) patchHanji(o.material); });

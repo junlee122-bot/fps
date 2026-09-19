@@ -24,6 +24,7 @@
  * 16. profile — 양성: 실제 동선이 ROOF_TILE 피격·기와 낙하를 실측 (축소 조건, 시나리오 유효성만)
  * 19. geometryaudit — 음성 훅 (--inject-flip-roof: 팔작 셸 y 반전) → exit 1 + testOverride (PATCH-005-C)
  * 20. paletteaudit — 자발광 밴드: 비태그 주황 주입 exit 1 / 태그 주황 exit 0(대조) / 마스크 12% 강제 exit 1 (PATCH-007-C)
+ * 23. shotaudit — 양성(12샷 등록 전부 통과) + 음성 훅 (--inject-occluder: 대상 앞 불투명 상자 → exit 1 + 표식 + 차폐 이름) (PATCH-009-B; 21·22 는 P4 예약)
  */
 
 import { spawnSync } from 'node:child_process';
@@ -391,6 +392,21 @@ const SHORT = ['--duration', '16', '--runs', '1', '--dpr', '1', '--w', '640', '-
   const passC = c.code === 1 && markedC && jc?.shots?.[0]?.emissiveOk === false;
   record(20, 'paletteaudit 자발광 밴드 (비태그 주황 → exit 1 / 태그 주황 → exit 0 / 마스크 12% → exit 1)', maskPresent && passA && passB && passC,
     `mask=${maskPresent} a=${a.code}/${markedA}/${ja?.shots?.[0]?.violationPct}% b=${b.code}/${markedB}/exempt=${exemptB}/${patchB} c=${c.code}/${markedC}/emissive=${jc?.shots?.[0]?.emissivePct}%`);
+}
+
+/* ---- 23. shotaudit (PATCH-009-B) ----
+ * 샷 감시 대상 관측 검사(노드 헤드리스): (a) 12샷 등록 전부 통과(exit 0), (b) 첫 샷 대상 앞에 불투명 상자를 세운 입력(--inject-occluder)에서 반드시
+ * exit 1 + testOverride + 실패 사유에 차폐 오브젝트 이름(harnesstest_occluder). 케이스 21·22 는 P4 항목 예약. */
+{
+  const a = run('node', ['tools/shotaudit.mjs']);
+  const b = run('node', ['tools/shotaudit.mjs', '--inject-occluder', '--shots', 'courtyard_noon']);
+  const parse = (r) => { try { return JSON.parse(r.out); } catch { return null; } };
+  const ja = parse(a), jb = parse(b);
+  const allReg = !!ja && ja.shots.length === 12 && ja.shots.every((s) => s.registered);
+  const marked = String(jb?.testOverride ?? '').includes('inject-occluder');
+  const named = JSON.stringify(jb?.shots?.[0]?.failed ?? []).includes('harnesstest_occluder');
+  record(23, 'shotaudit 양성(12샷 통과) + 음성(--inject-occluder → exit 1·표식·차폐 이름)', a.code === 0 && ja?.ok === true && allReg && b.code === 1 && marked && named,
+    `positive=${a.code}/${ja?.ok}/reg=${allReg} inject=${b.code}/표식=${marked}/차폐=${named}`);
 }
 
 const ok = results.every((r) => r.pass);

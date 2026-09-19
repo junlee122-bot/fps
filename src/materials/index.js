@@ -41,7 +41,7 @@ export const RECIPES = Object.freeze({
     L0: V4(3, 5, 3, 1), L1: V4(1, 1, 9, 1), L2: V4(40, 5, 1, 0.09), L3: V4(48, 7, 0, 0), gate: V4(6, 5, 0.62, 0),
     remap: V4(0, 0, 0, 0), alb: V4(0.02, 0, 0.35, 0), hgt: V4(0.18, 0, 0, 0.06), rgh: V4(0.9, 0, 0, 0.05), aom: V4(0, 0, 0, 2),
     pat: V4(PAT.CHISEL, 14, 0.08, 0.62), normalStrength: 6, // R1 수정 D: 반점 크기 .12→.09·대비 .5→.35, 거시 변조 .08
-    shader: { mode: 'tri', pom: true, wear: true, scale: 0.9, pomScale: 0.015, wearColor: C(0xb9b9b5), wearWidth: 0.03, wearAmount: 0.5, macro: 0.08 },
+    shader: { mode: 'tri', pom: true, wear: true, scale: 0.9, pomScale: 0.015, wearColor: C(0xb9b9b5), wearWidth: 0.03, wearAmount: 0.5, macro: 0.08, groundAo: true }, // R4: 기단·계단 상면 접지 음영
   },
   // R1 수정 D: 결 신장 14→8·알베도 결 대비 .8→.6·결 높이 .12→.08·노멀 5→3.5·반복 1.2→1.0·거칠기 .82→.88 —
   // 계약 해상도에서 세로 줄무늬 모아레, 야간 등롱광 스페큘러가 노멀 잡음을 드러냄(R1 S02·S03·S06·S10)
@@ -59,7 +59,7 @@ export const RECIPES = Object.freeze({
     L0: V4(1, 3, 4, 1), L1: V4(1, 4, 5, 10), L2: V4(1, 0, 2, 0.9), L3: V4(60, 9, 0, 0), gate: V4(1, 0, 0, 0),
     remap: V4(0, 0, 0.3, 0.7), alb: V4(0, 0.6, 0, 0), hgt: V4(0.03, 0.07, 0, 0.03), rgh: V4(0.82, -0.08, 0, 0), aom: V4(0, 0, 0, 2),
     pat: V4(PAT.KNOTS, 2, 0.85, 0.18), normalStrength: 3, // R1 수정 D (WOOD_COLUMN 주석): 신장 18→10·결 대비·노멀·반복 완화, 옹이 반경 .28→.18
-    shader: { mode: 'tri', pom: false, wear: true, scale: 0.8, wearColor: C(0xb8a68a), wearWidth: 0.015, wearAmount: 0.4 },
+    shader: { mode: 'tri', pom: false, wear: true, scale: 0.8, wearColor: C(0xb8a68a), wearWidth: 0.015, wearAmount: 0.4, groundAo: true }, // R4: 마루 접지 음영
   },
   WOOD_LATTICE: {
     size: 256, seed: 204, period: 4, intendedAlbedo: 0.10, gain: 3.15,
@@ -157,7 +157,7 @@ export const RECIPES = Object.freeze({
     L0: V4(2, 5, 1, 1), L1: V4(1, 1, 2, 1), L2: V4(24, 5, 1, 0.05), L3: V4(90, 2, 0, 0), gate: V4(8, 9, 0.72, 0),
     remap: V4(0, 0, 0, 0), alb: V4(0.05, 0, 0.4, 0), hgt: V4(0.08, 0, 0, 0.03), rgh: V4(0.96, 0, 0, 0), aom: V4(0, 0, 0, 2),
     pat: V4(PAT.NONE, 0, 0, 0), normalStrength: 5, // R1 수정 D: '검은 타원 점(물방울무늬)' — 반점 밀도 30→24·크기·대비 .7→.4, 거시 변조 .18
-    shader: { mode: 'tri', pom: true, wear: false, scale: 0.7, pomScale: 0.01, macro: 0.18 },
+    shader: { mode: 'tri', pom: true, wear: false, scale: 0.7, pomScale: 0.01, macro: 0.18, groundAo: true }, // R4: 지면 접지 음영
   },
   HANJI: {
     size: 256, seed: 1111, period: 4, intendedAlbedo: 0.72, gain: 0.96,
@@ -240,15 +240,54 @@ export const SURFACE_MAT = Object.freeze({
  * 판별 클론(HANJI@id)과 원본을 모두 패치(프로그램 공유). 감사 조명(applySunRawForAudit)에서는 transmit 0.
  * 결정성: 고정 Poisson 탭 16개, 그림자 맵은 밉 없음 → 암시 미분 무관. 셰이더는 CSM 패치의 CSM_cascades·directionalShadowMap[i]를 그대로
  * 읽는다(정의 집합 불변 — 프로그램 순열 불변).
+ *
+ * [PATCH-008-B] 점광 투과 + 해석적 캡슐 차폐 (야간 실내 광원 폐색 실루엣 — 주간 그림자 실루엣과 다른 기전, CONTRACT-NOTES 008-C):
+ *  - 씬의 점광(three pointLights[] 유니폼 재사용: 등롱·트랜지언트 라이트 — 별도 광원 유니폼 없음)마다, 보이는 면 **뒤**에 있는 것만
+ *    albedo · color · att(d) · max(0, −n·l)/π · T_p · V 로 발광. 등롱이 판 뒤에 있으면 종이가 빛나고, 총구화염이 판 뒤에서 터져도 비친다.
+ *  - V = 등록 캡슐(hanji-occluders.js: 더미·적)에 대한 해석적 차폐 — 판→광원 선분과 캡슐 축의 최근접 거리 d, 반그림자 폭 = 광원 반지름 ×
+ *    (판→차폐물)/(차폐물→광원) + 종이 산란 상수, × uHanjiScatter(찢긴 종이일수록 선명). 점광은 castShadow=false 유지(순열·비용 고정).
+ *  - 등록되지 않은 물체(가구·기둥)는 점광을 가리지 않는다 — 설계 한계로 기록. 최대 4개.
  */
 export const HANJI_TRANSMIT = 0.25;
 /** 하늘광 확산 투과 근사 (albedo 배율, 선형) */
 export const HANJI_AMBIENT = 0.035;
 /** PCSS: blocker 탐색 반경(텍셀), 깊이차→반경 계수(텍셀/정규화 깊이), 최대 반경(텍셀) */
 export const HANJI_PCSS = Object.freeze({ search: 8.0, penumbra: 6000.0, maxRadius: 28.0 });
+/** [PATCH-008-B] 점광 투과율(albedo 배율) · 광원 반지름(m, 반그림자) · 종이 산란 폭(m) */
+export const HANJI_POINT = Object.freeze({ transmit: 0.6, lightSize: 0.12, paperBlur: 0.03 }); // T_p .6: 실측(hj5) .25 대비 실루엣 대비 .21→.32, 종이 발광이 알파 비침을 누른다
 const HANJI_PARS_GLSL = /* glsl */`
   uniform vec3 uHanjiLightDir, uHanjiSunColor;
   uniform float uHanjiTransmit, uHanjiAmbient, uHanjiScatter, uHanjiSearch, uHanjiPenumbra, uHanjiMaxRadius;
+  // [PATCH-008-B] 점광 투과 · 해석적 캡슐 차폐
+  #define HJ_OCC_MAX 4
+  uniform vec4 uHanjiOccA[HJ_OCC_MAX]; // xyz 뷰공간 캡슐 축 끝점 A, w 반지름
+  uniform vec4 uHanjiOccB[HJ_OCC_MAX]; // xyz 끝점 B
+  uniform int uHanjiOccCount;
+  uniform float uHanjiPointTransmit, uHanjiLightSize, uHanjiPaperBlur;
+  // 선분 PQ(판→광원)와 선분 AB(캡슐 축)의 최근접 거리; sOut = PQ 위 최근접점 매개변수(0 판, 1 광원) — Ericson 5.1.9
+  float hjSegSeg(vec3 p, vec3 q, vec3 a, vec3 b, out float sOut) {
+    vec3 d1 = q - p, d2 = b - a, r = p - a;
+    float A = dot(d1, d1), E = dot(d2, d2), F = dot(d2, r), C = dot(d1, r), B = dot(d1, d2);
+    float denom = A * E - B * B;
+    float s = denom > 1.0e-6 ? clamp((B * F - C * E) / denom, 0.0, 1.0) : 0.0;
+    float t = (B * s + F) / max(E, 1.0e-6);
+    if (t < 0.0) { t = 0.0; s = clamp(-C / max(A, 1.0e-6), 0.0, 1.0); }
+    else if (t > 1.0) { t = 1.0; s = clamp((B - C) / max(A, 1.0e-6), 0.0, 1.0); }
+    sOut = s;
+    return length((p + d1 * s) - (a + d2 * t));
+  }
+  float hjOcclusion(vec3 P, vec3 L) {
+    float vis = 1.0;
+    for (int i = 0; i < HJ_OCC_MAX; i++) {
+      if (i >= uHanjiOccCount) break;
+      float s; float d = hjSegSeg(P, L, uHanjiOccA[i].xyz, uHanjiOccB[i].xyz, s);
+      float rad = uHanjiOccA[i].w;
+      // 반그림자 폭: 광원 반지름 × (판→차폐물)/(차폐물→광원) + 종이 산란; 찢긴 종이(uHanjiScatter↓)일수록 선명
+      float soft = max((uHanjiLightSize * s / max(1.0 - s, 0.05) + uHanjiPaperBlur) * uHanjiScatter, 0.005);
+      vis *= smoothstep(rad - soft * 0.5, rad + soft * 0.5, d);
+    }
+    return vis;
+  }
   const vec2 HJ_POISSON[16] = vec2[16](
     vec2(-0.94201624, -0.39906216), vec2(0.94558609, -0.76890725), vec2(-0.094184101, -0.92938870), vec2(0.34495938, 0.29387760),
     vec2(-0.91588581, 0.45771432), vec2(-0.81544232, -0.87912464), vec2(-0.38277543, 0.27676845), vec2(0.97484398, 0.75648379),
@@ -292,14 +331,43 @@ const HANJI_MAIN_GLSL = /* glsl */`
     }
     #endif
     totalEmissiveRadiance += diffuseColor.rgb * (uHanjiSunColor * (uHanjiTransmit * RECIPROCAL_PI * hjBack * hjShadow) + vec3(uHanjiAmbient));
+    // [PATCH-008-B] 점광(등롱·트랜지언트) 투과 — 보이는 면 뒤의 점광만, 등록 캡슐이 가린다
+    #if NUM_POINT_LIGHTS > 0
+    {
+      vec3 hjP = -vViewPosition;
+      vec3 hjPointRad = vec3(0.0);
+      #pragma unroll_loop_start
+      for (int i = 0; i < NUM_POINT_LIGHTS; i++) {
+        { // 언롤 본문은 한 스코프에 이어 붙는다 — 선언은 내부 블록에 (three unrollLoops 규약)
+          vec3 hjLv = pointLights[ i ].position - hjP;
+          float hjLd = length(hjLv);
+          float hjPBack = max(0.0, -dot(normal, hjLv / max(hjLd, 1.0e-4)));
+          if (hjPBack > 0.0) {
+            float hjAtt = getDistanceAttenuation(hjLd, pointLights[ i ].distance, pointLights[ i ].decay);
+            if (hjAtt > 0.0) hjPointRad += pointLights[ i ].color * (hjAtt * hjPBack * hjOcclusion(hjP, pointLights[ i ].position));
+          }
+        }
+      }
+      #pragma unroll_loop_end
+      totalEmissiveRadiance += diffuseColor.rgb * (uHanjiPointTransmit * RECIPROCAL_PI * hjPointRad);
+    }
+    #endif
   }
 `;
-/** lightDirRef: 빛 진행 방향 Vector3(공유 참조 — CSM lightDirection), sunColorRef: 태양광 Color(공유 참조). 반환: 유니폼 묶음 */
-export function applyHanjiTransmit(mat, lightDirRef, sunColorRef) {
+/**
+ * lightDirRef: 빛 진행 방향 Vector3(공유 참조 — CSM lightDirection), sunColorRef: 태양광 Color(공유 참조),
+ * occluders: HanjiOccluders(공유 유니폼 객체 uA/uB/uCount — 없으면 차폐 0개). 반환: 유니폼 묶음
+ */
+export function applyHanjiTransmit(mat, lightDirRef, sunColorRef, occluders = null) {
   const uniforms = {
     uHanjiLightDir: { value: lightDirRef }, uHanjiSunColor: { value: sunColorRef }, uHanjiTransmit: { value: 0 },
     uHanjiAmbient: { value: HANJI_AMBIENT }, uHanjiScatter: { value: 1.0 },
     uHanjiSearch: { value: HANJI_PCSS.search }, uHanjiPenumbra: { value: HANJI_PCSS.penumbra }, uHanjiMaxRadius: { value: HANJI_PCSS.maxRadius },
+    // [PATCH-008-B] 점광 투과·캡슐 차폐 — 캡슐 유니폼은 HanjiOccluders 가 소유한 공유 객체(프레임당 1회 갱신)
+    uHanjiOccA: occluders?.uA ?? { value: Array.from({ length: 4 }, () => new THREE.Vector4()) },
+    uHanjiOccB: occluders?.uB ?? { value: Array.from({ length: 4 }, () => new THREE.Vector4()) },
+    uHanjiOccCount: occluders?.uCount ?? { value: 0 },
+    uHanjiPointTransmit: { value: HANJI_POINT.transmit }, uHanjiLightSize: { value: HANJI_POINT.lightSize }, uHanjiPaperBlur: { value: HANJI_POINT.paperBlur },
   };
   mat.userData.hanjiUniforms = uniforms;
   const prev = mat.onBeforeCompile;
@@ -312,7 +380,7 @@ export function applyHanjiTransmit(mat, lightDirRef, sunColorRef) {
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n' + HANJI_MAIN_GLSL);
   };
   const prevKey = mat.customProgramCacheKey;
-  mat.customProgramCacheKey = function () { return (prevKey ? prevKey.call(this) : '') + '|hanji_diffuse_r3'; };
+  mat.customProgramCacheKey = function () { return (prevKey ? prevKey.call(this) : '') + '|hanji_point_r4'; };
   mat.needsUpdate = true;
   return uniforms;
 }
@@ -360,12 +428,13 @@ export function createSurfaceMaterials({ renderer }) {
 }
 
 /** CSM 패치(pipeline.patchScene) 이후 호출 — 표면 셰이더 모드 적용 */
-export function finalizeSurfaceShaders(mats) {
+/** groundAo: { texture, bounds } — 레시피 shader.groundAo === true 인 재질에만 접지 음영 맵을 건다 (R4, render/groundao.js) */
+export function finalizeSurfaceShaders(mats, { groundAo = null } = {}) {
   let n = 0;
   for (const m of Object.values(mats)) {
     const o = m.userData.surfaceOpts;
     if (!o || o.mode === 'uv') continue;
-    applySurfaceShader(m, o);
+    applySurfaceShader(m, groundAo ? { ...o, groundAoMap: groundAo } : o); // 맵은 전 재질 공유, o.groundAo 가 적용 스위치
     n++;
   }
   return n;

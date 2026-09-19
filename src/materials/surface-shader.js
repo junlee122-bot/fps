@@ -24,6 +24,7 @@ const VERT_PARS = /* glsl */`
   attribute vec3 aBoxDims;
   varying vec3 vSurfWPos; varying vec3 vSurfWNrm; varying vec3 vSurfLPos; varying vec3 vSurfLNrm;
   varying vec3 vSurfDims; varying vec2 vSurfUv;
+  varying vec3 vSurfOrigin; // R4: 오브젝트(인스턴스) 월드 원점 — 트라이플래너 UV 오프셋(기둥 결 다양화)
 `;
 const VERT_MAIN = /* glsl */`
   {
@@ -35,6 +36,13 @@ const VERT_MAIN = /* glsl */`
     #endif
     swp = modelMatrix * swp;
     vSurfWPos = swp.xyz;
+    {
+      vec4 so = vec4(0.0, 0.0, 0.0, 1.0);
+      #ifdef USE_INSTANCING
+        so = instanceMatrix * so;
+      #endif
+      vSurfOrigin = (modelMatrix * so).xyz;
+    }
     vSurfWNrm = normalize(mat3(modelMatrix) * swn);
     vSurfLPos = position;
     vSurfLNrm = objectNormal;
@@ -46,6 +54,14 @@ const VERT_MAIN = /* glsl */`
 const FRAG_PARS = /* glsl */`
   varying vec3 vSurfWPos; varying vec3 vSurfWNrm; varying vec3 vSurfLPos; varying vec3 vSurfLNrm;
   varying vec3 vSurfDims; varying vec2 vSurfUv;
+  varying vec3 vSurfOrigin;
+  // R4 (R2 S10 '모든 기둥 동일 패턴'): 트라이플래너는 월드 좌표 슬라이스를 샘플하므로 같은 열의 인스턴스(같은 x 또는 z)는 같은 결을 얻는다.
+  // 오브젝트 원점의 정수 해시로 세 투영 UV 를 상수 오프셋 — 타일링 텍스처라 이음새 없음, 결정적(정수 연산), 순열 불변.
+  vec3 surfOriginOffset(vec3 o) {
+    uvec3 q = uvec3(ivec3(floor(o * 4.0 + 0.5))) * uvec3(0x9E3779B1u, 0x85EBCA77u, 0xC2B2AE3Du);
+    uint h = q.x ^ (q.y << 7u) ^ (q.z >> 3u); h ^= h >> 15u; h *= 0x2C1B3C6Du; h ^= h >> 12u;
+    return vec3(float(h & 0xFFFFu), float((h >> 8u) & 0xFFFFu), float((h >> 16u) & 0xFFFFu)) / 65535.0 * 7.0;
+  }
   uniform float uSurfScale;   // 텍스처 반복 (1/m)
   uniform float uPomScale;    // 시차 깊이 (m)
   uniform vec3 uWearColor;    // 마모 노출색 (선형)
@@ -54,6 +70,10 @@ const FRAG_PARS = /* glsl */`
   uniform float uLocalScale;  // LOCAL 모드: 치수 속성이 없을 때의 반복 (1/m)
   uniform float uMacro;       // R1 수정 D: 저주파(10~30m) 거시 변조 진폭 0..1 (0 = 없음)
   uniform vec4 uUnder;        // R1 수정 C: 지붕 셸 하면 서까래 — x 혼합량(0=없음), y 서까래 간격(m), z 서까래 폭(m), w 앙토 AO
+  // R4 접지 음영 맵 (render/groundao.js 베이크, R8, 월드 XZ) — 유니폼 게이트(uGroundAo 0/1): 순열 불변, 전 표면 재질이 같은 샘플러를 갖는다
+  uniform sampler2D uGroundAoMap;
+  uniform vec4 uGroundAoBounds;   // minX, minZ, 1/sizeX, 1/sizeZ
+  uniform float uGroundAo;        // 0 = 미적용(벽·부재), 1 = 상향면 재질(지면·마루·기단)
   uniform vec3 uUnderColor;   // 서까래 목재색 (선형)
 
   // 결정적 정수 해시 값노이즈 (synth.js lowbias32와 동형) — 시간·난수·미분 입력 없음
@@ -131,6 +151,12 @@ const FRAG_MAP = /* glsl */`
     surfAlbedo = texture2D(map, luv);
     surfORM = texture2D(roughnessMap, luv);
     vec3 tn = texture2D(normalMap, luv).xyz * 2.0 - 1.0; tn.xy *= normalScale;
+    // R4 N5 (R2 S05 '처마 아래 청백 띠 지글거림', S04 격자선): 원경 15–40 m 에서 단청 무늬를 평균색(고 LOD)으로 접고 노멀을 눌러 공포·창방
+    // 대역의 고주파를 줄인다 — 텍스처 성분만(공포 기하 밀도는 P1). 거리 함수·유니폼 없음, 순열 불변.
+    {
+      float lodFade = smoothstep(15.0, 40.0, length(cameraPosition - vSurfWPos));
+      if (lodFade > 0.0) { surfAlbedo = mix(surfAlbedo, textureLod(map, luv, 7.0), lodFade); tn.xy *= 1.0 - lodFade; }
+    }
     // 노멀 합성은 지배 월드축 프레임으로 근사
     vec3 nX = vec3(sgn.x * tn.z, tn.y, tn.x), nY = vec3(tn.x, sgn.y * tn.z, tn.y), nZ = vec3(tn.x, tn.y, sgn.z * tn.z);
     surfTn = normalize(nX * surfW.x + nY * surfW.y + nZ * surfW.z);
@@ -139,6 +165,7 @@ const FRAG_MAP = /* glsl */`
   {
     vec3 p = vSurfWPos;
     vec2 uvX = surfUvX(p, sgn.x), uvY = surfUvY(p, sgn.y), uvZ = surfUvZ(p, sgn.z);
+    { vec3 oo = surfOriginOffset(vSurfOrigin); uvX += oo.yz; uvY += oo.xz; uvZ += oo.xy; } // R4 기둥 결 다양화 (상수 오프셋 — 미분 불변)
     #ifdef SURF_POM
     {
       // 화면 미분은 분기 전(균일 흐름)에서 3축 모두 계산 — surfPom 주석
@@ -193,6 +220,13 @@ const FRAG_MAP = /* glsl */`
     }
   }
   #endif
+  if (uGroundAo > 0.0) {
+    // R4 접지 음영: 정적 수직 구조물 풋프린트에서 베이크한 탑다운 AO 를 상향면에만 곱한다 (GTAO 합성과 같은 의미 — 직사·간접 모두).
+    // 화면 공간 GTAO 가 눈높이에서 바닥 옆 기둥을 못 보는 한계(측정 1.00)를 메운다.
+    vec2 gUv = (vSurfWPos.xz - uGroundAoBounds.xy) * uGroundAoBounds.zw;
+    float gao = texture2D(uGroundAoMap, clamp(gUv, 0.0, 1.0)).r;
+    surfAlbedo.rgb *= mix(1.0, gao, uGroundAo * max(surfN.y, 0.0));
+  }
   float surfWear = 0.0;
   #ifdef SURF_WEAR
   {
@@ -255,6 +289,10 @@ export function applySurfaceShader(mat, opts = {}) {
     uMacro: { value: opts.macro ?? 0.0 },
     uUnder: { value: { x: opts.under?.amount ?? 0.0, y: opts.under?.pitch ?? 0.45, z: opts.under?.width ?? 0.14, w: opts.under?.ao ?? 0.0 } },
     uUnderColor: { value: opts.underColor ?? { r: 0.15, g: 0.11, b: 0.08 } },
+    // R4 접지 음영 — 맵·경계는 전 재질 공유(유니폼 게이트로 순열 불변), 적용 여부는 uGroundAo
+    uGroundAoMap: { value: opts.groundAoMap?.texture ?? null },
+    uGroundAoBounds: { value: opts.groundAoMap ? { x: opts.groundAoMap.bounds.minX, y: opts.groundAoMap.bounds.minZ, z: 1 / opts.groundAoMap.bounds.sizeX, w: 1 / opts.groundAoMap.bounds.sizeZ } : { x: 0, y: 0, z: 0, w: 0 } },
+    uGroundAo: { value: opts.groundAo === true && opts.groundAoMap ? 1.0 : 0.0 },
   };
   mat.userData.surfUniforms = uniforms;
   const prev = mat.onBeforeCompile;

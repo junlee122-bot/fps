@@ -12,7 +12,9 @@
     "baseline": "node tools/baseline.mjs",
     "imagediff": "node tools/imagediff.mjs",
     "profile": "node tools/profile.mjs",
-    "playtest": "node tools/playtest.mjs"
+    "playtest": "node tools/playtest.mjs",
+    "build": "vite build",
+    "preview": "vite preview"
   },
   "dependencies": {
     "three": "0.180.0"

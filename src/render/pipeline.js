@@ -282,6 +282,8 @@ export class RenderPipeline {
     this._renderCount = 0;
     /** 직전 렌더의 TAA 지터 — 태그 마스크(render/tagmask.js)가 캡처 프레임과 같은 투영으로 그리는 데 쓴다 (PATCH-007-C) */
     this.lastJitter = [0, 0];
+    /** 프레임 렌더 직전 훅(카메라 행렬 확정 뒤) — 뷰 공간 유니폼 갱신용 (PATCH-008-B 창호지 캡슐 차폐). main.js 가 배선 */
+    this.beforeRender = [];
   }
 
   /** C4 그레이드 LUT 재구성 (조정 프로브·설정 변경용 — 부팅 경로는 생성자 1회) */
@@ -385,6 +387,7 @@ export class RenderPipeline {
     this.renderer.info.reset(); // 프레임 시작 — 전 패스 합산 계측
     const cam = this.camera;
     cam.updateMatrixWorld();
+    for (const f of this.beforeRender) f(cam);
     // aspect는 파이프라인이 소유한다: setViewOffset(fullW,fullH,…)가 camera.aspect를
     // fullW/fullH로 덮어쓰므로(three 규약), 프리웜 저해상도 렌더가 aspect를 오염시킨 채
     // 부팅이 끝나면 첫 프레임의 _curVP만 잘못된 aspect로 계산된다 — 실제 드로우는

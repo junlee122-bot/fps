@@ -20,8 +20,30 @@ export const LAUNCH_ARGS = [
   '--disable-gpu-vsync',
 ];
 
-export async function launchBrowser() {
-  return chromium.launch({ headless: true, args: LAUNCH_ARGS });
+/**
+ * [PATCH-010-D] 실 GPU 측정 경로 — 기본(LAUNCH_ARGS)은 SwiftShader 를 **강제**하므로 실기에서 그대로 쓰면 항상 GPU-INVALID 다.
+ * gpu=true(또는 환경변수 FPS_GPU=1)면 소프트웨어 강제 플래그를 빼고 GPU 차단 목록을 무시한다(Windows: ANGLE D3D11, Linux: 드라이버
+ * 기본, macOS: Metal). headful=true(FPS_HEADFUL=1)는 창을 띄워 실행 — 헤드리스 셸이 GPU 를 못 잡는 환경(일부 Windows·원격 데스크톱)의
+ * 대체 경로. 픽셀 게이트(baseline/imagediff)는 이 경로를 쓰지 않는다 — 실 GPU 결정성은 CONTRACT-NOTES A3/B5 대로 로컬 재생성.
+ */
+export const LAUNCH_ARGS_GPU = [
+  '--ignore-gpu-blocklist',
+  '--enable-gpu-rasterization',
+  '--force-color-profile=srgb',
+  '--hide-scrollbars',
+  '--mute-audio',
+  '--disable-lcd-text',
+  '--disable-frame-rate-limit',
+  '--disable-gpu-vsync',
+];
+
+export function launchOptions({ gpu = process.env.FPS_GPU === '1', headful = process.env.FPS_HEADFUL === '1' } = {}) {
+  return { headless: !headful, args: gpu ? LAUNCH_ARGS_GPU : LAUNCH_ARGS, gpu, headful };
+}
+
+export async function launchBrowser(opts = {}) {
+  const o = launchOptions(opts);
+  return chromium.launch({ headless: o.headless, args: o.args });
 }
 
 /**
