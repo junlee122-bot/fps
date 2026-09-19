@@ -1343,6 +1343,15 @@ dev 와 픽셀 동일하면 "배포된 것이 곧 게이트된 것"이 증명되
   S03 조각 = 청색 도리 직사면 클리핑; S06 기둥 ∧선·S09 상단 파란 선은 미확정 → 불가). (3) R2-OWNERSHIP 집계 문단에 렌더되지 않은 스크립트
   자리표시자가 남아 있던 것을 발견해 수치로 정정.
 
+### R3 게이트 결과 — 진행 기록 (2026-09-19)
+
+- **profile p3 (02:45–06:11 UTC, 3h26m, exit 0)**: 선행 지표 전부 통과 — tris_scene 135,610(world 135,274·viewmodel 320·fx 4·sky 12; 예산 600k),
+  tris_frame_p95 122,598(단일 씬 패스; 예산 250k), drawCalls 483(예산 900), programs 45(예산 110), cpuFrameMs_p95 1.02(예산 6), overdraw_p95 2.0(예산 3),
+  particlesMax 731, decalsMax 137. **플레이 중 셰이더 컴파일 0, 하네스 오류 0, 결정성 창 위반 0, 지평선 판독 0**. boot_cpu 중앙값 211 ms(예산 3 s, 통과);
+  boot_gpu 11.4 s(SwiftShader 컴파일·PMREM·합성 — GPU-INVALID 배너, 실기 측정 전 판정 불가; 프리웜 45 프로그램 9.5 s 중 shot_sweep 7.4 s는 apply 비용).
+  시나리오 유효(ROOF_TILE 피격 135·파편 135). gpuDependent 무효(소프트웨어 렌더러) — 010-D 실기 측정 대상.
+- harnesstest 06:11 시작 → 감사 7종 순차. (아래에 이어 기록)
+
 ## C. 표류 방지 메모 (충돌은 아니지만 오해 소지)
 
 - `WATER`의 "거리 기반 감쇠"는 별도 코드 경로가 아니라 `computePenetration`의
