@@ -37,8 +37,17 @@ node tools/imagediff.mjs baseline/<현재 라운드> tmp/prod_baseline          
 `FPS_SERVE_ROOT` 가 설정된 실행은 계약 판정이 아니다(server.mjs 주석). dist/ 의 index.html 에는 배너가 있으므로 상단 띠 영역은 다를 수 있다 —
 배너 높이만큼의 차분이 전부이면 "배너 외 픽셀 동일"로 기록한다. 결과는 CONTRACT-NOTES 에 커밋 sha 와 함께 적는다.
 
-## 상태 (2026-09-19)
-- [x] `vite.config.js`, `vercel.json`, `package.json` scripts(build/preview), `server.mjs` FPS_SERVE_ROOT — r4wt 에서 준비(코드 경로만).
-- [ ] `npm install -D vite` + `npm run build` 동작 확인 — R3 게이트 종료 후(설치·번들링은 CPU 부하가 커서 profile 측정과 겹치면 안 된다, PATCH-005-J).
-- [ ] §4 선택 검증 — 게이트 종료 후, 렌더 큐가 빈 다음.
-- [ ] Vercel import — 발주자.
+## 상태 (2026-09-19) — 빌드·선택 검증 완료
+
+- [x] `vite.config.js`, `vercel.json`, `package.json` scripts(build/preview), `server.mjs` FPS_SERVE_ROOT.
+- [x] **`npm install -D vite` + `npm run build` 통과** — `dist/index.html` 0.80 kB, `dist/assets/index-*.js` 795 kB(gzip 224 kB), 빌드 574 ms.
+  import map **제거 확인**(`grep -c importmap dist/index.html` = 0), 배너 **삽입 확인**(`grep -c "게이트 대상 아님"` = 1).
+- [x] **§4 선택 검증 통과 — 배너 행을 빼면 픽셀 동일.** 저해상(756×491, dpr 0.5) 12 샷을 `FPS_SERVE_ROOT=$PWD/dist` 로 캡처해 dev 빌드와 비교:
+  **전 12 샷이 y = 0..9 (배너 띠) 에서만 다르고 그 아래는 완전 동일**. 태그 마스크(`.emask.png`)는 12/12 `changedPx = 0`.
+  샷당 변경 7,294–7,560 px = 756 × 10 행(배너 높이). 최대 변경 행 y = 9.
+
+  > **이 커밋(ecec7a8 계열)에 한해 "배포된 것이 곧 게이트된 것"이 성립한다 — 단 배너 띠 10 행은 제외이고, 검증 해상도는 계약 해상도(3024×1964)가 아니라
+  > 저해상 756×491 이다.** 계약 해상도 재검증은 비용(샷당 25–80 분) 때문에 하지 않았다. 코드 경로·지터·샷 정의가 같으므로 저해상 동일성은 강한 증거지만
+  > **동일성 증명은 측정한 해상도에서만 유효하다.**
+
+- [ ] Vercel import — 발주자 계정 작업(이 세션에서 하지 않는다).

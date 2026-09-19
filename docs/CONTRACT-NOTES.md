@@ -1695,6 +1695,29 @@ main.js 가 배선**한다(디렉터리 소유권 유지). `tools/fxaudit.mjs` �
 재개는 마커로 하므로 손실은 없다(이번에도 harnesstest 결과는 보존됐고 그 뒤 단계만 재실행).
 이후 드라이버는 `cp` 로 만든 실행 전용 사본(`*-run.sh`)으로 돌린다.
 
+### r4wt 병합 후 점검 결과 (2026-09-19, 전 항목 통과)
+
+병합 커밋 `ecec7a8`. 드라이버 `r4-postmerge.sh`(실행 사본), 13:35–15:58.
+
+| 단계 | 결과 |
+|---|---|
+| geometryaudit (신설 [8] 톱니 포함) | exit 0 — 실외 접면 15 판 · 칸막이 8 · **위반 4 = 상한** |
+| chainaudit | exit 0 |
+| 계약 게이트 4 종(P3-BRIEF §11 누락분) | fxaudit · surfaceaudit · coveraudit · `npm test` 전부 exit 0 |
+| shotaudit (판정 모드) | **12/12 통과** — `--report` 는 판정 없는 목록 모드였고 내 실행 인자 오류였다(회귀 아님, 드라이버 수정) |
+| paletteaudit + 008-D 트립와이어 (baseline/r3) | exit 0, 최악 0.213 %, **트립와이어 미발동** |
+| harnesstest | **22/22** — 케이스 23(shotaudit 음성) · **24(창살 방향 톱니: 양성 위반 4 exit 0 / 음성 위반 5 exit 1 + 표식)** 포함 |
+| albedoaudit | exit 0 |
+| 저해상 사전점검(12 샷 dpr .5) + 팔레트 | exit 0, 최악 0.317 %, 트립와이어 미발동 |
+| rendervariance | exit 0 |
+| 프로브(부팅·프로그램) | **programs 45 불변**, boot 10.3 s(SwiftShader) |
+| P5 `npm run build` | 통과 — import map 제거 확인, 배너 삽입 확인, 번들 795 kB(gzip 224 kB) |
+| P5 §4 선택 검증 | **배너 10 행 외 픽셀 동일**(아래 별도 기록) |
+
+**P5 배포 선택 검증 실측**: `FPS_SERVE_ROOT=dist` 로 저해상 12 샷을 캡처해 dev 빌드와 비교 → **전 12 샷이 y = 0..9 에서만 다르고 그 아래는 완전 동일**,
+태그 마스크는 12/12 `changedPx = 0`. 샷당 변경 7,294–7,560 px = 756 × 10 행(배너 높이). 따라서 **이 커밋에 한해 "배포된 것이 곧 게이트된 것"이 성립**한다 —
+단 **배너 띠 제외**이고 **검증 해상도는 저해상 756×491**이다(계약 해상도 재검증은 샷당 25–80 분이라 하지 않았다). `docs/DEPLOY.md` 에 같은 단서로 기록했다.
+
 ## C. 표류 방지 메모 (충돌은 아니지만 오해 소지)
 
 - `WATER`의 "거리 기반 감쇠"는 별도 코드 경로가 아니라 `computePenetration`의
