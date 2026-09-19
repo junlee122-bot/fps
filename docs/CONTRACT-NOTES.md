@@ -1353,7 +1353,10 @@ dev 와 픽셀 동일하면 "배포된 것이 곧 게이트된 것"이 증명되
 - **harnesstest (06:11–06:43, 32 min, exit 0): 20/20 통과** — 케이스 1–20 전부(음성 훅 포함: imagediff·surfaceaudit·coveraudit·chainaudit·viewmodelaudit·
   fxaudit·paletteaudit 자색·albedoaudit·determinismaudit·profile 시나리오·rendervariance 드리프트·geometryaudit 지붕 반전·paletteaudit 자발광 밴드 3분기).
   케이스 23(shotaudit 차폐 주입)은 r4wt 병합 뒤 전체 재실행에서 검증.
-- 감사 7종 06:43 시작 → 팔레트 exit 0 … (아래에 이어 기록)
+- **감사 7종 (06:43–07:34, 51 min): 전부 exit 0** — paletteaudit(한도 1.5 %, 최악 `daecheong_backlit` **0.213 %**, 다음 `dancheong_closeup` 0.135 · `hanji_silhouette` 0.125;
+  태그 발광 비율 전 샷 0 %) · albedoaudit · viewmodelaudit(조도 비율 1.0 ± 0.10) · playtest · geometryaudit · chainaudit · rendervariance.
+- **R3 게이트 체인 종료 07:34 (02:45 시작, 4 h 49 m). 전 항목 통과.** 캡처 비트 동일 24/24 + profile 선행 지표 전부 + harnesstest 20/20 + 감사 7종.
+  R3 는 **캡처·게이트·비평 3 축 모두 통과**한 첫 라운드다(비평은 결함 131 → 116 감소).
 
 ## CONTRACT-PATCH-011 접수 (2026-09-19) — 발주자·계약 작성자 첫 캡처 열람
 
