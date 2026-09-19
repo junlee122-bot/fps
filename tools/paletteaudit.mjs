@@ -22,6 +22,14 @@
  *   --inject-orange-tagged  같은 패치를 **태그** 픽셀로(마스크 1 강제) → 밴드가 살아 있으면 패치는 위반이 아니다 (케이스 20 대조)
  *   --inject-mask-ratio R   첫 샷 마스크의 앞 R(0~1) 비율을 1로 강제 → R > 8% 이면 반드시 exit 1 (케이스 20 상한)
  *
+ * [PATCH-008-D] 색상 양자화 트립와이어 (측정 신뢰도 표식 — 게이트 판정과 별개):
+ *   어느 샷이든 위반율 > 0.5% **이고** 위반 픽셀의 과반이 채도 0.10–0.15 · 저휘도(V ≤ 0.25) 이면
+ *   quantTripwire.fired = true 로 표식하고 stderr 에 경고한다. 발동 시 할 일은 **측정 대상을 고치는 것**이다
+ *   (채도 하한 별도 산정, 또는 8비트 양자화 폭을 반영한 색상 불확실성 구간) — 한도 1.5% 상향은 금지.
+ *   근거: 크로마 ≤3/255 픽셀은 8비트 반올림만으로 색상이 ±10° 이상 흔들린다(CONTRACT-NOTES 007-C/008-D 실측:
+ *   (4,2,1) 픽셀 float 12° → int 20°). 이런 픽셀이 위반의 과반이면 그 위반율은 색 규율이 아니라 양자화를 재고 있는 것이다.
+ *   현재 실측(R3 계약 프레임): 미발동.
+ *
  *   node tools/paletteaudit.mjs [dir=baseline] [--inject-patch|--inject-orange|--inject-orange-tagged|--inject-mask-ratio R]
  */
 
@@ -39,6 +47,10 @@ const INJECT_MASK_RATIO = args['inject-mask-ratio'] !== undefined ? Number(args[
 const LIMIT_PCT = 1.5;
 const EMISSIVE_LIMIT_PCT = 8;     // 태그 픽셀 비율 상한 (PATCH-007-C)
 const EMISSIVE_BAND = [15, 55];   // 태그 픽셀 추가 허용 색상 (도)
+// PATCH-008-D 트립와이어 — 발동 조건 (헤더 참조). 값은 계약 원문 그대로; V 상한만 '저휘도'의 수치 정의(측정 정의, 게이트 아님).
+const TRIPWIRE_MIN_PCT = 0.5;
+const TRIPWIRE_SAT = [0.10, 0.15];
+const TRIPWIRE_LOW_V = 0.25;
 const MASK_SUFFIX = '.emask.png';
 
 if (INJECT_MASK_RATIO !== null && !(INJECT_MASK_RATIO >= 0 && INJECT_MASK_RATIO <= 1)) {
@@ -97,6 +109,7 @@ function centerPatch(png, fn) {
 
 const shots = [];
 let anyFail = false;
+let anyTripwire = false; // PATCH-008-D
 const overrides = [];
 for (let fi = 0; fi < files.length; fi++) {
   const png = PNG.sync.read(readFileSync(join(DIR, files[fi])));
@@ -145,10 +158,11 @@ for (let fi = 0; fi < files.length; fi++) {
   let exemptedByEmissiveBand = 0; // 종전 규칙 위반이나 태그+밴드로 허용된 픽셀
   let taggedViolations = 0;       // 태그 픽셀인데 밴드로도 허용되지 않은 위반 (예: 자홍 발광)
   const histo = new Array(36).fill(0); // 위반 픽셀 색상 10° 버킷
+  let lowSatLowLum = 0; // PATCH-008-D: 위반 중 채도 .10–.15 ∧ V ≤ .25 인 픽셀
   for (let p = 0, i = 0; i < png.data.length; i += 4, p++) {
     const tagged = mask ? mask[p] === 1 : false;
     if (tagged) taggedPixels++;
-    const [h, s, , d] = rgbToHsv(png.data[i], png.data[i + 1], png.data[i + 2]);
+    const [h, s, v, d] = rgbToHsv(png.data[i], png.data[i + 1], png.data[i + 2]);
     if (!allowed(h, s)) {
       violationsNoFloor++;
       // 양자화 잡음 제외 (C2 교정 — CONTRACT-NOTES): 제외 기준은 명도(V)가 아니라
@@ -161,6 +175,7 @@ for (let fi = 0; fi < files.length; fi++) {
       if (tagged) taggedViolations++;
       violations++;
       histo[Math.min(35, Math.floor(h / 10))]++;
+      if (s >= TRIPWIRE_SAT[0] && s <= TRIPWIRE_SAT[1] && v <= TRIPWIRE_LOW_V) lowSatLowLum++;
     }
   }
   const pct = (violations / total) * 100;
@@ -175,6 +190,13 @@ for (let fi = 0; fi < files.length; fi++) {
   const emissiveOk = emissivePct <= EMISSIVE_LIMIT_PCT;
   const ok = paletteOk && emissiveOk;
   if (!ok) anyFail = true;
+  // PATCH-008-D — 측정 신뢰도 트립와이어 (exit 코드에 영향 없음; 발동 시 측정 대상을 고친다)
+  const lowShare = violations ? lowSatLowLum / violations : 0;
+  const tripwire = { fired: pct > TRIPWIRE_MIN_PCT && lowShare > 0.5, lowSatLowLumShare: +lowShare.toFixed(4), lowSatLowLum };
+  if (tripwire.fired) {
+    anyTripwire = true;
+    console.error(`[paletteaudit] PATCH-008-D 트립와이어 발동: ${files[fi]} 위반율 ${pct.toFixed(3)}% 중 ${(100 * lowShare).toFixed(1)}% 가 채도 .10–.15·V≤.25 — 색상 양자화 의심. 한도(1.5%)를 올리지 말고 측정 대상을 고친다.`);
+  }
   shots.push({
     shot: files[fi], violationPct: +pct.toFixed(4), ok,
     violationPctNoFloor_reference: +pctNoFloor.toFixed(4), // 양자화 제외·자발광 밴드 미적용 참조치
@@ -185,6 +207,7 @@ for (let fi = 0; fi < files.length; fi++) {
     emissiveMask: maskPresent ? 'present' : 'absent',
     emissivePct: +emissivePct.toFixed(4), emissiveOk,
     exemptedByEmissiveBand, taggedViolations,
+    quantTripwire: tripwire, // PATCH-008-D
     ...(injectedPatchPixels ? { injectedPatchPixels } : {}),
   });
 }
@@ -195,6 +218,7 @@ const report = {
   limitPct: LIMIT_PCT,
   emissiveLimitPct: EMISSIVE_LIMIT_PCT,
   emissiveBandDeg: EMISSIVE_BAND,
+  quantTripwire: { fired: anyTripwire, minPct: TRIPWIRE_MIN_PCT, sat: TRIPWIRE_SAT, lowV: TRIPWIRE_LOW_V }, // PATCH-008-D
   ...(overrides.length ? { testOverride: overrides.join(' + ') } : {}),
   shots,
 };
