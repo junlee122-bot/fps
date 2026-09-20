@@ -307,6 +307,7 @@ finalizeSurfaceShaders({ ...surfaceMaterials.mats, FX_DEBRIS_TILE: debrisMateria
   scene.traverse((o) => { if (o.isMesh) patchHanji(o.material); });
   // 판별 기하 유니폼은 이 패치가 유니폼 객체를 갈아끼운 **뒤** 넣어야 한다 (opacity.js 주석)
   opacityApplier.syncPaneUniforms();
+  opacityApplier.assertSynced(scene); // 기본값이 남아 있으면 부팅을 실패시킨다 (조용한 렌더 오류 금지)
 }
 window.__materials = surfaceMaterials.synth; // { ms, breakdown } — 부팅 분해 계측 (profile 편입)
 window.__bootPhases = bootPhases; // 부팅 단계별 ms (렌더러·합성·월드·프리웜·웜렌더) — clock.markBootDone 직전까지

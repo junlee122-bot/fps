@@ -459,6 +459,14 @@ export function installHarness(ctx) {
     /* ------------------------------- P2A 확장 ------------------------- */
 
     /** 무기·사격 계수·HANJI 상태 스냅샷 (playtest 소비) */
+    /**
+     * 창호지 판별 유니폼 전수 검사 — 부팅 가드와 같은 함수를 다시 돌린다.
+     * harnesstest 음성 훅(baseline --test-hanji-unsync)이 판 하나를 기본값으로 되돌린 뒤 호출한다.
+     */
+    checkHanjiUniforms() {
+      return opacityApplier.assertSynced(scene);
+    },
+
     getWeaponState() {
       return { ...fire.snapshot(), hanji: hanji.snapshot() };
     },
@@ -502,7 +510,7 @@ export function installHarness(ctx) {
     },
 
     /* 내부 배선 (main.js 전용) */
-    _internal: { state, stepSim, simSubstep, renderFrame, scriptTick, pipeline, hanji, hanjiOccluders: ctx.hanjiOccluders ?? null }, // pipeline·hanji·hanjiOccluders: 프로브 전용 (A/B 계측·음성 훅)
+    _internal: { state, stepSim, simSubstep, renderFrame, scriptTick, pipeline, hanji, opacityApplier, hanjiOccluders: ctx.hanjiOccluders ?? null }, // pipeline·hanji·hanjiOccluders: 프로브 전용 (A/B 계측·음성 훅)
   };
 
   /**

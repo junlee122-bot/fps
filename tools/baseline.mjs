@@ -12,6 +12,11 @@
  * 게임 코드의 결정성(HARNESS.md §2) 위반이다. 하네스가 아니라 게임을 고쳐라.
  *
  *   node tools/baseline.mjs --out=baseline [--dpr=2] [--shots=a,b] [--settle=90]
+ *
+ * 음성 훅 (HARNESS.md §0): --test-hanji-unsync 는 판 하나의 창호지 유니폼을 부팅 기본값으로
+ * 되돌린 뒤 부팅 가드를 다시 돌린다 — **반드시 exit 1**이어야 하고 출력에 testOverride 가 박힌다.
+ * 판별 유니폼이 기본값으로 남아도 조용히 그려지던 버그(R4 실측)를 시끄러운 크래시로 바꾼 것이
+ * 제대로 작동하는지 검증한다. 캡처 경로는 건드리지 않는다.
  */
 
 import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
@@ -32,6 +37,8 @@ const wanted = args.shots
   : SHOTS.map((s) => s.name);
 
 mkdirSync(OUTDIR, { recursive: true });
+const TEST_UNSYNC = args['test-hanji-unsync'] === true;
+
 const server = await startServer();
 // 장시간 실행 내성: 소프트웨어 GL의 GPU 프로세스 누적으로 브라우저가 수십 분 뒤
 // 죽는 사례(11샷 중 10~11번째) 재발 방지 — 4샷마다 선제 재기동 + 실패 샷 1회 재시도.
@@ -89,6 +96,31 @@ async function captureShot(name) {
   } finally {
     await g?.close().catch(() => {});
   }
+}
+
+if (TEST_UNSYNC) {
+  // 캡처 없이 부팅 → 판 하나를 기본값으로 오염 → 가드 재실행. 통과해 버리면 가드가 죽은 것이다.
+  const g = await openGamePage(browser, { baseUrl: server.url, width: 320, height: 240, dpr: 1, query: 'mode=fixed' });
+  let thrown = null;
+  try {
+    await g.page.evaluate(() => {
+      const ap = window.__harness._internal.opacityApplier;
+      const [, mesh] = ap.panes.entries().next().value;
+      const u = mesh.material.userData.hanjiUniforms;
+      u.uHanjiPaneSize.value.set(0, 0);
+      u.uHanjiLattice.value.x = 0;
+    });
+    await g.page.evaluate(() => window.__harness.checkHanjiUniforms());
+  } catch (e) { thrown = String(e.message ?? e); }
+  await g.close().catch(() => {});
+  await browser.close(); await server.close();
+  const ok = !!thrown && thrown.includes('hanji-uniforms');
+  console.log(JSON.stringify({
+    ok: !ok, // 가드가 잡았으면 이 도구는 실패로 끝나야 한다 (음성 훅 규약)
+    testOverride: 'test-hanji-unsync(판별 유니폼 기본값 오염) — harnesstest 전용, 계약 판정 무효',
+    guardFired: ok, error: thrown,
+  }, null, 2));
+  process.exit(ok ? 1 : 0);
 }
 
 for (const name of wanted) {

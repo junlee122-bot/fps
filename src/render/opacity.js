@@ -41,6 +41,42 @@ export class OpacityApplier {
   }
 
   /**
+   * [PATCH-001-D 유니폼판 — 발주자 지시 2026-09-20] 판별 유니폼이 기본값으로 남아 있으면 즉시 throw.
+   *
+   * 이 버그의 본질은 "판별 유니폼이 기본값으로 남아도 조용히 그려진다"였다. 표면 매핑에서
+   * 기본값을 금지하고 throw 하게 한 PATCH-001-D 와 같은 상황이므로 같은 처방을 쓴다:
+   * **조용한 렌더 오류를 시끄러운 크래시로 바꾼다.**
+   *
+   * 판정은 값의 그럴듯함이 아니라 **불가능한 값(0)** 으로 한다. `div == 8` 같은 판정은
+   * 폭 1.28 m 판이 생기면 정상값과 구별되지 않는다(현재 실측 div: 10·14·17·18·19).
+   * @param {THREE.Scene} [scene] 주면 판 목록 밖의 HANJI 재질까지 전수 검사한다
+   */
+  assertSynced(scene = null) {
+    const bad = [];
+    const check = (label, mat) => {
+      const u = mat?.userData?.hanjiUniforms;
+      if (!u) { bad.push(`${label}: hanjiUniforms 없음`); return; }
+      const ps = u.uHanjiPaneSize.value, lat = u.uHanjiLattice.value;
+      if (!(ps.x > 0) || !(ps.y > 0)) bad.push(`${label}: uHanjiPaneSize 미설정 (${ps.x},${ps.y})`);
+      if (!(lat.x > 0) || !(lat.y > 0)) bad.push(`${label}: uHanjiLattice 미설정 (div=${lat.x}, bands=${lat.y})`);
+    };
+    for (const [id, mesh] of this.panes) check(id, mesh.material);
+    if (scene) {
+      scene.traverse((o) => {
+        if (!o.isMesh || !o.visible) return;
+        const n = o.material?.name ?? '';
+        if (n === 'HANJI' || n.startsWith('HANJI@')) {
+          if (!this.panes.has(o.name)) check(`${o.name}(판 목록 밖)`, o.material);
+        }
+      });
+    }
+    if (bad.length) {
+      throw new Error(`[hanji-uniforms] 판별 유니폼이 기본값이다 — ${bad.length}건: ${bad.slice(0, 6).join(' / ')}`);
+    }
+    return { panes: this.panes.size };
+  }
+
+  /**
    * 판 기하 유니폼(판 크기·창살 분할) 주입 — **applyHanjiTransmit 이후에 불러야 한다.**
    * main.js 는 부팅 끝에서 판별 클론마다 applyHanjiTransmit 을 다시 호출하고, 그 호출이
    * userData.hanjiUniforms 를 새 기본값 객체로 교체한다. 생성자에서 넣으면 그때 지워진다

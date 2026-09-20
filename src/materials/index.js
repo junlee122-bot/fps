@@ -434,10 +434,13 @@ export function applyHanjiTransmit(mat, lightDirRef, sunColorRef, occluders = nu
     // [PATCH-013-B] 구멍 목록 — 길이 고정 배열(프로그램 불변). render/opacity.js 가 갱신한다.
     uHanjiHoles: { value: Array.from({ length: HANJI_MAX_HOLES }, () => new THREE.Vector3()) },
     uHanjiHoleCount: { value: 0 },
-    uHanjiPaneSize: { value: new THREE.Vector2(1, 1) },
+    // [PATCH-001-D 유니폼판] 판별 값은 **불가능한 0**으로 둔다. (1,1)·8 같은 그럴듯한 기본값은
+    // 배선이 끊겨도 조용히 그려져서 버그가 그림으로만 드러난다 — 실제로 그렇게 새어 나갔다.
+    // render/opacity.js syncPaneUniforms()가 채우고 assertSynced()가 부팅 때 전수 검사한다.
+    uHanjiPaneSize: { value: new THREE.Vector2(0, 0) },
     uHanjiTorn: { value: 0 },
-    // x=세로 분할 수, y=가로띠 수, z=살에서 종이가 남는 폭(m), w=너덜 진폭(m). 판마다 render 가 채운다.
-    uHanjiLattice: { value: new THREE.Vector4(8, 3, HANJI_TORN.keep, HANJI_TORN.ragged) },
+    // x=세로 분할 수(0=미설정), y=가로띠 수, z=살에서 종이가 남는 폭(m), w=너덜 진폭(m)
+    uHanjiLattice: { value: new THREE.Vector4(0, 0, HANJI_TORN.keep, HANJI_TORN.ragged) },
   };
   mat.userData.hanjiUniforms = uniforms;
   const prev = mat.onBeforeCompile;

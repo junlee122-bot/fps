@@ -28,6 +28,7 @@
  * 24. geometryaudit [8] 창살 방향 톱니 — 양성(위반 4 = 상한, exit 0) + 음성 훅 (--inject-lattice-flip: 정상 판 1개 반사 → 위반 5 > 상한 → exit 1 + 표식)
  * 25. fxaudit 시각 축 — 양성(105쌍 전부 색·모양 2축 이상) + 음성 훅 (--test-look-clone: 색·모양만 동일화, 운동학은 그대로 상이 → exit 1)
  * 26. playtest 구멍 모델 음성 훅 (--inject-no-holes: 피격은 기록되고 구멍만 차단 → exit 1 + 표식 + hanji_hole_per_hit 실패) (PATCH-014-D 6항)
+ * 27. 창호지 판별 유니폼 기본값 금지 — 부팅 가드 (baseline --test-hanji-unsync: 판 하나를 기본값으로 오염 → exit 1 + 표식 + 판 이름) (PATCH-001-D 유니폼판)
  */
 
 import { spawnSync } from 'node:child_process';
@@ -388,6 +389,26 @@ const SHORT = ['--duration', '16', '--runs', '1', '--dpr', '1', '--w', '640', '-
   const ok = pos.code === 0 && posViol === 4 && capOk && neg.code === 1 && negViol === 5 && marked;
   record(24, 'geometryaudit [8] 창살 방향 톱니 (양성 위반4=상한 exit0 / 음성 반사 → 위반5 exit1 + 표식)', ok,
     `양성 exit=${pos.code} 위반=${posViol} / 음성 exit=${neg.code} 위반=${negViol} 표식=${marked}`);
+}
+
+/* ---- 27. 창호지 판별 유니폼 기본값 금지 (PATCH-001-D 유니폼판, 발주자 지시 2026-09-20) ----
+ * R4 실측에서 판별 유니폼(판 크기·창살 분할)이 기본값으로 남은 채 **조용히 그려졌다** —
+ * 칸 간격 2배, 구멍 반지름 3배가 그림으로만 드러났다. 표면 매핑에서 기본값을 금지한
+ * PATCH-001-D 와 같은 처방을 쓴다: 부팅 때 23판 전수 검사, 기본값이면 throw.
+ * 양성 경로는 이 케이스가 부팅에 성공한다는 사실 자체가 증명한다(가드가 부팅 경로에 있다).
+ * 음성: 판 하나의 유니폼을 기본값(0)으로 되돌리고 가드를 다시 돌리면 exit 1 + 표식 + 판 이름. */
+{
+  const neg = runAudit('node', ['tools/baseline.mjs', '--test-hanji-unsync']);
+  let marked = false, fired = false, named = false;
+  try {
+    const j = JSON.parse(neg.out);
+    marked = String(j.testOverride ?? '').includes('test-hanji-unsync');
+    fired = j.guardFired === true;
+    named = /hanji-uniforms/.test(String(j.error ?? '')) && /_hanji/.test(String(j.error ?? ''));
+  } catch { /* fail */ }
+  const ok = neg.code === 1 && marked && fired && named;
+  record(27, '창호지 판별 유니폼 기본값 금지 (음성: 기본값 오염 → exit 1 + 표식 + 판 이름)', ok,
+    `exit=${neg.code} 표식=${marked} 가드발동=${fired} 판이름=${named}`);
 }
 
 /* ---- 26. playtest 구멍 모델 음성 훅 (PATCH-014-D 6항) ----

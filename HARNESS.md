@@ -39,7 +39,7 @@ Retina DPR 실제 게임플레이(내부 해상도 3.34MP, 2.07MP 아님)에서 
 |---|---|---|---|
 | `tools/capture.mjs` | 없음 | 지정 샷 1장 빠르게 | ✗ |
 | `tools/shotset.mjs` | **없음** | 11샷 빠른 리뷰 | **✗ 절대 금지** |
-| `tools/baseline.mjs` | **비트 동일** | 레퍼런스 생성 | ✓ |
+| `tools/baseline.mjs` | **비트 동일** | 레퍼런스 생성. 음성 `--test-hanji-unsync`(창호지 판별 유니폼을 부팅 기본값으로 오염 → 부팅 가드가 exit 1, 케이스 27) | ✓ |
 | `tools/imagediff.mjs` | — | 픽셀 비교 | ✓ |
 | `tools/profile.mjs` | 통계적 | 프레임타임 분포·히치 귀속 | ✓ |
 | `tools/playtest.mjs` | — | 이동·사격 스모크 + **창호지 구멍 모델 검사**(구멍 수 = 피격 수, 구멍 UV·무기별 반지름, 찢어짐 임계 — PATCH-014-D). 음성 `--inject-no-holes`(피격은 기록하고 구멍만 차단 → exit 1, 케이스 26) | ✓ |
