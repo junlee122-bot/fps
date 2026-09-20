@@ -103,9 +103,10 @@ export class OpacityApplier {
     mesh.material.opacity = this.base.get(paneId);
     const u = mesh.material.userData.hanjiUniforms;
     if (!u) return;
-    // PATCH-005-D: 피격 누적은 투과율과 산란 반경에 함께 반영 — 찢긴 종이일수록 실루엣 흐림이 줄어든다
-    const k = Math.max(0, Math.min(1, opacity / this.base.get(paneId)));
-    u.uHanjiScatter.value = k * k;
+    // [발주자 결정 2026-09-20] PATCH-005-D 의 "불투명도 → 산란 반경" 연동은 **되살리지 않는다.**
+    // 실제 창호지도 손상 시 **남은 종이의 산란은 변하지 않고**, 구멍으로 산란 없이 통과하는 빛이
+    // 생길 뿐이다. 005-D 연동은 판 하나에 숫자 하나뿐이던 모델에서 구멍을 흉내 내던 대역품이었고,
+    // PATCH-013-B 구멍 모델이 그 역할을 대체했다. 종이 산란은 이제 종이의 상수 성질이다.
     u.uHanjiTorn.value = torn ? 1 : 0;
     // PATCH-013-B: 구멍 목록 → 유니폼 배열 (배열 길이는 고정, 유효 개수만 바뀐다)
     const arr = u.uHanjiHoles.value;
@@ -119,7 +120,7 @@ export class OpacityApplier {
     for (const [id, mesh] of this.panes) {
       mesh.material.opacity = this.base.get(id);
       const u = mesh.material.userData.hanjiUniforms;
-      if (u) { u.uHanjiScatter.value = 1; u.uHanjiHoleCount.value = 0; u.uHanjiTorn.value = 0; }
+      if (u) { u.uHanjiHoleCount.value = 0; u.uHanjiTorn.value = 0; } // 산란은 손상과 무관한 상수 — 되돌릴 것이 없다
     }
   }
 }

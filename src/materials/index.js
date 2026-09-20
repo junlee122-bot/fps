@@ -235,7 +235,9 @@ export const SURFACE_MAT = Object.freeze({
  *  - 보이는 면 **뒤에서** 오는 태양광을 종이색으로 발광: albedo · sunColor · I · T · max(0, n·travel)/π · S. 면 전체가 고르게 밝다(평면).
  *  - S = 배면 그림자(CSM 그림자 맵)를 **PCSS**로 샘플: 차폐물 깊이(blocker search)와 수신면 깊이 차에 비례한 반경으로 PCF → 종이에
  *    가까운 물체는 선명하고 먼 물체는 흐린 실루엣(거리 의존 흐림). 태양이 앞에 있으면 항(=0)이 사라져 그림자 실루엣도 없다.
- *  - dynamicOpacity 상태(피격 누적 → opacity ↓)는 render OpacityApplier가 uHanjiScatter(산란 반경 배율)에도 반영해 찢긴 종이일수록
+ *  - [발주자 결정 2026-09-20] uHanjiScatter 는 **종이의 상수 성질**(기본 1.0)이고 손상과 연동하지 않는다.
+ *    PATCH-005-D 의 "피격 누적 → 산란 반경 ↓" 연동은 PATCH-013-B 구멍 모델로 **대체**되었다: 손상은 남은 종이의
+ *    산란을 바꾸는 것이 아니라 산란 없이 통과하는 구멍을 만든다. (종전 주석 보존용 원문) 찢긴 종이일수록
  *    투과율은 오르고(알파) 흐림은 줄어든다(구멍은 P2B 데칼).
  *  - 하늘 환경광의 확산 투과는 상수항 uHanjiAmbient(albedo 배율)로 근사 — 역광이 아닐 때도 종이가 '빛을 머금은' 정도.
  * 판별 클론(HANJI@id)과 원본을 모두 패치(프로그램 공유). 감사 조명(applySunRawForAudit)에서는 transmit 0.
@@ -246,7 +248,7 @@ export const SURFACE_MAT = Object.freeze({
  *  - 씬의 점광(three pointLights[] 유니폼 재사용: 등롱·트랜지언트 라이트 — 별도 광원 유니폼 없음)마다, 보이는 면 **뒤**에 있는 것만
  *    albedo · color · att(d) · max(0, −n·l)/π · T_p · V 로 발광. 등롱이 판 뒤에 있으면 종이가 빛나고, 총구화염이 판 뒤에서 터져도 비친다.
  *  - V = 등록 캡슐(hanji-occluders.js: 더미·적)에 대한 해석적 차폐 — 판→광원 선분과 캡슐 축의 최근접 거리 d, 반그림자 폭 = 광원 반지름 ×
- *    (판→차폐물)/(차폐물→광원) + 종이 산란 상수, × uHanjiScatter(찢긴 종이일수록 선명). 점광은 castShadow=false 유지(순열·비용 고정).
+ *    (판→차폐물)/(차폐물→광원) + 종이 산란 상수, × uHanjiScatter(종이 상수, P3 튜닝 값). 점광은 castShadow=false 유지(순열·비용 고정).
  *  - 등록되지 않은 물체(가구·기둥)는 점광을 가리지 않는다 — 설계 한계로 기록. 최대 4개.
  */
 export const HANJI_TRANSMIT = 0.25;
@@ -322,7 +324,7 @@ const HANJI_PARS_GLSL = /* glsl */`
       if (i >= uHanjiOccCount) break;
       float s; float d = hjSegSeg(P, L, uHanjiOccA[i].xyz, uHanjiOccB[i].xyz, s);
       float rad = uHanjiOccA[i].w;
-      // 반그림자 폭: 광원 반지름 × (판→차폐물)/(차폐물→광원) + 종이 산란; 찢긴 종이(uHanjiScatter↓)일수록 선명
+      // 반그림자 폭: 광원 반지름 × (판→차폐물)/(차폐물→광원) + 종이 산란 (uHanjiScatter 는 손상과 무관한 상수)
       float soft = max((uHanjiLightSize * s / max(1.0 - s, 0.05) + uHanjiPaperBlur) * uHanjiScatter, 0.005);
       vis *= smoothstep(rad - soft * 0.5, rad + soft * 0.5, d);
     }
