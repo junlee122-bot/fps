@@ -255,13 +255,45 @@ export const HANJI_AMBIENT = 0.035;
 /** PCSS: blocker 탐색 반경(텍셀), 깊이차→반경 계수(텍셀/정규화 깊이), 최대 반경(텍셀) */
 export const HANJI_PCSS = Object.freeze({ search: 8.0, penumbra: 6000.0, maxRadius: 28.0 });
 /** [PATCH-008-B] 점광 투과율(albedo 배율) · 광원 반지름(m, 반그림자) · 종이 산란 폭(m) */
+/**
+ * 찢어진 창호지 — 살에서 종이가 남는 폭과 너덜 진폭 (m).
+ * keep .048 / ragged .020 → 남는 폭이 28~68 mm 에서 들쭉날쭉하고, 칸마다 다시 ±25% 편차가 붙는다.
+ * 살 간격 ~161 mm 기준으로 뚫리는 폭은 25~105 mm — **종이가 주인이고 구멍이 손님**이다.
+ * 처음 실측(keep .030)은 뚫린 곳이 종이보다 넓어 "세로 셔터"로 읽혔다.
+ */
+export const HANJI_TORN = Object.freeze({ keep: 0.048, ragged: 0.020 });
+
 export const HANJI_POINT = Object.freeze({ transmit: 0.6, lightSize: 0.12, paperBlur: 0.03 }); // T_p .6: 실측(hj5) .25 대비 실루엣 대비 .21→.32, 종이 발광이 알파 비침을 누른다
 const HANJI_HOLES_PARS_GLSL = /* glsl */`
   // [PATCH-013-B] 구멍 목록 — 해석적 유니폼 배열. 배열 길이가 고정이라 프로그램 순열은 불변이다.
   uniform vec3 uHanjiHoles[${HANJI_MAX_HOLES}];   // xy = 판 로컬 UV, z = 반지름(m)
   uniform int uHanjiHoleCount;
   uniform vec2 uHanjiPaneSize;                    // 판 실제 크기(m) — UV 이방성 보정
+  // [발주자 지시 2026-09-20] 찢어짐 — 종이는 창살에 풀로 붙어 있다. 찢어지면 칸 가운데가
+  // 뜯겨 나가고 **살을 따라 너덜한 조각이 남는다**. 살 배치를 알고 있으므로 해석적으로 그린다.
+  uniform float uHanjiTorn;      // 0 = 성함, 1 = 찢어짐
+  uniform vec4 uHanjiLattice;    // x = 세로 분할 수(nV+1), y = 가로띠 수(고정 3), z = 남는 폭(m), w = 너덜 진폭(m)
   varying vec2 vHanjiUv;
+
+  float hjHash(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+  }
+  float hjNoise(vec2 p) {
+    vec2 i = floor(p), f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hjHash(i), hjHash(i + vec2(1.0, 0.0)), f.x),
+               mix(hjHash(i + vec2(0.0, 1.0)), hjHash(i + vec2(1.0, 1.0)), f.x), f.y);
+  }
+  /** 판 로컬 UV → 가장 가까운 살·문틀까지의 거리(m) */
+  float hjBarDistance(vec2 uv, vec2 paneSize) {
+    float div = uHanjiLattice.x;                       // 세로 분할 수 (살 nV + 테두리 2)
+    float gu = uv.x * div;
+    float du = abs(gu - floor(gu + 0.5)) / div * paneSize.x;
+    // 가로띠 3개(판 중심 기준 ±0.36, 0)와 위·아래 문틀
+    float dv = min(abs(uv.y - 0.5), min(abs(uv.y - 0.14), abs(uv.y - 0.86)));
+    dv = min(dv, min(uv.y, 1.0 - uv.y)) * paneSize.y;
+    return min(du, dv);
+  }
 `;
 const HANJI_PARS_GLSL = /* glsl */`
   uniform vec3 uHanjiLightDir, uHanjiSunColor;
@@ -332,6 +364,19 @@ const HANJI_MAIN_GLSL = /* glsl */`
       hjHole = max(hjHole, 1.0 - smoothstep(hjR * 0.6, hjR, length(hjD)));
     }
     float hjPaper = 1.0 - hjHole;
+    if (uHanjiTorn > 0.5) {
+      // 살에서 uHanjiLattice.z 안쪽은 종이가 남고, 경계는 노이즈로 들쭉날쭉하다.
+      float hjD = hjBarDistance(vHanjiUv, uHanjiPaneSize);
+      vec2 hjP = vHanjiUv * uHanjiPaneSize;
+      float hjRag = (hjNoise(hjP * 42.0) * 0.7 + hjNoise(hjP * 137.0) * 0.3 - 0.5) * 2.0;
+      // 칸마다 남는 양이 다르고, 일부 칸은 아예 성하다 — 전면이 고르게 뜯기면 손상이 아니라
+      // 무늬(세로 셔터)로 읽힌다. 칸 id 해시라 결정적이다.
+      vec2 hjCellId = floor(vec2(vHanjiUv.x * uHanjiLattice.x, vHanjiUv.y * 4.0));
+      float hjCellRnd = hjHash(hjCellId + 3.7);
+      float hjKeep = uHanjiLattice.z * (0.55 + 1.05 * hjCellRnd) + hjRag * uHanjiLattice.w;
+      if (hjCellRnd > 0.74) hjKeep = 1.0;   // 이 칸은 찢어지지 않았다
+      hjPaper *= 1.0 - smoothstep(hjKeep - 0.002, hjKeep + 0.002, hjD);
+    }
     diffuseColor.a *= hjPaper;
     vec3 hjTravel = normalize(mat3(viewMatrix) * uHanjiLightDir);
     float hjBack = max(0.0, dot(normal, hjTravel));            // 보이는 면 뒤에서 오는 빛
@@ -390,6 +435,9 @@ export function applyHanjiTransmit(mat, lightDirRef, sunColorRef, occluders = nu
     uHanjiHoles: { value: Array.from({ length: HANJI_MAX_HOLES }, () => new THREE.Vector3()) },
     uHanjiHoleCount: { value: 0 },
     uHanjiPaneSize: { value: new THREE.Vector2(1, 1) },
+    uHanjiTorn: { value: 0 },
+    // x=세로 분할 수, y=가로띠 수, z=살에서 종이가 남는 폭(m), w=너덜 진폭(m). 판마다 render 가 채운다.
+    uHanjiLattice: { value: new THREE.Vector4(8, 3, HANJI_TORN.keep, HANJI_TORN.ragged) },
   };
   mat.userData.hanjiUniforms = uniforms;
   const prev = mat.onBeforeCompile;

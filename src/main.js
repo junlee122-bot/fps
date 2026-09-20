@@ -29,7 +29,7 @@ import { createTagMask } from './render/tagmask.js';
 import { bakeGroundAo } from './render/groundao.js';
 import { PhysicsWorld } from './physics/index.js';
 import { collectRayChain } from './physics/raychain.js';
-import { buildWorld } from './world/level.js';
+import { buildWorld, HANJI_LATTICE, hanjiLatticeCount } from './world/level.js';
 import { createSurfaceMaterials, finalizeSurfaceShaders, LANTERN_EMISSIVE, applyHanjiTransmit, HANJI_TRANSMIT } from './materials/index.js';
 import { PlayerInput } from './player/input.js';
 import { Player } from './player/player.js';
@@ -138,7 +138,7 @@ for (const [id, paneMesh] of hanjiPanes) {
   const g = paneMesh.geometry.parameters;
   hanji.register(id, g.width, g.height); // 구멍 반지름이 m 단위 — 판 크기가 상태에 필요하다 (PATCH-013-B)
 }
-const opacityApplier = new OpacityApplier(hanjiPanes);
+const opacityApplier = new OpacityApplier(hanjiPanes, hanjiLatticeCount, HANJI_LATTICE.bands.length);
 // R1 F: 창호지 역광 투과 유니폼 묶음 (패치는 CSM 패치 뒤 — 아래 finalize 직후). 샷 태양 강도 × T
 const hanjiTransmitUniforms = [];
 // [PATCH-008-B] 점광 투과의 해석적 캡슐 차폐 — 등록 캡슐(실루엣 더미; P4 적 캡슐)을 프레임마다 뷰 공간 유니폼으로
@@ -305,6 +305,8 @@ finalizeSurfaceShaders({ ...surfaceMaterials.mats, FX_DEBRIS_TILE: debrisMateria
   };
   patchHanji(surfaceMaterials.mats.HANJI);
   scene.traverse((o) => { if (o.isMesh) patchHanji(o.material); });
+  // 판별 기하 유니폼은 이 패치가 유니폼 객체를 갈아끼운 **뒤** 넣어야 한다 (opacity.js 주석)
+  opacityApplier.syncPaneUniforms();
 }
 window.__materials = surfaceMaterials.synth; // { ms, breakdown } — 부팅 분해 계측 (profile 편입)
 window.__bootPhases = bootPhases; // 부팅 단계별 ms (렌더러·합성·월드·프리웜·웜렌더) — clock.markBootDone 직전까지

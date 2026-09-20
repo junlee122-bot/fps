@@ -21,6 +21,19 @@ import {
   tileGeometry, rafterGeometry,
 } from './kit.js';
 
+/**
+ * 창호 창살 배치 — **단일 출처**. 월드가 살을 놓을 때와, 찢어진 창호지 셰이더가
+ * "살을 따라 종이가 남는" 자리를 계산할 때 같은 값을 써야 한다 (발주자 지시 2026-09-20).
+ *  pitch  세로살 목표 간격(m). 실제 간격은 판 폭을 균등 분할한 값이다.
+ *  bands  가로띠 위치 (판 높이 비율, 판 중심 기준)
+ */
+export const HANJI_LATTICE = Object.freeze({ pitch: 0.16, bands: Object.freeze([-0.36, 0, 0.36]) });
+
+/** 판 폭 w(m) → 세로살 개수 (양 끝 테두리는 살이 아니라 문틀이다) */
+export function hanjiLatticeCount(w) {
+  return Math.max(2, Math.round(w / HANJI_LATTICE.pitch) - 1);
+}
+
 const CRATE_HALF = 0.35;
 const CRATE_MASS = 14;
 
@@ -101,9 +114,9 @@ export function buildWorld(scene, physics, materials = null) {
     } else {
       A.box(`${name}_hanji_col`, 'HANJI', T.HANJI_T, h, w, cx, cy, cz, { visible: false });
     }
-    // 창살: 세로살 간격 ~160mm + 가로띠 3
+    // 창살: 세로살 간격 ~160mm + 가로띠 3 (배치는 HANJI_LATTICE 단일 출처)
     const vKey = latticeKey(h, true);
-    const nV = Math.max(2, Math.round(w / 0.16) - 1);
+    const nV = hanjiLatticeCount(w);
     const off = out * (T.LATTICE_T / 2 + 0.004);
     for (let i = 1; i <= nV; i++) {
       const u = -w / 2 + (w / (nV + 1)) * i;
@@ -111,7 +124,7 @@ export function buildWorld(scene, physics, materials = null) {
       else A.place(vKey, cx + off, cy, cz + u);
     }
     const hKey = latticeKey(w, false);
-    for (const fy of [-0.36, 0, 0.36]) {
+    for (const fy of HANJI_LATTICE.bands) {
       if (axis === 'x') A.place(hKey, cx, cy + fy * h, cz + off);
       else A.place(hKey, cx + off, cy + fy * h, cz, 0, Math.PI / 2, 0);
     }
