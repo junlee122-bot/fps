@@ -32,7 +32,7 @@ export const VIEWMODEL_RECIPES = Object.freeze({
   },
   // 폴리머: 핸드가드·탄창·개머리. 무광 사출 표면, 모서리는 긁혀 거칠어진다(델타 음수).
   VM_POLYMER: {
-    size: 256, seed: 3102, period: 4, intendedAlbedo: 0.14, gain: 1.0,
+    size: 256, seed: 3102, period: 4, intendedAlbedo: 0.14, gain: 2.211, // gain 역산: 1차 실측 .0633 → .14/.0633
     colA: C(0x3b3d3c), colB: C(0x46474a), colC: C(0x4e5052), colD: C(0x6e7173),
     L0: V4(8, 4, 1, 1), L1: V4(2, 2, 2, 1), L2: V4(1, 0, 2, 0.99), L3: V4(90, 2, 0, 0), gate: V4(1, 0, 0, 0),
     remap: V4(0.35, 0.70, 0, 0), alb: V4(0, 0.25, 0, 0), hgt: V4(0.03, 0, 0, 0.03),
