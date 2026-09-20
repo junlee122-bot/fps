@@ -24,9 +24,15 @@ import 경로로 포함 — 그때 갱신).
 - 워크플로 파일 불요. private 리포 가능. 환경변수 불요(`DEPLOY_BASE` 미설정 = '/').
 - 이 세션에서 Vercel 프로젝트 생성·배포는 하지 않았다(발주자 계정에 외부 공개 대상을 만드는 행위 — 발주자가 직접 import 하거나 지시할 때 수행).
 
-## 3. GitHub Pages (차선)
-Actions 필요, private 리포는 유료 플랜. 워크플로: `DEPLOY_BASE=/fps/ npm run build` → `dist/` 를 `actions/deploy-pages` 로 게시. 배너 sha 는 `GITHUB_SHA`.
-Vercel 이 막힐 때만.
+## 3. GitHub Pages — 워크플로 추가됨 (2026-09-20, 발주자 요청)
+
+`.github/workflows/pages.yml` 이 `claude/new-session-qfglz6` 에 푸시될 때마다 빌드·게시한다.
+`DEPLOY_BASE=/fps/` 로 빌드하므로 결과 URL 은 **`https://junlee122-bot.github.io/fps/`** 다.
+워크플로가 배너와 import map 제거를 **빌드 후 grep 으로 검증**하고 실패하면 배포하지 않는다.
+
+**활성화 조건(리포 설정 — 에이전트가 할 수 없다)**: Settings → Pages → Source 를 **"GitHub Actions"** 로 바꾼다.
+그 전까지 워크플로는 배포 단계에서 실패한다(빌드는 성공). private 리포는 Pages 가 유료 플랜에서만 동작하므로,
+막히면 Vercel 경로(§2)를 쓴다 — `vercel.json` 이 이미 있고 import 만 하면 된다.
 
 ## 4. 선택 검증 — "배포된 것이 곧 게이트된 것" 증명
 ```

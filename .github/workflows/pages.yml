@@ -1,0 +1,52 @@
+# GitHub Pages 정적 배포 — P5 "플레이·확인용 빌드" (docs/DEPLOY.md).
+# 게이트 대상이 아니다. 빌드가 index.html 에 "플레이·확인용 빌드. 게이트 대상 아님" 배너와 커밋 sha 를 박는다.
+#
+# 활성화 조건(리포 설정, 에이전트가 할 수 없음): Settings → Pages → Source 를 "GitHub Actions" 로.
+# private 리포는 Pages 가 유료 플랜에서만 동작한다. 그 경우 Vercel 경로(vercel.json)를 쓴다.
+name: Deploy static build to GitHub Pages
+
+on:
+  push:
+    branches: [claude/new-session-qfglz6]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'   # 게이트용 브라우저는 배포 빌드에 불필요
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Build (base = /fps/)
+        run: DEPLOY_BASE=/fps/ npm run build
+      - name: Verify banner and import map removal
+        run: |
+          grep -q "게이트 대상 아님" dist/index.html
+          test "$(grep -c importmap dist/index.html)" = "0"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
