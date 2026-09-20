@@ -21,7 +21,7 @@ export function installHarness(ctx) {
   const {
     renderer, scene, camera, player, input, physics, world,
     stats, shotsByName, applyShot, applyDefaultView, readyPromise, mode,
-    fire, viewmodel, hanji, fx, viewmodelAuditHook, albedoAuditHook, pipeline,
+    fire, viewmodel, hanji, fx, viewmodelAuditHook, albedoAuditHook, pipeline, opacityApplier,
     hanjiPanes, tagMaskHook,
   } = ctx;
 
@@ -242,7 +242,8 @@ export function installHarness(ctx) {
       physics.pruneRuntimeBodies(); // 런타임 스폰 강체 제거 (감사 A1)
       world.resetDynamic();
       fire.reset();                 // 무기 상태·탄약·계수 (P2A §7)
-      hanji.reset();                // 피격 누적·불투명도 — 복원 이벤트 재발행
+      hanji.reset();                // 구멍 목록·찢어짐 — 복원 이벤트 재발행
+      opacityApplier?.restoreAll(); // 이벤트를 놓친 판(프로브가 유니폼을 직접 만진 경우 등)까지 부팅 상태로
       fx.reset();                   // 이월 마커 방지
       pipeline.reset();             // TAA 히스토리·이전 VP 무효화 (P3 C1)
       viewmodel.setVisible(mode === 'realtime');
@@ -501,7 +502,7 @@ export function installHarness(ctx) {
     },
 
     /* 내부 배선 (main.js 전용) */
-    _internal: { state, stepSim, simSubstep, renderFrame, scriptTick, pipeline, hanjiOccluders: ctx.hanjiOccluders ?? null }, // pipeline·hanjiOccluders: 프로브 전용 (A/B 계측)
+    _internal: { state, stepSim, simSubstep, renderFrame, scriptTick, pipeline, hanji, hanjiOccluders: ctx.hanjiOccluders ?? null }, // pipeline·hanji·hanjiOccluders: 프로브 전용 (A/B 계측·음성 훅)
   };
 
   /**

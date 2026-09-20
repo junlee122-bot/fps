@@ -184,8 +184,8 @@ export class FireControl {
         bus.emit('surface:damage', {
           surfaceId: L.objectName,
           surfaceType: L.surface,
-          localUV: null, // 판 로컬 UV는 배선 소비자(hanji 어댑터)가 히트 좌표로 산출
-          radius: 0.02,
+          localUV: null,  // 판 로컬 UV는 배선 소비자(hanji 어댑터)가 히트 좌표로 산출
+          weapon: w.id,   // [PATCH-014-C] 구멍 반지름은 무기별 상수 — 표는 materials/hanji.js 소유
           worldPos: L.entry.slice(), // 어댑터용 부가 정보
         });
       }

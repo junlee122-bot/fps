@@ -134,7 +134,10 @@ scene.traverse((o) => {
   }
 });
 const hanji = new HanjiState();
-for (const id of hanjiPanes.keys()) hanji.register(id);
+for (const [id, paneMesh] of hanjiPanes) {
+  const g = paneMesh.geometry.parameters;
+  hanji.register(id, g.width, g.height); // 구멍 반지름이 m 단위 — 판 크기가 상태에 필요하다 (PATCH-013-B)
+}
 const opacityApplier = new OpacityApplier(hanjiPanes);
 // R1 F: 창호지 역광 투과 유니폼 묶음 (패치는 CSM 패치 뒤 — 아래 finalize 직후). 샷 태양 강도 × T
 const hanjiTransmitUniforms = [];
@@ -196,7 +199,7 @@ bus.on('surface:damage', (e) => {
   _uvVec.set(e.worldPos[0], e.worldPos[1], e.worldPos[2]);
   mesh.worldToLocal(_uvVec);
   const { width, height } = mesh.geometry.parameters;
-  hanji.registerHit(paneId, [_uvVec.x / width + 0.5, _uvVec.y / height + 0.5]);
+  hanji.registerHit(paneId, [_uvVec.x / width + 0.5, _uvVec.y / height + 0.5], e.weapon);
 });
 
 /**
@@ -272,6 +275,7 @@ const harness = installHarness({
   // P2A 배선
   fire, viewmodel, hanji, fx,
   hanjiPanes, // C2 §8: HANJI 반투과 화면 면적 → overdraw_estimate 편입
+  opacityApplier, // resetState 방어선 — hanji.reset()은 더럽혀진 판만 이벤트를 쏜다 (PATCH-013-B)
   hanjiOccluders, // PATCH-008-B: 프로브가 더미 이동 후 재등록
   tagMaskHook: () => tagMask.render(), // PATCH-007-C: 자발광 태그 마스크 (캡처 뒤 호출)
   viewmodelAuditHook: ({ boost }) => setupViewmodelAudit({

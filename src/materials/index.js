@@ -15,7 +15,7 @@
  */
 
 import * as THREE from 'three';
-import { HANJI_BASE_OPACITY } from './hanji.js';
+import { HANJI_BASE_OPACITY, HANJI_MAX_HOLES } from './hanji.js';
 import { ProceduralSynth, PAT, V4 } from './synth.js';
 import { createViewmodelMaterials } from './viewmodel-look.js';
 import { applySurfaceShader } from './surface-shader.js';
@@ -256,6 +256,13 @@ export const HANJI_AMBIENT = 0.035;
 export const HANJI_PCSS = Object.freeze({ search: 8.0, penumbra: 6000.0, maxRadius: 28.0 });
 /** [PATCH-008-B] 점광 투과율(albedo 배율) · 광원 반지름(m, 반그림자) · 종이 산란 폭(m) */
 export const HANJI_POINT = Object.freeze({ transmit: 0.6, lightSize: 0.12, paperBlur: 0.03 }); // T_p .6: 실측(hj5) .25 대비 실루엣 대비 .21→.32, 종이 발광이 알파 비침을 누른다
+const HANJI_HOLES_PARS_GLSL = /* glsl */`
+  // [PATCH-013-B] 구멍 목록 — 해석적 유니폼 배열. 배열 길이가 고정이라 프로그램 순열은 불변이다.
+  uniform vec3 uHanjiHoles[${HANJI_MAX_HOLES}];   // xy = 판 로컬 UV, z = 반지름(m)
+  uniform int uHanjiHoleCount;
+  uniform vec2 uHanjiPaneSize;                    // 판 실제 크기(m) — UV 이방성 보정
+  varying vec2 vHanjiUv;
+`;
 const HANJI_PARS_GLSL = /* glsl */`
   uniform vec3 uHanjiLightDir, uHanjiSunColor;
   uniform float uHanjiTransmit, uHanjiAmbient, uHanjiScatter, uHanjiSearch, uHanjiPenumbra, uHanjiMaxRadius;
@@ -316,6 +323,16 @@ const HANJI_PARS_GLSL = /* glsl */`
 `;
 const HANJI_MAIN_GLSL = /* glsl */`
   {
+    // [PATCH-013-B] 구멍: 맞은 자리에만 뚫린다. 종이가 없는 자리는 알파도 투과 발광도 없다.
+    float hjHole = 0.0;
+    for (int i = 0; i < ${HANJI_MAX_HOLES}; i++) {
+      if (i >= uHanjiHoleCount) break;
+      vec2 hjD = (vHanjiUv - uHanjiHoles[i].xy) * uHanjiPaneSize;
+      float hjR = uHanjiHoles[i].z;
+      hjHole = max(hjHole, 1.0 - smoothstep(hjR * 0.6, hjR, length(hjD)));
+    }
+    float hjPaper = 1.0 - hjHole;
+    diffuseColor.a *= hjPaper;
     vec3 hjTravel = normalize(mat3(viewMatrix) * uHanjiLightDir);
     float hjBack = max(0.0, dot(normal, hjTravel));            // 보이는 면 뒤에서 오는 빛
     float hjShadow = 1.0;
@@ -331,7 +348,7 @@ const HANJI_MAIN_GLSL = /* glsl */`
       #pragma unroll_loop_end
     }
     #endif
-    totalEmissiveRadiance += diffuseColor.rgb * (uHanjiSunColor * (uHanjiTransmit * RECIPROCAL_PI * hjBack * hjShadow) + vec3(uHanjiAmbient));
+    totalEmissiveRadiance += diffuseColor.rgb * (uHanjiSunColor * (uHanjiTransmit * RECIPROCAL_PI * hjBack * hjShadow) + vec3(uHanjiAmbient)) * hjPaper;
     // [PATCH-008-B] 점광(등롱·트랜지언트) 투과 — 보이는 면 뒤의 점광만, 등록 캡슐이 가린다
     #if NUM_POINT_LIGHTS > 0
     {
@@ -350,7 +367,7 @@ const HANJI_MAIN_GLSL = /* glsl */`
         }
       }
       #pragma unroll_loop_end
-      totalEmissiveRadiance += diffuseColor.rgb * (uHanjiPointTransmit * RECIPROCAL_PI * hjPointRad);
+      totalEmissiveRadiance += diffuseColor.rgb * (uHanjiPointTransmit * RECIPROCAL_PI * hjPointRad) * hjPaper;
     }
     #endif
   }
@@ -369,6 +386,10 @@ export function applyHanjiTransmit(mat, lightDirRef, sunColorRef, occluders = nu
     uHanjiOccB: occluders?.uB ?? { value: Array.from({ length: 4 }, () => new THREE.Vector4()) },
     uHanjiOccCount: occluders?.uCount ?? { value: 0 },
     uHanjiPointTransmit: { value: HANJI_POINT.transmit }, uHanjiLightSize: { value: HANJI_POINT.lightSize }, uHanjiPaperBlur: { value: HANJI_POINT.paperBlur },
+    // [PATCH-013-B] 구멍 목록 — 길이 고정 배열(프로그램 불변). render/opacity.js 가 갱신한다.
+    uHanjiHoles: { value: Array.from({ length: HANJI_MAX_HOLES }, () => new THREE.Vector3()) },
+    uHanjiHoleCount: { value: 0 },
+    uHanjiPaneSize: { value: new THREE.Vector2(1, 1) },
   };
   mat.userData.hanjiUniforms = uniforms;
   const prev = mat.onBeforeCompile;
@@ -377,11 +398,15 @@ export function applyHanjiTransmit(mat, lightDirRef, sunColorRef, occluders = nu
     Object.assign(shader.uniforms, uniforms);
     // 파스는 shadowmap_pars_fragment(directionalShadowMap·vDirectionalShadowCoord·unpackRGBAToDepth) 뒤에, 본문은 emissivemap_fragment에
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <shadowmap_pars_fragment>', '#include <shadowmap_pars_fragment>\n' + HANJI_PARS_GLSL)
+      .replace('#include <shadowmap_pars_fragment>', '#include <shadowmap_pars_fragment>\n' + HANJI_HOLES_PARS_GLSL + HANJI_PARS_GLSL)
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n' + HANJI_MAIN_GLSL);
+    // 판 로컬 UV — map 의 repeat 변환을 타지 않는 원본 uv 가 필요하다(구멍 좌표계)
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vHanjiUv;')
+      .replace('#include <uv_vertex>', '#include <uv_vertex>\n\tvHanjiUv = uv;');
   };
   const prevKey = mat.customProgramCacheKey;
-  mat.customProgramCacheKey = function () { return (prevKey ? prevKey.call(this) : '') + '|hanji_point_r4'; };
+  mat.customProgramCacheKey = function () { return (prevKey ? prevKey.call(this) : '') + '|hanji_holes_r4'; };
   mat.needsUpdate = true;
   return uniforms;
 }

@@ -10,22 +10,36 @@
  *  - 활성 목록은 밀집 배열 + swap-remove — 규칙이 고정이라 순서 결정적
  *  - reset()이 풀 상태(활성·수명·누적자) 전부를 부팅 상태로 되돌린다
  *
- * 회색 규율: 밝기 3단계 무채색 인스턴스 컬러만. 룩(색·발광)은 P3 소유.
+ * 룩(색·모양)은 P3 소유 — src/materials/fx-look.js 의 표를 읽어 인스턴스 컬러·
+ * 종횡비·회전·알파 실루엣에 싣는다. 이 파일은 운동학과 배선만 소유한다.
+ * (P2B의 회색 3단계 무채색은 자리표시자였고 R4 작업 2에서 교체되었다.)
  */
 
 import * as THREE from 'three';
 import { rngStream } from '../core/rng.js';
 import { FX_PROFILES } from './profiles.js';
+import { FX_LOOK, hsvToRgb } from '../materials/fx-look.js';
+import { buildAlphaAtlas, cellOf, ATLAS_COLS, ATLAS_ROWS, coverageOf } from '../materials/fx-alpha-atlas.js';
 
 export const PARTICLE_BUDGET = 4000;
+const AXIS_Z = new THREE.Vector3(0, 0, 1);
 const GRAVITY = 20.6; // rigidbody 월드와 동일 값
 
-/** 밝기 3단계 (무채색) — 인스턴스 컬러 */
-const BRIGHTNESS = [
-  new THREE.Color(0x3a3a3c),
-  new THREE.Color(0x77746e),
-  new THREE.Color(0xb9b7b1),
-];
+/** 자발광 가중 → 선형 색 배수 (AgX가 압축한다) */
+const EMISSIVE_GAIN = 3.0;
+/** 알파 컷아웃 임계 — 밉맵 축소에서 작은 입자가 사라지지 않을 만큼 낮게 */
+const ALPHA_TEST = 0.4;
+
+
+/** 룩 표 → 프로파일별 인스턴스 컬러(선형) — 부팅 1회 산출 */
+const LOOK_COLOR = Object.fromEntries(Object.entries(FX_LOOK).map(([k, L]) => {
+  const [r, g, b] = hsvToRgb(L.hue, L.sat, L.light);
+  const c = new THREE.Color().setRGB(r, g, b, THREE.SRGBColorSpace);
+  const gain = 1 + (L.emissive ?? 0) * EMISSIVE_GAIN;
+  return [k, new THREE.Color(c.r * gain, c.g * gain, c.b * gain)];
+}));
+/** 프로파일별 실루엣 채움 비율 — overdraw 추정에 쓴다(사각형이 아니라 실루엣이 덮는다) */
+const LOOK_COVERAGE = Object.fromEntries(Object.keys(FX_LOOK).map((k) => [k, coverageOf(FX_LOOK[k].alphaShape)]));
 
 export class ParticlePool {
   constructor(scene) {
@@ -40,12 +54,36 @@ export class ParticlePool {
     this.size = new Float32Array(n);
     this.gravityK = new Float32Array(n);
     this.drag = new Float32Array(n);
+    /** 룩: 종횡비·롤(라디안)·실루엣 채움 비율 — 스왑 대상 */
+    this.aspect = new Float32Array(n);
+    this.roll = new Float32Array(n);
+    this.coverage = new Float32Array(n);
+    /** 1 = 속도 방향 정렬(불똥), 0 = 고정 롤 */
+    this.alignVel = new Uint8Array(n);
     /** 통계·감사용: 이 입자를 만든 프로파일 키 */
     this.profileOf = new Array(n).fill(null);
 
     const geo = new THREE.PlaneGeometry(1, 1);
-    const mat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    /** 인스턴스별 아틀라스 셀 (열,행) */
+    this.cellAttr = new THREE.InstancedBufferAttribute(new Float32Array(n * 2), 2);
+    this.cellAttr.setUsage(THREE.DynamicDrawUsage);
+    geo.setAttribute('aCell', this.cellAttr);
+    this.atlas = buildAlphaAtlas();
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      map: this.atlas,          // RGBA 전 채널이 실루엣 값 — 알파컷 + 가장자리 감쇠
+      alphaTest: ALPHA_TEST,    // 블렌딩이 아니라 컷아웃 (깊이·안개·정렬 규칙을 불투명과 동일하게)
+      toneMapped: true,
+    });
     mat.name = 'FX_PARTICLE';
+    // 인스턴스 셀 오프셋 주입 — 드로콜 1·프로그램 1로 실루엣 8종
+    mat.onBeforeCompile = (shader) => {
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', 'attribute vec2 aCell;\n#include <common>')
+        .replace('#include <uv_vertex>',
+          `#include <uv_vertex>\n\tvMapUv = ( vMapUv + aCell ) * vec2( ${(1 / ATLAS_COLS).toFixed(6)}, ${(1 / ATLAS_ROWS).toFixed(6)} );`);
+    };
+    mat.customProgramCacheKey = () => 'fx_particle_atlas';
     this.mesh = new THREE.InstancedMesh(geo, mat, n);
     this.mesh.name = 'fx_particles';
     this.mesh.count = 0;
@@ -54,11 +92,13 @@ export class ParticlePool {
     this.mesh.frustumCulled = false; // 활성 구간이 동적 — 컬링 판정 비용/일관성 회피
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     // instanceColor 버퍼 생성 (setColorAt 1회로 확보)
-    this.mesh.setColorAt(0, BRIGHTNESS[0]);
+    this.mesh.setColorAt(0, LOOK_COLOR.dust_burst);
     this.mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
     scene.add(this.mesh);
 
     this._quat = new THREE.Quaternion();
+    this._rollQ = new THREE.Quaternion();
+    this._q2 = new THREE.Quaternion();
     this._mat4 = new THREE.Matrix4();
     this._pos = new THREE.Vector3();
     this._scale = new THREE.Vector3();
@@ -109,9 +149,20 @@ export class ParticlePool {
       this.gravityK[i] = p.gravityK;
       this.drag[i] = p.drag;
       this.profileOf[i] = profileKey;
-      this.mesh.setColorAt(i, BRIGHTNESS[p.brightness]);
+      const L = FX_LOOK[profileKey];
+      if (!L) throw new Error(`fx 룩 미등록: ${profileKey}`); // 표와 룩은 짝이다 (fxaudit이 게이트)
+      this.aspect[i] = L.aspect;
+      this.coverage[i] = LOOK_COVERAGE[profileKey];
+      this.alignVel[i] = L.align === 'velocity' ? 1 : 0;
+      // 롤은 난수 스트림을 쓰지 않는다 — 황금비 수열(방출 누계 기준)이라 결정적이고
+      // 기존 fx:particles 소비 순서를 건드리지 않는다.
+      this.roll[i] = (this.emittedTotal * 0.6180339887498949 % 1) * Math.PI * 2;
+      const [cx, cy] = cellOf(L.alphaShape);
+      this.cellAttr.setXY(i, cx, cy);
+      this.mesh.setColorAt(i, LOOK_COLOR[profileKey]);
     }
     this.mesh.instanceColor.needsUpdate = true;
+    this.cellAttr.needsUpdate = true;
   }
 
   /** 고정 스텝 적분 — 만료는 swap-remove (규칙 고정 = 결정적) */
@@ -135,8 +186,13 @@ export class ParticlePool {
   }
 
   _swap(a, b) {
-    const F = ['px', 'py', 'pz', 'vx', 'vy', 'vz', 'life', 'maxLife', 'size', 'gravityK', 'drag'];
+    const F = ['px', 'py', 'pz', 'vx', 'vy', 'vz', 'life', 'maxLife', 'size', 'gravityK', 'drag',
+      'aspect', 'roll', 'coverage', 'alignVel'];
     for (const f of F) { const t = this[f][a]; this[f][a] = this[f][b]; this[f][b] = t; }
+    const ca0 = this.cellAttr.getX(a), ca1 = this.cellAttr.getY(a);
+    this.cellAttr.setXY(a, this.cellAttr.getX(b), this.cellAttr.getY(b));
+    this.cellAttr.setXY(b, ca0, ca1);
+    this.cellAttr.needsUpdate = true;
     const tp = this.profileOf[a]; this.profileOf[a] = this.profileOf[b]; this.profileOf[b] = tp;
     // instanceColor도 스왑 반영 (렌더 시 다시 안 쓰므로 즉시)
     const ca = new THREE.Color(), cb = new THREE.Color();
@@ -145,16 +201,32 @@ export class ParticlePool {
     this.mesh.instanceColor.needsUpdate = true;
   }
 
-  /** 렌더 직전 — 카메라 빌보드 행렬 기록 */
+  /**
+   * 렌더 직전 — 카메라 빌보드 행렬 기록.
+   * 롤: 입자마다 시선축 회전이 다르다(같은 실루엣이 같은 각도로 줄줄이 서는 것이 R3′ 지적).
+   *     불똥(align:'velocity')만은 난수 롤 대신 화면 투영 속도 방향으로 눕는다.
+   * 종횡비: 면적을 보존하며 늘린다(w=s√a, h=s/√a) — 입자 예산·overdraw 추정의 기준이 유지된다.
+   */
   writeInstances(camera) {
     this._quat.copy(camera.quaternion);
+    const e = camera.matrixWorldInverse.elements;
     for (let i = 0; i < this.active; i++) {
-      // 수명 마지막 25%는 축소 소멸 (투명도 없이 회색 규율 유지)
+      // 수명 마지막 25%는 축소 소멸 (컷아웃이라 알파 페이드가 아니라 크기로 사라진다)
       const t = this.life[i] / this.maxLife[i];
       const s = this.size[i] * (t < 0.25 ? t / 0.25 : 1);
+      let roll = this.roll[i];
+      if (this.alignVel[i]) {
+        // 속도를 뷰 공간으로 투영 — 행렬 곱 없이 상단 2행만 쓴다
+        const vxc = e[0] * this.vx[i] + e[4] * this.vy[i] + e[8] * this.vz[i];
+        const vyc = e[1] * this.vx[i] + e[5] * this.vy[i] + e[9] * this.vz[i];
+        if (vxc * vxc + vyc * vyc > 1e-8) roll = Math.atan2(vyc, vxc);
+      }
+      this._rollQ.setFromAxisAngle(AXIS_Z, roll);
+      this._q2.copy(this._quat).multiply(this._rollQ);
+      const a = Math.sqrt(this.aspect[i]);
       this._pos.set(this.px[i], this.py[i], this.pz[i]);
-      this._scale.set(s, s, s);
-      this._mat4.compose(this._pos, this._quat, this._scale);
+      this._scale.set(s * a, s / a, s);
+      this._mat4.compose(this._pos, this._q2, this._scale);
       this.mesh.setMatrixAt(i, this._mat4);
     }
     this.mesh.count = this.active;
@@ -163,7 +235,12 @@ export class ParticlePool {
 
   /**
    * overdraw 추정 기여분: Σ(입자 화면 투영 면적 px²). CPU 산출 (§7).
-   * area = π·(size/2 · (H/2)/(dist·tan(fov/2)))²
+   * area = coverage · (size · (H/2)/(dist·tan(fov/2)))²
+   *
+   * [R4 작업 2] 이전 식은 π·(r)² — 지름 size 의 **원반**을 가정했다. 입자는 이제
+   * 알파 컷아웃 실루엣이고 종횡비로 늘어나므로, 사각형 면적(size², 종횡비는 면적
+   * 보존)에 실루엣 채움 비율을 곱하는 것이 실제 덮는 픽셀에 가깝다. 임계값은
+   * 그대로 두고 측정 대상을 고쳤다 — 값이 움직이면 그것이 사실이다.
    */
   overdrawArea(camera, viewportH) {
     const k = (viewportH / 2) / Math.tan((camera.fov * Math.PI / 180) / 2);
@@ -171,8 +248,8 @@ export class ParticlePool {
     const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
     for (let i = 0; i < this.active; i++) {
       const d = Math.max(0.3, Math.hypot(this.px[i] - cx, this.py[i] - cy, this.pz[i] - cz));
-      const rPx = (this.size[i] / 2) * k / d;
-      sum += Math.PI * rPx * rPx;
+      const sPx = this.size[i] * k / d;
+      sum += (this.coverage[i] || 0.5) * sPx * sPx;
     }
     return sum;
   }
@@ -181,6 +258,7 @@ export class ParticlePool {
     this.active = 0;
     this.emittedTotal = 0;
     this.profileOf.fill(null);
+    this.alignVel.fill(0);
     this.mesh.count = 0;
     this.mesh.instanceMatrix.needsUpdate = true;
   }

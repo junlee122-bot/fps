@@ -16,10 +16,17 @@
  */
 
 import { startServer } from './lib/server.mjs';
-import { HANJI_BASE_OPACITY } from '../src/materials/hanji.js';
+import { HANJI_BASE_OPACITY, HANJI_TEAR_THRESHOLD, HANJI_HOLE_RADIUS } from '../src/materials/hanji.js';
 import { launchBrowser, openGamePage, parseArgs } from './lib/browser.mjs';
 
 const args = parseArgs();
+/**
+ * 음성 훅 (PATCH-014-D 6항): 구멍 생성을 인위로 막는다 — 피격은 기록되지만 구멍 목록이
+ * 비어 있는 상태. 구멍 검사가 살아 있으면 반드시 exit 1 이어야 한다.
+ * 게이트 판정 경로의 기본값은 바꾸지 않는다(플래그 없이는 원본 그대로).
+ */
+const NO_HOLES = args['inject-no-holes'] === true;
+const testOverride = NO_HOLES ? 'inject-no-holes(구멍 생성 차단) — harnesstest 전용, 계약 판정 무효' : undefined;
 const failures = [];
 const log = [];
 
@@ -50,6 +57,14 @@ try {
   const inv = () => page.evaluate(() => window.__harness.getInvariants());
   const step = (n) => page.evaluate((k) => window.__harness.stepFrames(k), n);
   const setInput = (s) => page.evaluate((v) => window.__harness.setInput(v), s);
+
+  if (NO_HOLES) {
+    await page.evaluate(() => {
+      const h = window.__harness._internal.hanji;
+      const orig = h.registerHit.bind(h);
+      h.registerHit = (id, uv, w) => { const p = orig(id, uv, w); p.holes.length = 0; return p; };
+    });
+  }
 
   await page.evaluate(() => window.__harness.resetState());
 
@@ -162,7 +177,22 @@ try {
   const hanjiPanes = Object.keys(ws.hanji);
   check('hanji_hit_recorded', hanjiPanes.length >= 1, { panes: ws.hanji });
   if (hanjiPanes.length) {
-    check('hanji_opacity_drops', ws.hanji[hanjiPanes[0]].opacity < HANJI_BASE_OPACITY, { got: ws.hanji[hanjiPanes[0]], base: HANJI_BASE_OPACITY }); // PATCH-005-D: 기본값은 materials 상수
+    const hp = ws.hanji[hanjiPanes[0]];
+    check('hanji_opacity_drops', hp.opacity < HANJI_BASE_OPACITY, { got: hp, base: HANJI_BASE_OPACITY }); // PATCH-005-D: 기본값은 materials 상수
+    // [PATCH-014-D] 구멍 모델 검사 1·2·4 — 상태가 "판 전체 반투명"이 아니라 "맞은 자리 구멍"인지
+    // 1. 임계 미만이면 피격 수 = 구멍 수 (임계 이상은 찢어짐이라 구멍 수를 따지지 않는다)
+    const belowT = Object.entries(ws.hanji).filter(([, p]) => p.hits < HANJI_TEAR_THRESHOLD);
+    check('hanji_hole_per_hit', belowT.every(([, p]) => p.holes.length === p.hits),
+      { panes: belowT.map(([id, p]) => [id, p.hits, p.holes.length]) });
+    // 2. 구멍 위치가 판 안(0..1)이고 반지름이 무기 상수와 일치 (카빈 사격이었다)
+    const R = HANJI_HOLE_RADIUS.CARBINE;
+    check('hanji_hole_uv_in_pane', Object.values(ws.hanji).every(
+      (p) => p.holes.every(([u, v, r]) => u >= 0 && u <= 1 && v >= 0 && v <= 1 && Math.abs(r - R) < 1e-3)),
+      { sample: hp.holes.slice(0, 3), expectedR: R });
+    // 4. 임계 초과 판은 찢어짐 상태 — 그리고 임계 미만 판은 찢어지지 않았다
+    check('hanji_tear_threshold', Object.values(ws.hanji).every(
+      (p) => p.torn === (p.hits >= HANJI_TEAR_THRESHOLD)),
+      { threshold: HANJI_TEAR_THRESHOLD, panes: Object.entries(ws.hanji).map(([id, p]) => [id, p.hits, p.torn]) });
   }
 
   // --- 7c. 무기 교체(산탄) → 1격발 = 9펠릿 독립 ---
@@ -250,5 +280,5 @@ try {
   await server.close();
 }
 
-console.log(JSON.stringify({ ok: failures.length === 0, failures, log }, null, 2));
+console.log(JSON.stringify({ ok: failures.length === 0, ...(testOverride ? { testOverride } : {}), failures, log }, null, 2));
 process.exit(failures.length === 0 ? 0 : 1);

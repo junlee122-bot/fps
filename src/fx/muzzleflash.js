@@ -2,8 +2,9 @@
  * src/fx/muzzleflash.js — 총구화염 지오메트리 + 트랜지언트 라이트 (P2B §4).
  *
  * 소유권 분리: P2B는 light:transient **발행**, 라이트 프리미티브 생성·수명,
- * 렌더 배선까지. 강도 곡선·색온도·감쇠 튜닝은 P3 소유 — 여기는 회색·
- * 고정 강도 + 선형 감쇠 훅만 둔다.
+ * 렌더 배선까지. 강도 곡선·색온도·감쇠 튜닝은 P3 소유 — 값은 전부
+ * src/materials/fx-look.js 의 FLASH_LOOK 이 가진다 (R4 작업 3에서 배선 완료:
+ * P2B가 발행만 하고 아무도 읽지 않던 colorK 훅이 이제 실제 라이트 색이 된다).
  *
  * 셰이더 순열 고정: 라이트 개수가 변하면 프로그램이 갈라진다(P0 원칙).
  * 트랜지언트 라이트는 **상시 상주 풀 2개**(강도 0)로 두고 강도만 애니메이션.
@@ -14,13 +15,32 @@
 
 import * as THREE from 'three';
 import { bus } from '../core/events.js';
+import { FLASH_LOOK, kelvinToRgb } from '../materials/fx-look.js';
+import { buildFlashTexture } from '../materials/fx-alpha-atlas.js';
 
 export const TRANSIENT_LIGHT_POOL = 2;
-const FLASH_LIFE = 0.1;          // s — muzzle_interior 캡처 프레임에 걸리는 수명
-const FLASH_SIZE = 0.22;         // m
-const LIGHT_INTENSITY = 6;       // P3 튜닝 훅 (고정값)
-const LIGHT_DECAY_MS = 150;
+const FLASH_LIFE = 0.1;          // s — muzzle_interior 캡처 프레임에 걸리는 수명 (P2B 계약값, 불변)
+const FLASH_SIZE = FLASH_LOOK.size;
+const LIGHT_INTENSITY = FLASH_LOOK.lightPeak;
+const LIGHT_DECAY_MS = FLASH_LOOK.lightDecayMs;
 const LIGHT_DISTANCE = 9;
+const LIGHT_RGB = kelvinToRgb(FLASH_LOOK.lightK);
+
+/**
+ * 수명 정규화 t(1=방금, 0=소멸) → [크기 배수, 밝기 배수].
+ * P2B는 크기만 선형(0.4+0.6t)이었다. 화약 화염은 처음 한 프레임에 부풀었다가
+ * 훨씬 빨리 죽는다 — 팽창 구간(riseFrac)과 지수 감쇠(decayCurve)로 나눈다.
+ */
+function flashCurve(t) {
+  const rise = FLASH_LOOK.riseFrac;
+  if (t > 1 - rise) {
+    const u = (1 - t) / rise;            // 0 → 1 (팽창)
+    return [0.55 + 0.45 * u, 1.0];
+  }
+  const u = t / (1 - rise);              // 1 → 0 (감쇠)
+  const d = Math.pow(Math.max(0, u), FLASH_LOOK.decayCurve);
+  return [0.55 + 0.45 * u, d];
+}
 
 export class MuzzleFlash {
   constructor(scene) {
@@ -29,8 +49,16 @@ export class MuzzleFlash {
     const g2 = new THREE.PlaneGeometry(1, 1);
     g2.rotateY(Math.PI / 2);
     const geo = mergePlanes(g1, g2);
-    const mat = new THREE.MeshBasicMaterial({ color: 0xe8e5dc, side: THREE.DoubleSide });
+    // 실루엣·색온도는 구운 텍스처가 싣고, 재질 색은 프레임별 밝기 곡선만 싣는다.
+    // 가산 합성 — 화염은 뒤를 가리는 물체가 아니라 더해지는 빛이다.
+    this.tex = buildFlashTexture();
+    const mat = new THREE.MeshBasicMaterial({
+      map: this.tex, color: 0xffffff, side: THREE.DoubleSide,
+      transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+      toneMapped: true,
+    });
     mat.name = 'FX_FLASH';
+    this.mat = mat;
     this.mesh = new THREE.Mesh(geo, mat);
     this.mesh.name = 'fx_muzzleflash';
     this.mesh.visible = false;
@@ -57,16 +85,17 @@ export class MuzzleFlash {
     this.mesh.lookAt(x + dx * 2, y + dy * 2, z + dz * 2);
     this.flashLife = FLASH_LIFE;
     this.mesh.visible = true;
-    this.mesh.scale.setScalar(FLASH_SIZE);
+    this._applyCurve(1);
 
     bus.emit('light:transient', {
       worldPos: [x, y, z],
       intensity: LIGHT_INTENSITY,
-      colorK: 6500,             // P3 튜닝 훅 — P2B는 무채색 고정
+      colorK: FLASH_LOOK.lightK, // P3가 소유하는 색온도 — 아래 풀 라이트 색과 같은 값
       decayMs: LIGHT_DECAY_MS,
     });
     const slot = this.lights[this._nextLight];
     this._nextLight = (this._nextLight + 1) % TRANSIENT_LIGHT_POOL;
+    slot.light.color.setRGB(LIGHT_RGB[0], LIGHT_RGB[1], LIGHT_RGB[2], THREE.SRGBColorSpace);
     slot.light.position.set(x, y, z);
     slot.light.intensity = LIGHT_INTENSITY;
     slot.initial = LIGHT_INTENSITY;
@@ -79,20 +108,31 @@ export class MuzzleFlash {
       if (this.flashLife <= 0) {
         this.mesh.visible = false;
       } else {
-        // 수명따라 축소 (P3가 강도 곡선으로 대체할 훅)
-        this.mesh.scale.setScalar(FLASH_SIZE * (0.4 + 0.6 * this.flashLife / FLASH_LIFE));
+        this._applyCurve(this.flashLife / FLASH_LIFE);
       }
     }
     for (const s of this.lights) {
       if (s.remainMs <= 0) continue;
       s.remainMs -= dt * 1000;
-      s.light.intensity = s.remainMs <= 0 ? 0 : s.initial * (s.remainMs / LIGHT_DECAY_MS);
+      // 선형 감쇠(P2B) → 지수 감쇠: 섬광은 앞이 밝고 뒤가 빨리 죽는다
+      s.light.intensity = s.remainMs <= 0
+        ? 0
+        : s.initial * Math.pow(s.remainMs / LIGHT_DECAY_MS, FLASH_LOOK.lightCurve);
     }
+  }
+
+  /** 수명 t(1→0)에 따른 크기·밝기 적용 */
+  _applyCurve(t) {
+    const [sz, gain] = flashCurve(t);
+    this.mesh.scale.setScalar(FLASH_SIZE * sz);
+    const g = FLASH_LOOK.peakGain * gain;
+    this.mat.color.setRGB(g, g, g);
   }
 
   reset() {
     this.flashLife = 0;
     this.mesh.visible = false;
+    this.mat.color.setRGB(FLASH_LOOK.peakGain, FLASH_LOOK.peakGain, FLASH_LOOK.peakGain);
     for (const s of this.lights) {
       s.remainMs = 0;
       s.initial = 0;

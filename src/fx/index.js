@@ -87,9 +87,9 @@ export class FxSystem {
 
     // 2. 데칼 — 진입면. DECAL 표면은 박리로, HANJI/WATER는 제외
     if (surf.penClass === PenClass.DECAL) {
-      this.decals.addPeel(x, y, z, nx, ny, nz);
+      this.decals.addPeel(x, y, z, nx, ny, nz, e.surfaceType);
     } else if (!NO_DECAL.has(e.surfaceType)) {
-      this.decals.add(x, y, z, nx, ny, nz);
+      this.decals.add(x, y, z, nx, ny, nz, e.surfaceType);
     }
 
     // 3. 기와 낙하 (ARCHITECTURE §2)
@@ -152,8 +152,8 @@ export class FxSystem {
    */
   prewarmSpawn(camera) {
     this.particles.emit('dust_burst', 0, 2, 0, 0, 1, 0);
-    this.decals.add(0, 2, 0, 0, 0, 1);
-    this.decals.addPeel(0.3, 2, 0, 0, 0, 1);
+    this.decals.add(0, 2, 0, 0, 0, 1, 'EARTH_WALL');
+    this.decals.addPeel(0.3, 2, 0, 0, 0, 1, 'DANCHEONG');
     this.tracers.spawn(0, 2, 0, 0, 2, -3);
     this.flash.fire(0, 2, 0, 0, 0, -1);
     this.spawnTear(0.6, 2, 0, 0, 0, 1);

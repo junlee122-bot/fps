@@ -4,13 +4,22 @@
  *
  * PATCH-003-B 3항("관측 불가능한 표면은 새 재료가 아니라 자유변수다")의 검증:
  *  1. surfaces.js fx 키 15종 전부에 프로파일이 등록되어 있는가 (null·미등록 → exit 1)
- *  2. 모든 쌍이 5축(입자 수·초기 속도·수명·크기·중력 계수) 중 최소 2축에서
+ *  2. 운동학: 모든 쌍이 5축(입자 수·초기 속도·수명·크기·중력 계수) 중 최소 2축에서
  *     상대차 15% 초과로 구별되는가 — 특히 ROOF_SOIL vs EARTH_WALL
+ *  2b. 시각(발주자 지시 2026-09-20): 모든 쌍이 색·모양 4축(색상·명도·종횡비·알파
+ *     실루엣) 중 최소 2축에서 구별되는가. 003-B의 승인 근거는 "플레이어가 구별할
+ *     수 있다"였는데 운동학 5축은 플레이어가 보는 것이 아니다. 색은 팔레트 규율
+ *     (paletteaudit §4 표) 안에 있어야 한다.
+ *  2c. 데칼(R4 작업 2-d): 탄흔이 찍히는 표면 전수에 룩이 있는가, 대표 4종
+ *     (흙벽·목재·화강암·기와)이 서로 2축 이상에서 다른가, 색이 팔레트 안인가.
  *  3. 방출 실측: 15종 표면 합성 월드에 실제 사격 → 방출 입자의 파라미터가
  *     해당 표면 프로파일과 일치하는가 (배선 검증 — 표가 아니라 실행을 믿는다)
  *
  * 음성 훅 (HARNESS.md §0): --test-clone <fxA>=<fxB> 는 A 프로파일을 B의
  * 사본으로 바꾼 입력 — 반드시 exit 1이어야 하며 출력에 testOverride가 박힌다.
+ * --test-look-clone <fxA>=<fxB> 는 **룩만** 사본으로 바꾼다: 운동학은 그대로
+ * 다르므로 5축 검사는 통과하고 시각 축 검사만 실패해야 한다(색·모양이 같고
+ * 운동학만 다른 쌍은 불합격).
  * 게이트 판정 경로의 기본값은 바꾸지 않는다.
  */
 
@@ -20,6 +29,11 @@ import {
   FX_PROFILES, DISTINCT_AXES, DISTINCT_AXES_MIN, DISTINCT_REL_MIN,
   axisScalar, checkDistinctness,
 } from '../src/fx/profiles.js';
+import {
+  FX_LOOK, VISUAL_AXES, VISUAL_AXES_MIN, VISUAL_REL_MIN, VISUAL_HUE_MIN_DEG,
+  ALPHA_SHAPES, checkVisualDistinctness, visualAxesDiff, paletteInBand,
+  DECAL_LOOK, PEEL_LOOK, DECAL_SHAPES, DECAL_KEY_SURFACES, decalAxesDiff,
+} from '../src/materials/fx-look.js';
 import { PhysicsWorld } from '../src/physics/index.js';
 import { collectRayChain } from '../src/physics/raychain.js';
 import { FireControl } from '../src/weapons/firecontrol.js';
@@ -29,6 +43,7 @@ import { parseArgs } from './lib/args.mjs';
 
 const args = parseArgs();
 const CLONE = typeof args['test-clone'] === 'string' ? args['test-clone'] : null;
+const LOOK_CLONE = typeof args['test-look-clone'] === 'string' ? args['test-look-clone'] : null;
 
 /** 검사 대상 프로파일 집합 — 음성 훅이 지정되면 사본으로 오염시킨 복제본 */
 let profiles = FX_PROFILES;
@@ -41,6 +56,18 @@ if (CLONE) {
   }
   profiles = { ...FX_PROFILES, [a]: { ...FX_PROFILES[b] } };
   testOverride = `clone ${a}=${b} — harnesstest 전용, 계약 판정 무효`;
+}
+
+/** 검사 대상 룩 집합 — 음성 훅이 지정되면 색·모양만 사본으로 오염시킨다 */
+let looks = FX_LOOK;
+if (LOOK_CLONE) {
+  const [a, b] = LOOK_CLONE.split('=');
+  if (!FX_LOOK[a] || !FX_LOOK[b]) {
+    console.error(`--test-look-clone: unknown fx key in "${LOOK_CLONE}"`);
+    process.exit(2);
+  }
+  looks = { ...FX_LOOK, [a]: { ...FX_LOOK[b] } };
+  testOverride = `look-clone ${a}=${b} — harnesstest 전용, 계약 판정 무효`;
 }
 
 const report = { ok: true, tool: 'fxaudit', ...(testOverride ? { testOverride } : {}) };
@@ -63,6 +90,21 @@ for (const k of fxKeys) {
 const extra = Object.keys(profiles).filter((k) => !fxKeys.includes(k));
 if (extra.length) problems.push(`surfaces.js에 없는 잉여 프로파일: ${extra.join(',')}`);
 
+/* ---- 1b. 룩 전수 등록 + 팔레트 규율 ---- */
+for (const k of fxKeys) {
+  const L = looks[k];
+  if (!L) { problems.push(`룩 미등록: ${k}`); continue; }
+  for (const ax of VISUAL_AXES) {
+    if (L[ax] === undefined || L[ax] === null || (typeof L[ax] === 'number' && Number.isNaN(L[ax]))) {
+      problems.push(`룩 ${k}: 축 ${ax} 값 없음`);
+    }
+  }
+  if (!ALPHA_SHAPES.includes(L.alphaShape)) problems.push(`룩 ${k}: 미등록 알파 실루엣 ${L.alphaShape}`);
+  if (!paletteInBand(L)) problems.push(`룩 ${k}: 팔레트 규율 이탈 (h=${L.hue} s=${L.sat})`);
+}
+const extraLooks = Object.keys(looks).filter((k) => !fxKeys.includes(k));
+if (extraLooks.length) problems.push(`surfaces.js에 없는 잉여 룩: ${extraLooks.join(',')}`);
+
 /* ---- 2. 전 쌍 구별성 ---- */
 const dist = checkDistinctness(profiles);
 report.pairs = dist.pairs.length;
@@ -72,11 +114,60 @@ if (!dist.ok) {
     problems.push(`구별 불가 쌍: ${p.a} vs ${p.b} (상이 축 ${p.axes.length}개 < ${DISTINCT_AXES_MIN})`);
   }
 }
-// 핵심 쌍 명시 보고 (PATCH-003-A 승인 근거)
+/* ---- 2b. 전 쌍 시각 구별성 (색·모양) ---- */
+const vis = checkVisualDistinctness(looks);
+report.visualAxes = VISUAL_AXES;
+report.visualRule = { axesMin: VISUAL_AXES_MIN, relMin: VISUAL_REL_MIN, hueMinDeg: VISUAL_HUE_MIN_DEG };
+report.visualPairsFailed = vis.pairs.filter((p) => !p.ok).map((p) => ({ a: p.a, b: p.b, axes: p.axes }));
+if (!vis.ok) {
+  for (const p of report.visualPairsFailed) {
+    problems.push(`시각 구별 불가 쌍: ${p.a} vs ${p.b} (상이 축 ${p.axes.length}개 < ${VISUAL_AXES_MIN}) — 운동학이 달라도 플레이어는 같은 것을 본다`);
+  }
+}
+report.visualAxisHistogram = vis.pairs.reduce((h, p) => { h[p.axes.length] = (h[p.axes.length] ?? 0) + 1; return h; }, {});
+
+/* ---- 2c. 데칼 룩 전수·구별성 (R4 작업 2-d) ---- */
+{
+  const NO_DECAL = new Set(['HANJI', 'WATER']);
+  const need = [], needPeel = [];
+  for (const [sid, sv] of Object.entries(SURFACES)) {
+    if (NO_DECAL.has(sid)) continue;
+    (sv.penClass === PenClass.DECAL ? needPeel : need).push(sid);
+  }
+  for (const sid of need) if (!DECAL_LOOK[sid]) problems.push(`탄흔 룩 미등록 표면: ${sid}`);
+  for (const sid of needPeel) if (!PEEL_LOOK[sid]) problems.push(`박리 룩 미등록 표면: ${sid}`);
+  const extraDecal = Object.keys(DECAL_LOOK).filter((k) => !need.includes(k));
+  if (extraDecal.length) problems.push(`탄흔 룩 잉여 표면: ${extraDecal.join(',')}`);
+  for (const [sid, L] of [...Object.entries(DECAL_LOOK), ...Object.entries(PEEL_LOOK)]) {
+    if (!DECAL_SHAPES.includes(L.shape)) problems.push(`데칼 룩 ${sid}: 미등록 실루엣 ${L.shape}`);
+    if (!paletteInBand(L)) problems.push(`데칼 룩 ${sid}: 팔레트 규율 이탈 (h=${L.hue} s=${L.sat})`);
+  }
+  // 대표 4종은 서로 달라야 한다 — "흙벽·목재·화강암·기와의 탄흔이 서로 달라야 한다"
+  const keyPairs = [];
+  for (let i = 0; i < DECAL_KEY_SURFACES.length; i++) {
+    for (let j = i + 1; j < DECAL_KEY_SURFACES.length; j++) {
+      const a = DECAL_KEY_SURFACES[i], b = DECAL_KEY_SURFACES[j];
+      const axes = (DECAL_LOOK[a] && DECAL_LOOK[b]) ? decalAxesDiff(DECAL_LOOK[a], DECAL_LOOK[b]) : [];
+      const ok = axes.length >= 2;
+      if (!ok) problems.push(`데칼 구별 불가 쌍: ${a} vs ${b} (상이 축 ${axes.length}개 < 2)`);
+      keyPairs.push({ a, b, axes, ok });
+    }
+  }
+  report.decals = { surfaces: need.length, peelSurfaces: needPeel.length, keyPairs };
+}
+
+// 핵심 쌍 명시 보고 (PATCH-003-A 승인 근거 — 운동학과 시각 양쪽)
 const soilPair = dist.pairs.find(
   (p) => (p.a === 'soil_puff' && p.b === 'dust_burst') || (p.a === 'dust_burst' && p.b === 'soil_puff'),
 );
-report.roofSoilVsEarthWall = { axes: soilPair.axes, ok: soilPair.ok };
+const soilVis = vis.pairs.find(
+  (p) => (p.a === 'soil_puff' && p.b === 'dust_burst') || (p.a === 'dust_burst' && p.b === 'soil_puff'),
+);
+report.roofSoilVsEarthWall = {
+  axes: soilPair.axes, ok: soilPair.ok,
+  visualAxes: soilVis.axes, visualOk: soilVis.ok,
+  ok2: soilPair.ok && soilVis.ok,
+};
 
 /* ---- 3. 방출 실측 — 15종 표면 합성 월드 사격 ---- */
 setGlobalSeed(DEFAULT_SEED);

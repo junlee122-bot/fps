@@ -26,6 +26,8 @@
  * 20. paletteaudit — 자발광 밴드: 비태그 주황 주입 exit 1 / 태그 주황 exit 0(대조) / 마스크 12% 강제 exit 1 (PATCH-007-C)
  * 23. shotaudit — 양성(12샷 등록 전부 통과) + 음성 훅 (--inject-occluder: 대상 앞 불투명 상자 → exit 1 + 표식 + 차폐 이름) (PATCH-009-B; 21·22 는 P4 예약)
  * 24. geometryaudit [8] 창살 방향 톱니 — 양성(위반 4 = 상한, exit 0) + 음성 훅 (--inject-lattice-flip: 정상 판 1개 반사 → 위반 5 > 상한 → exit 1 + 표식)
+ * 25. fxaudit 시각 축 — 양성(105쌍 전부 색·모양 2축 이상) + 음성 훅 (--test-look-clone: 색·모양만 동일화, 운동학은 그대로 상이 → exit 1)
+ * 26. playtest 구멍 모델 음성 훅 (--inject-no-holes: 피격은 기록되고 구멍만 차단 → exit 1 + 표식 + hanji_hole_per_hit 실패) (PATCH-014-D 6항)
  */
 
 import { spawnSync } from 'node:child_process';
@@ -386,6 +388,50 @@ const SHORT = ['--duration', '16', '--runs', '1', '--dpr', '1', '--w', '640', '-
   const ok = pos.code === 0 && posViol === 4 && capOk && neg.code === 1 && negViol === 5 && marked;
   record(24, 'geometryaudit [8] 창살 방향 톱니 (양성 위반4=상한 exit0 / 음성 반사 → 위반5 exit1 + 표식)', ok,
     `양성 exit=${pos.code} 위반=${posViol} / 음성 exit=${neg.code} 위반=${negViol} 표식=${marked}`);
+}
+
+/* ---- 26. playtest 구멍 모델 음성 훅 (PATCH-014-D 6항) ----
+ * "구멍 생성을 인위로 막으면 반드시 실패." 피격 기록은 그대로 두고 구멍 목록만 비운다 —
+ * 종전 모델(판 전체 불투명도 감소)이라면 이 상태로도 통과해 버린다. 그것이 013-B가 말한
+ * 게임 규칙 결함이고, 이 케이스가 그 결함의 재발을 막는다.
+ * 양성 경로는 게이트 목록의 playtest 실행 자체가 담당한다 — 가장 비싼 도구를 두 번 돌리지 않는다. */
+{
+  const neg = runAudit('node', ['tools/playtest.mjs', '--inject-no-holes']);
+  let marked = false, holeCheckFailed = false, hitRecorded = null;
+  try {
+    const j = JSON.parse(neg.out);
+    marked = String(j.testOverride ?? '').includes('inject-no-holes');
+    holeCheckFailed = (j.failures ?? []).some((f) => f.check === 'hanji_hole_per_hit');
+    hitRecorded = (j.log ?? []).find((l) => l.check === 'hanji_hit_recorded')?.ok ?? null;
+  } catch { /* fail */ }
+  // 피격 자체는 기록되어야 한다 — 구멍만 막은 것이지 배선을 끊은 것이 아니다
+  const ok = neg.code === 1 && marked && holeCheckFailed && hitRecorded === true;
+  record(26, 'playtest 구멍 모델 음성 (--inject-no-holes → exit 1 + 표식 + 구멍 검사만 실패)', ok,
+    `exit=${neg.code} 표식=${marked} 구멍검사실패=${holeCheckFailed} 피격기록=${hitRecorded}`);
+}
+
+/* ---- 25. fxaudit 시각 구별 축 (발주자 지시 2026-09-20) ----
+ * 003-B가 ROOF_SOIL을 승인한 근거는 "플레이어가 구별할 수 있다"인데, 케이스 11이 지키는
+ * 축은 운동학 5개뿐이어서 플레이어가 실제로 보는 색·모양은 검사되지 않았다.
+ * 양성: 기본 트리에서 105쌍 전부 시각 2축 이상, exit 0, 핵심 쌍(ROOF_SOIL vs EARTH_WALL) visualOk.
+ * 음성: --test-look-clone soil_puff=dust_burst — **룩만** 복제하므로 운동학 5축은 전부 상이한 채로
+ *       남는다(운동학 실패쌍 0). 그래도 exit 1이어야 한다: 색·모양이 같으면 플레이어에게는 같은 것이다. */
+{
+  const pos = runAudit('node', ['tools/fxaudit.mjs']);
+  const neg = runAudit('node', ['tools/fxaudit.mjs', '--test-look-clone', 'soil_puff=dust_burst']);
+  let posVisOk = null, posPairs = -1, negVisFail = -1, negKinFail = -1, marked = false;
+  try {
+    const jp = JSON.parse(pos.out), jn = JSON.parse(neg.out);
+    posVisOk = jp.visualPairsFailed?.length === 0 && jp.roofSoilVsEarthWall?.visualOk === true;
+    posPairs = jp.pairs ?? -1;
+    negVisFail = jn.visualPairsFailed?.length ?? -1;
+    negKinFail = jn.pairsFailed?.length ?? -1;
+    marked = String(jn.testOverride ?? '').includes('look-clone');
+  } catch { /* fail */ }
+  const ok = pos.code === 0 && posVisOk === true && posPairs === 105
+    && neg.code === 1 && negVisFail === 1 && negKinFail === 0 && marked;
+  record(25, 'fxaudit 시각 축 (양성 105쌍 색·모양 2축 exit0 / 음성 룩만 복제 → 운동학 상이해도 exit1 + 표식)', ok,
+    `양성 exit=${pos.code} 쌍=${posPairs} 시각ok=${posVisOk} / 음성 exit=${neg.code} 시각실패=${negVisFail} 운동학실패=${negKinFail} 표식=${marked}`);
 }
 
 /* ---- 20. paletteaudit 자발광 밴드 (PATCH-007-C) ----
