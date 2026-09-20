@@ -172,6 +172,7 @@ paletteaudit         + 트립와이어, 자발광 대역
 albedoaudit          매니페스트 갱신 반영
 viewmodelaudit
 shotaudit            판정 모드 (--report 아님)
+rendervariance       [발주자 승인 2026-09-20, 착수 전 스캔 #1] 원문 목록에서 누락됐던 결정성 게이트 — HDR 해시 12샷×4회 단일
 npm test
 baseline ×2          비트 동일
 imagediff
