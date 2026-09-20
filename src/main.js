@@ -35,6 +35,7 @@ import { PlayerInput } from './player/input.js';
 import { Player } from './player/player.js';
 import { FireControl } from './weapons/firecontrol.js';
 import { Viewmodel, setupViewmodelAudit } from './weapons/viewmodel.js';
+import { VIEWMODEL_MATERIAL_MAP } from './materials/viewmodel-look.js';
 import { HanjiState } from './materials/hanji.js';
 import { HanjiOccluders } from './materials/hanji-occluders.js';
 import { FxSystem } from './fx/index.js';
@@ -106,6 +107,24 @@ const fire = new FireControl(
 );
 const viewmodel = new Viewmodel(camera);
 viewmodel.setVisible(mode === 'realtime'); // 캡처는 샷 데이터가 명시할 때만 표시
+
+// [R4 작업 1 / 등급 A] 뷰모델 룩 배선 — 기하는 weapons(P2), 재질은 materials(P3) 소유다(CARRYOVER-AUDIT #6).
+// weapons 가 만든 회색 카드(VM_GREY_*)를 건메탈·폴리머로 교체한다. viewmodel.js 는 건드리지 않는다.
+// pipeline.patchScene() 보다 **앞**에서 교체해야 새 재질도 CSM 패치를 받는다.
+const viewmodelMaterials = surfaceMaterials.viewmodel; // materials 가 같은 합성기로 만들어 반환한다
+{
+  const swapped = new Set();
+  viewmodel.root.traverse((o) => {
+    if (!o.isMesh) return;
+    const key = VIEWMODEL_MATERIAL_MAP[o.material?.name];
+    if (!key) throw new Error(`뷰모델 재질 매핑 없음: ${o.material?.name} (${o.name})`); // PATCH-001-D: 조용한 무시 금지
+    o.material = viewmodelMaterials[key];
+    swapped.add(key);
+  });
+  if (swapped.size !== Object.keys(viewmodelMaterials).length) {
+    throw new Error(`뷰모델 재질 미사용분: ${Object.keys(viewmodelMaterials).filter((k) => !swapped.has(k))}`);
+  }
+}
 
 // HANJI 판 등록: 가시 판(_hanji) ↔ 콜라이더(_hanji_col) 쌍의 가시 쪽
 const hanjiPanes = new Map();

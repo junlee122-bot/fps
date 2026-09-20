@@ -17,6 +17,7 @@
 import * as THREE from 'three';
 import { HANJI_BASE_OPACITY } from './hanji.js';
 import { ProceduralSynth, PAT, V4 } from './synth.js';
+import { createViewmodelMaterials } from './viewmodel-look.js';
 import { applySurfaceShader } from './surface-shader.js';
 
 // three r152+: Color.setHex는 sRGB 입력을 작업 색공간(선형)으로 변환한다 — 추가 변환 금지(이중 변환 실측: 알베도 1/4)
@@ -423,8 +424,11 @@ export function createSurfaceMaterials({ renderer }) {
   const std = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.92, metalness: 0, ...extra });
   mats.GREY_LIGHT = std(0x9a9a97); mats.GREY_MID = std(0x7b766f); mats.GREY_DARK = std(0x585b5f);
   for (const k of ['GREY_LIGHT', 'GREY_MID', 'GREY_DARK']) mats[k].name = k;
+  // [R4 작업 1] 뷰모델 룩(건메탈·폴리머) — 정의는 viewmodel-look.js(P3), 생성은 **같은 합성기**로 한다.
+  // 별도 합성기를 만들면 WebGL 자원과 부팅 비용이 두 벌이 된다. synth.dispose() 앞이어야 한다.
+  const viewmodel = createViewmodelMaterials({ synth });
   synth.dispose();
-  return { mats, matOf: SURFACE_MAT, synth: { ms: +synth.totalMs.toFixed(0), breakdown: synth.breakdown } };
+  return { mats, matOf: SURFACE_MAT, viewmodel, synth: { ms: +synth.totalMs.toFixed(0), breakdown: synth.breakdown } };
 }
 
 /** CSM 패치(pipeline.patchScene) 이후 호출 — 표면 셰이더 모드 적용 */

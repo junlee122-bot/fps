@@ -18,7 +18,7 @@ import { clock } from '../core/clock.js'; // 벽시계는 clock만 (determinisma
 
 /** 패턴 연산 인덱스 (레이어 셰이더 switch와 1:1) */
 export const PAT = Object.freeze({
-  NONE: 0, DANCHEONG: 1, WADANG: 2, ROWS: 3, WEAVE: 4, RIBS: 5, KNOTS: 6, CHISEL: 7,
+  NONE: 0, DANCHEONG: 1, WADANG: 2, ROWS: 3, WEAVE: 4, RIBS: 5, KNOTS: 6, CHISEL: 7, EDGEWEAR: 8,
 });
 
 const FS_VERT = /* glsl */`
@@ -195,6 +195,19 @@ const LAYER_FRAG = /* glsl */`
       alb *= 1.0 - 0.25 * ch;
       h -= 0.22 * ch;
       ao *= 1.0 - 0.3 * ch;
+    } else if (pat == 8) {
+      // 에지 마모 (R4 작업 1, 뷰모델) — UV 테두리 = 박스·원기둥 면 경계 = 기하 모서리다.
+      // 손이 닿고 부딪히는 자리에서 도장이 벗겨져 바탕이 드러난다: 알베도 상승 · 거칠기 하강 · 금속성 상승.
+      // uPat = [8, 마모 폭(UV), 알베도 혼합량, 거칠기·금속 델타]. 델타가 음수면 긁힌 폴리머(거칠기 상승·금속 0 고정).
+      float d = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
+      float edge = 1.0 - smoothstep(0.0, max(uPat.y, 1.0e-4), d);
+      float grain = fbm(p * 18.0, period * 18, seed + 91u, 3);   // 균일한 띠가 아니라 얼룩지게
+      edge *= 0.55 + 0.45 * grain;
+      alb = mix(alb, colD, edge * uPat.z);
+      rough = clamp(rough - uPat.w * edge, 0.04, 1.0);
+      metal = clamp(metal + uPat.w * edge * 1.5, 0.0, 1.0);
+      h -= 0.05 * edge;
+      ao *= 1.0 - 0.15 * edge;
     }
     oAlbedo = vec4(max(alb, vec3(0.0)), 1.0);
     oORM = vec4(clamp(ao, 0.0, 1.0), clamp(rough, 0.0, 1.0), clamp(metal, 0.0, 1.0), clamp(h, 0.0, 1.0));

@@ -6,7 +6,7 @@
   "WOOD_LATTICE": 0.1,
   "DANCHEONG": 0.26,
   "ROOF_TILE": 0.13,
-  "ROOF_SOIL": 0.30,
+  "ROOF_SOIL": 0.3,
   "EARTH_WALL": 0.25,
   "PLASTER": 0.55,
   "LACQUER": 0.035,
@@ -19,6 +19,6 @@
   "WATER": 0.19,
   "ROOF_TILE_UV": 0.13,
   "FX_DEBRIS_TILE": 0.13,
-  "VM_GREY_MID": 0.1832,
-  "VM_GREY_DARK": 0.1038
+  "VM_GUNMETAL": 0.09,
+  "VM_POLYMER": 0.14
 }
