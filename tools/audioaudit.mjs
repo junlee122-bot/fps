@@ -10,8 +10,10 @@
  *      도출 결과가 런타임(src/audio/occlusion.js isPassThrough)과 다르면 exit 1
  *  [1] 차폐 표면 전수에 오클루전 프로파일, 레이가 맞을 수 있는 표면 전수에 흡음계수
  *  [2] OfflineAudioContext(48 kHz) 렌더: 같은 시험 음원을 표면 한 겹(refCm) 너머로 → 4축 측정
- *      (차단 주파수 · 감쇠 · 잔향 결합 · 지연). 차폐 표면 쌍 전부 2축 이상 상이, 아니면 exit 1
- *      ROOF_SOIL vs EARTH_WALL 은 별도 명시 검증 (PATCH-003-B 3항)
+ *      (차단 주파수 · 감쇠 · 잔향 결합 · 지연). 판정은 **들리는 축**만 센다(지연은 보고 전용, measure.js).
+ *      - 관통 등급이 다른 쌍: 들리는 축 2개 이상, 아니면 exit 1
+ *      - 같은 등급 쌍: 보고만 (비슷하게 들리는 게 물리적으로 맞으면 차이를 지어내지 않는다)
+ *      - ROOF_SOIL vs EARTH_WALL: 등급 무관 2개 이상 (PATCH-003-B 3항)
  *  [3] BRONZE 공명 (§2-3): bronze_resonate 렌더 T60 ≥ 3 s
  *  [4] 공간 잔향 (§2-4): 마당 · 대청 · 방 · 회랑을 월드 레이로 측정 — 6쌍 전부 RT60(중역) 또는
  *      확산 수준에서 15% 초과 상이
@@ -36,7 +38,7 @@ import {
   OCCLUSION_PROFILES, GROUND_PLANE_TOP_M, isPassThrough, occluderSurfaces,
 } from '../src/audio/occlusion.js';
 import { ABSORPTION, probeSpace } from '../src/audio/reverb.js';
-import { measureProfile, distinctAxes, AXES, DISTINCT } from '../src/audio/measure.js';
+import { measureProfile, distinctAxes, AXES, AUDIBLE_AXES, DISTINCT } from '../src/audio/measure.js';
 import { impactBuffer, measureT60 } from '../src/audio/synth.js';
 import { TARGET_RATE } from '../src/audio/assets/manifest.js';
 import { startServer } from './lib/server.mjs';
@@ -165,16 +167,23 @@ for (const s of derivedOccluders) {
 report.axes = AXES;
 report.criteria = DISTINCT;
 report.measured = measured;
+report.audibleAxes = AUDIBLE_AXES;
+const pen = (s) => SURFACES[s].penClass;
+const KEY_PAIR = new Set(['EARTH_WALL|ROOF_SOIL', 'ROOF_SOIL|EARTH_WALL']);
 const pairs = [];
 for (let i = 0; i < derivedOccluders.length; i++) {
   for (let j = i + 1; j < derivedOccluders.length; j++) {
     const a = derivedOccluders[i], b = derivedOccluders[j];
     const ax = distinctAxes(measured[a], measured[b]);
-    pairs.push({ a, b, axes: ax, n: ax.length });
-    if (ax.length < DISTINCT.minAxes) problems.push(`[2] ${a} vs ${b}: ${ax.length}축만 상이 [${ax}]`);
+    const gated = pen(a) !== pen(b) || KEY_PAIR.has(`${a}|${b}`);
+    const ok = !gated || ax.length >= DISTINCT.minAxes;
+    pairs.push({ a, b, penClass: [pen(a), pen(b)], gated, axes: ax, n: ax.length, ok });
+    if (!ok) problems.push(`[2] ${a}(${pen(a)}) vs ${b}(${pen(b)}): 들리는 축 ${ax.length}개 [${ax}]`);
   }
 }
 report.pairCount = pairs.length;
+report.gatedPairCount = pairs.filter((p) => p.gated).length;
+report.samePenReportOnly = pairs.filter((p) => !p.gated).map((p) => `${p.a}/${p.b}: [${p.axes}]`);
 report.pairs = pairs;
 {
   const ax = distinctAxes(measured.ROOF_SOIL, measured.EARTH_WALL);

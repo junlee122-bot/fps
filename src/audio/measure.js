@@ -11,25 +11,27 @@
  *   delayMs       : 통과대(25–55 Hz) 군지연 — 교차 스펙트럼 위상 기울기. 벽체 모드(≥ 70 Hz) 아래라
  *                   공진 부근 위상 급변에 흔들리지 않는다
  *   couplingRatio : 음원이 끝난 뒤(시험 음원 250 ms + 지연 + 5 ms)에 남는 에너지 / 전체 에너지
- *                   — 벽체 재방사 울림의 양. 필터 링잉도 포함되지만 결합 0 표면에서는 무시할 수준
+ *                   — 벽체 재방사 울림의 양
  *
- * "상이" 기준 (P4-BRIEF §2-5 잠정): 차단 1/3옥타브 이상 · 감쇠 3 dB 이상 · 지연 · 결합 상대차 15% 초과.
- * 상대차 분모에는 하한을 둔다 — 0 근처 두 값의 비율 차는 들리지 않는다:
- *   지연 0.1 ms, 결합 0.01 (1 % 잔류 에너지).
+ * "상이" 기준 (P4-BRIEF §2-5 개정 — 들리는 축만 센다):
+ *   - 차단 1/3옥타브 이상 · 감쇠 3 dB 이상 — 청감 근거
+ *   - 잔향 결합: 둘 중 하나라도 판정 하한(0.01 = 1 % 잔류 에너지) 위이고, **절대차**가 하한 이상일 때만
+ *   - 지연: 측정 · 보고만. 수 ms 저역 군지연 차는 들리지 않는다 → 세지 않는다
  */
 
 export const AXES = Object.freeze(['cutoffHz', 'attenuationDb', 'couplingRatio', 'delayMs']);
+/** 판정에 세는 축 — 지연은 보고 전용 */
+export const AUDIBLE_AXES = Object.freeze(['cutoffHz', 'attenuationDb', 'couplingRatio']);
 export const DISTINCT = Object.freeze({
   cutoffOct: 1 / 3,
   attenuationDb: 3,
-  rel: 0.15,
-  floor: Object.freeze({ delayMs: 0.1, couplingRatio: 0.01 }),
+  couplingFloor: 0.01,
   minAxes: 2,
 });
 
 const PROBE_S = 0.25;
 
-function fft(x, n) {
+export function fft(x, n) {
   // radix-2 복소 FFT (실수 입력) → { re, im } (0..n-1)
   const re = new Float64Array(n), im = new Float64Array(n);
   for (let i = 0; i < Math.min(n, x.length); i++) re[i] = x[i];
@@ -54,7 +56,7 @@ function fft(x, n) {
   return { re, im };
 }
 
-function mag2(X) {
+export function mag2(X) {
   const out = new Float64Array(X.re.length / 2 + 1);
   for (let i = 0; i < out.length; i++) out[i] = X.re[i] * X.re[i] + X.im[i] * X.im[i];
   return out;
@@ -105,7 +107,19 @@ export function measureProfile(ref, occ, rate) {
   for (let f = 25; f <= 55; f *= 2 ** (1 / 12)) { pass += H(f); cnt++; }
   pass /= cnt;
   let cutoffHz = 20000;
-  for (let f = 100; f <= 20000; f *= 2 ** (1 / 24)) { if (H(f) < pass - 12) { cutoffHz = f; break; } }
+  // 1/24옥타브 격자로 훑고, 넘는 칸에서 log f – dB 선형 보간으로 교차점을 잡는다
+  const STEP = 2 ** (1 / 24);
+  let fPrev = 100, hPrev = H(100);
+  for (let f = 100 * STEP; f <= 20000; f *= STEP) {
+    const h = H(f);
+    if (h < pass - 12) {
+      const t = hPrev === h ? 0 : (hPrev - (pass - 12)) / (hPrev - h);
+      cutoffHz = fPrev * (f / fPrev) ** Math.min(1, Math.max(0, t));
+      break;
+    }
+    fPrev = f; hPrev = h;
+  }
+  if (H(100) < pass - 12) cutoffHz = 100;
 
   const attenuationDb = 10 * Math.log10((energy(occ) + 1e-30) / (energy(ref) + 1e-30));
 
@@ -119,14 +133,12 @@ export function measureProfile(ref, occ, rate) {
   return { cutoffHz, attenuationDb, couplingRatio, delayMs };
 }
 
-/** 두 프로파일이 다른 축 목록 */
+/** 두 프로파일이 **들리게** 다른 축 목록 (지연 제외) */
 export function distinctAxes(a, b) {
   const out = [];
   if (Math.abs(Math.log2(a.cutoffHz / b.cutoffHz)) >= DISTINCT.cutoffOct) out.push('cutoffHz');
   if (Math.abs(a.attenuationDb - b.attenuationDb) >= DISTINCT.attenuationDb) out.push('attenuationDb');
-  for (const ax of ['couplingRatio', 'delayMs']) {
-    const d = Math.abs(a[ax] - b[ax]) / Math.max(Math.abs(a[ax]), Math.abs(b[ax]), DISTINCT.floor[ax]);
-    if (d > DISTINCT.rel) out.push(ax);
-  }
+  const f = DISTINCT.couplingFloor;
+  if (Math.max(a.couplingRatio, b.couplingRatio) >= f && Math.abs(a.couplingRatio - b.couplingRatio) >= f) out.push('couplingRatio');
   return out;
 }

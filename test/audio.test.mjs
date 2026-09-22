@@ -142,13 +142,17 @@ test('우회 인터페이스: 그래프 없으면 0개, 있으면 마지막 열�
   assert.throws(() => detourResponse({ apparentPos: null, pathLength: 1 }, [0, 0, 0]));
 });
 
-test('측정 · 구별: 같은 신호는 0축, 감쇠만 다르면 1축', () => {
+test('측정 · 구별: 같은 신호는 0축, 감쇠만 다르면 1축, 지연 · 하한 아래 결합은 세지 않는다', () => {
   const n = TARGET_RATE, x = new Float32Array(n);
   for (let i = 0; i < 12000; i++) x[i] = Math.sin(i * 0.37) * Math.sin(i * 0.011) + (i === 0 ? 1 : 0);
   const y = x.map((v) => v * 0.5);
   const a = measureProfile(x, x, TARGET_RATE), b = measureProfile(x, y, TARGET_RATE);
   assert.deepEqual(distinctAxes(a, a), []);
   assert.deepEqual(distinctAxes(a, b), ['attenuationDb']);
+  const base = { cutoffHz: 1000, attenuationDb: -10, couplingRatio: 0, delayMs: 1 };
+  assert.deepEqual(distinctAxes(base, { ...base, delayMs: 9 }), [], '지연은 세지 않는다');
+  assert.deepEqual(distinctAxes(base, { ...base, couplingRatio: 0.0024 }), [], '하한 아래 결합 차는 세지 않는다');
+  assert.deepEqual(distinctAxes(base, { ...base, couplingRatio: 0.05 }), ['couplingRatio']);
 });
 
 /* ---- AudioSystem 배선 — 가짜 Web Audio 로 그래프 모양만 본다 ---- */

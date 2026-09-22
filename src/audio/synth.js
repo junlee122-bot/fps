@@ -9,6 +9,7 @@
  */
 
 import { mulberry32, getGlobalSeed } from '../core/rng.js';
+import { fft, mag2 } from './measure.js';
 
 function fnv1a(str) {
   let h = 0x811c9dc5;
@@ -140,14 +141,19 @@ export function probeBuffer(rate) {
 /**
  * 벽체 재방사 울림(body IR) — 프로파일의 고유 모드 + 감쇠 노이즈. 잔향 결합 축의 소리.
  * 시드도 모드 · 감쇠 값에서 만든다: 같은 프로파일이면 표면 이름과 무관하게 같은 울림.
- * 에너지 1로 정규화(결합 비율이 곧 재방사 에너지 비가 되게).
+ *
+ * 정규화: **스펙트럼 최대 이득 1**. 결합 c 는 "어느 주파수에서도 투과음 에너지의 c 배를 넘지 않는
+ * 재방사"가 된다. (에너지 1 정규화는 좁은 모드의 스펙트럼 봉우리를 1 보다 한참 크게 만들어, 저역이
+ * 많은 입력에서 울림이 투과음보다 커졌다 — WOOD_COLUMN 측정 차단 206 Hz · 감쇠 +9.5 dB 오차의 원인, 실측)
  */
 export function bodyIR(modes, bodyMs, rate) {
   const t60 = Math.max(0.005, bodyMs / 1000);
   const m = (modes?.length ? modes : [[300, 1]]).map(([hz, a]) => [hz, t60, a]);
   const buf = modal(rate, Math.min(10, t60 * 1.2), m, { amp: 0.4, t60: t60 * 0.5, lpHz: 4000, hpHz: 60 }, `body:${JSON.stringify(modes)}:${bodyMs}`);
-  let e = 0; for (let i = 0; i < buf.length; i++) e += buf[i] * buf[i];
-  const g = 1 / Math.sqrt(e || 1);
+  const P = mag2(fft(buf, 1 << Math.ceil(Math.log2(buf.length))));
+  let peak = 0;
+  for (let i = 0; i < P.length; i++) peak = Math.max(peak, P[i]);
+  const g = 1 / Math.sqrt(peak || 1);
   for (let i = 0; i < buf.length; i++) buf[i] *= g;
   return buf;
 }
