@@ -510,7 +510,7 @@ export function installHarness(ctx) {
     },
 
     /* 내부 배선 (main.js 전용) */
-    _internal: { state, stepSim, simSubstep, renderFrame, scriptTick, pipeline, hanji, opacityApplier, hanjiOccluders: ctx.hanjiOccluders ?? null }, // pipeline·hanji·hanjiOccluders: 프로브 전용 (A/B 계측·음성 훅)
+    _internal: { state, stepSim, simSubstep, renderFrame, scriptTick, pipeline, hanji, opacityApplier, fire, hanjiOccluders: ctx.hanjiOccluders ?? null }, // pipeline·hanji·hanjiOccluders: 프로브 전용 (A/B 계측·음성 훅)
   };
 
   /**

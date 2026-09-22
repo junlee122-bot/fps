@@ -34,12 +34,20 @@ import { bus } from '../core/events.js';
 export const HANJI_BASE_OPACITY = 0.95;
 
 /**
- * 무기별 구멍 반지름 (m) — PATCH-014-C. 탄자 구경이 아니라 **판독 동작**으로 정한 값이다:
- *   카빈 구멍 1개는 2.5 m에서 판독 불가(대비 < .15), 여러 개가 모이면 쓸 만한 시야.
- * 실측 절차와 값은 docs/CONTRACT-NOTES.md "구멍 반지름 실측"에 기록한다.
+ * 무기별 구멍 반지름 (m) — PATCH-014-C 의 동작 기준을 **PATCH-015-F 정지 규칙에 따라 육안으로** 확정한 값.
+ *
+ * 숫자로 고르지 않았다. 계측 지표(구멍창 대비)는 반지름에 무반응이었고 고정창은 거리 판독성을 재지
+ * 못해 014-C 를 판정할 수 없었다(B단계 표는 docs/R4-LOG.md 에 보존, 판정에는 쓰지 않았다).
+ * 계약 작성자가 1512×982 캡처를 보고 골랐다:
+ *   CARBINE .026 — 2.5 m 에서는 점일 뿐 너머가 안 보이고, 0.6 m 에서는 구멍 안으로 더미 윤곽이 선명하다.
+ *                  014-C 첫 줄의 두 절("바짝 붙어야 겨우 보인다" + "2.5 m 판독 불가")을 모두 만족한다.
+ *                  .014 는 0.6 m 에서도 거의 검은 점이라 다가가서 얻는 것이 없다 — 엿보기 전술이 성립하지 않는다.
+ *   DMR .020    — 014-C 넷째 줄(카빈과 비슷하거나 약간 작다).
+ *   SHOTGUN .014 — 9펠릿이 임계를 넘겨 판을 찢으므로 펠릿 반지름의 영향은 작다.
+ * 세 값 모두 이번 계측에서 실제로 찍은 크기다.
  */
-export const HANJI_HOLE_RADIUS = Object.freeze({ CARBINE: 0.026, SHOTGUN: 0.017, DMR: 0.030 });
-export const HANJI_HOLE_RADIUS_DEFAULT = 0.024;
+export const HANJI_HOLE_RADIUS = Object.freeze({ CARBINE: 0.026, SHOTGUN: 0.014, DMR: 0.020 });
+export const HANJI_HOLE_RADIUS_DEFAULT = 0.020;
 
 /**
  * 찢어짐 임계 T — 한 판에 이만큼 구멍이 나면 종이가 찢어진다(불투명도 파생값 0).
