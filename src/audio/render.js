@@ -63,11 +63,11 @@ export const SCENARIO = Object.freeze([
  * 시나리오 렌더 (스테레오, HRTF). 소재는 런타임과 같은 fetch + decodeAudioData 경로로 로드.
  * @returns {Promise<[Float32Array, Float32Array]>}
  */
-export async function renderScenario({ seconds = 4.0, assetBase } = {}) {
+export async function renderScenario({ seconds = 4.0 } = {}) {
   resetAllStreams();
   const ctx = new OfflineAudioContext(2, Math.round(seconds * TARGET_RATE), TARGET_RATE);
   const bank = new BufferBank(ctx);
-  await bank.loadGuns(assetBase);
+  await bank.loadGuns();
   const listener = { pos: [0, 1.6, 0], forward: [0, 0, -1], up: [0, 1, 0] };
   setListener(ctx, listener);
   // 합산점은 전부 SumChain — 노드당 입력 ≤ 2 (graph.js SumChain 주석)

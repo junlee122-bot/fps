@@ -19,11 +19,11 @@ export class BufferBank {
   }
 
   /** 매니페스트 소재 전부 로드. 누락 · 레이트 불일치는 throw (조용한 대체 금지) */
-  async loadGuns(baseUrl = new URL('./assets/', import.meta.url)) {
+  async loadGuns() {
     for (const [fam, g] of Object.entries(GUN_FAMILIES)) {
       const takes = [];
       for (const f of g.files) {
-        const res = await fetch(new URL(f, baseUrl));
+        const res = await fetch(f);
         if (!res.ok) throw new Error(`audio: asset ${f} → HTTP ${res.status}`);
         const buf = await this.ctx.decodeAudioData(await res.arrayBuffer());
         if (buf.sampleRate !== TARGET_RATE) throw new Error(`audio: asset ${f} decoded at ${buf.sampleRate}`);

@@ -10,6 +10,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { SURFACES, PenClass } from '../src/core/surfaces.js';
 import { EVENT_VOCABULARY, bus } from '../src/core/events.js';
@@ -29,7 +30,6 @@ import { boxRoomRaycast } from '../src/audio/render.js';
 import { readWav } from '../src/audio/assets/_prepare.mjs';
 import { AudioSystem } from '../src/audio/index.js';
 
-const ASSETS = resolve(import.meta.dirname, '../src/audio/assets');
 
 test('차폐 표면: DECAL · 지면 판 제외, 나머지 전수에 프로파일, 통과 표면엔 프로파일 없음', () => {
   const occ = occluderSurfaces();
@@ -71,7 +71,8 @@ test('매니페스트: 계열 = 무기 계열 id, 파일 전부 존재, 48 kHz �
   for (const [fam, g] of Object.entries(GUN_FAMILIES)) {
     assert.ok(g.files.length >= 1, fam);
     for (const f of g.files) {
-      const p = resolve(ASSETS, f);
+      assert.ok(f.startsWith('file:'), `${f} — new URL(…, import.meta.url) 리터럴`);
+      const p = fileURLToPath(f);
       assert.ok(existsSync(p), p);
       const buf = readFileSync(p);
       assert.equal(buf.readUInt16LE(20), 1, `${f} PCM`);

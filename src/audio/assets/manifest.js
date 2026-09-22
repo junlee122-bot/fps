@@ -32,20 +32,28 @@ export const SOURCES = Object.freeze({
 
 /**
  * 계열 → 발사음 테이크.
- * files 는 이 파일 기준 상대 경로. 재생 시 테이크는 rngStream('audio:take') 로 고른다.
+ * files 는 `new URL('./…', import.meta.url)` **리터럴**로 적는다 — vite build 가 이 형태만 정적으로 찾아
+ * 배포본에 WAV 를 싣는다(동적으로 조립한 URL 은 빌드에서 빠진다). 파일 교체는 여전히 이 표의 문자열만 바뀐다.
+ * 재생 시 테이크는 rngStream('audio:take') 로 고른다.
  * gainDb 는 계열 간 균형(데이터) — 파일은 전부 피크 -1 dBFS 로 정규화돼 있다.
  */
 export const GUN_FAMILIES = Object.freeze({
   SHOTGUN: Object.freeze({
     source: 'SNM_FREE_FIREARM',
     recording: 'Charles Daly 펌프 12ga — H_21P (근거리, 사수 앞 좌우 스테레오 → 모노 합산)',
-    files: ['gun/shotgun_0.wav', 'gun/shotgun_1.wav'],
+    files: [
+      new URL('./gun/shotgun_0.wav', import.meta.url).href,
+      new URL('./gun/shotgun_1.wav', import.meta.url).href,
+    ],
     gainDb: 0,
   }),
   CARBINE: Object.freeze({
     source: 'SNM_FREE_FIREARM',
     recording: 'AR-15 5.56×45 — D_32P (근거리). 라이브러리 유일의 5.56',
-    files: ['gun/carbine_0.wav', 'gun/carbine_1.wav'],
+    files: [
+      new URL('./gun/carbine_0.wav', import.meta.url).href,
+      new URL('./gun/carbine_1.wav', import.meta.url).href,
+    ],
     gainDb: -2,
   }),
   DMR: Object.freeze({
@@ -55,7 +63,12 @@ export const GUN_FAMILIES = Object.freeze({
     // .30-06 계열(Tikka·Springfield·Arisaka)은 근거리 녹음도 -40 dB 까지 450–600 ms 로 방 울림이 남아 탈락,
     // SKS 7.62×39 는 건조하지만 중간 약실이라 카빈과 음색이 겹쳐 탈락. 볼트액션 소리이며 반자동 DMR 과 기계음이 다르다.
     substitute: '7.62×51 부재 → 7.62×54R 대체',
-    files: ['gun/dmr_0.wav', 'gun/dmr_1.wav', 'gun/dmr_2.wav', 'gun/dmr_3.wav'],
+    files: [
+      new URL('./gun/dmr_0.wav', import.meta.url).href,
+      new URL('./gun/dmr_1.wav', import.meta.url).href,
+      new URL('./gun/dmr_2.wav', import.meta.url).href,
+      new URL('./gun/dmr_3.wav', import.meta.url).href,
+    ],
     gainDb: 1,
   }),
 });
