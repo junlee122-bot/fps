@@ -187,9 +187,18 @@ PvP에서 이것은 **의도적 교란 수단**이 된다 — 범종을 쏘면 �
 ### 2-5. `tools/audioaudit.mjs` (신규)
 `fxaudit`와 동일한 패턴이다.
 
-1. 15종 표면 각각을 사이에 두고 동일 음원을 재생, `OfflineAudioContext`로 렌더
-2. 표면별 오클루전 프로파일(차단 주파수 · 감쇠 · 지연)을 산출
-3. 105쌍 전부가 **최소 2축에서 상이**해야 한다. 아니면 exit 1
+1. **차폐 표면** 각각을 사이에 두고 동일 음원을 재생, `OfflineAudioContext`로 렌더
+2. 표면별 오클루전 프로파일을 **4축**(차단 주파수 · 감쇠 · 잔향 결합 · 지연)으로 산출 — 표 값이 아니라 **렌더한 신호에서 측정**
+3. 차폐 표면 쌍 전부가 **최소 2축에서 상이**해야 한다. 아니면 exit 1
+
+**차폐 표면의 정의 — `surfaces.js`에서 기계적으로 뽑는다.** 체인(`collectChain`)에 층으로 나타날 수 있는 표면만이다.
+- `audio: null`인 **DECAL**(`DANCHEONG` · `LACQUER`)은 **동결 계약이 이미 "하부재를 따름"으로 정했다.** 칠 한 겹으로 차이를 지어내 쌍 수를 맞추지 마라 — 감사가 거짓말을 하게 된다
+- 벽이 될 수 없는 표면(`WATER` · `PACKED_DIRT` 등)도 뺀다. 어느 것을 뺐는지와 근거를 보고하라
+- 쌍 수는 이 목록에서 나온다. 이전 판의 "105쌍"은 계약 작성자 오류다
+
+**"상이"의 기준 (잠정):** 차단 주파수 1/3옥타브 이상 · 감쇠 3 dB 이상 · 나머지 두 축 상대차 15% 초과.
+청감 구별의 대략적 문턱에 근거한 값이다. 게임 규칙 임계가 아니므로 계약이 정해도 된다 —
+단 **1단계 소재 청감 확인에서 들어서 구별되지 않는 쌍이 통과하면** 기준을 올리고 보고하라.
 4. `ROOF_SOIL` vs `EARTH_WALL`을 별도 명시 검증
 
 **케이스 21 신규** — 두 프로파일을 인위로 동일하게 만든 입력에서 반드시 exit 1.
@@ -678,7 +687,7 @@ PvP이므로 AI는 **적**이 아니라 **봇**이다. 우선순위가 내려간
 
 ```bash
 node tools/harnesstest.mjs         # 23케이스 (audioaudit · silhouetteaudit · shotaudit 음성 포함)
-node tools/audioaudit.mjs          # 신규 — 105쌍 2축 이상 상이
+node tools/audioaudit.mjs          # 신규 — 차폐 표면 쌍 전부 2축 이상 상이 (§2-5)
 node tools/silhouetteaudit.mjs     # 신규 — 6쌍 2축 이상 상이, 대비 ≥ 0.15
 node tools/shotaudit.mjs           # 신규 (PATCH-009-B) — 샷이 선언한 감시 대상을 실제로 담는가
 node tools/determinismaudit.mjs
@@ -717,7 +726,7 @@ node tools/playtest.mjs
 ## 8. 보고 형식
 
 1. 서브패스별 게이트 결과
-2. `audioaudit` 105쌍 구별 축 표 — 특히 `ROOF_SOIL` vs `EARTH_WALL`
+2. `audioaudit` 차폐 표면 쌍 구별 축 표 — 특히 `ROOF_SOIL` vs `EARTH_WALL`. 제외한 표면과 근거
 3. `silhouetteaudit` 6쌍 구별도와 대비 실측
 4. 런타임 표면 생성에 대한 게이트 노후화 점검 결과 (§4-2)
 5. 라운드 길이 · **쿨다운 · 지속 시간 · 노출 적응 범위** 실측 근거
