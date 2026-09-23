@@ -50,7 +50,7 @@ function patchAtlasUv(mat, cacheKey) {
       // 부재 상자 클립용 월드 좌표. abs() 는 비선형이라 정점에서 접으면 안 된다 — 보간은 월드 좌표로 하고
       // 프래그먼트에서 접는다. 상자는 인스턴스마다 상수라 보간해도 값이 변하지 않는다.
       .replace('#include <worldpos_vertex>',
-        '#include <worldpos_vertex>\n\tvDecalW = ( modelMatrix * instanceMatrix * vec4( transformed, 1.0 ) ).xyz;'
+        '#include <worldpos_vertex>\n\tvDecalW = ( modelMatrix * instanceMatrix * vec4( position, 1.0 ) ).xyz;'
         + '\n\tvMemberC = aMemberC;\n\tvMemberH = aMemberH;');
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', 'varying vec3 vDecalW;\nvarying vec3 vMemberC;\nvarying vec3 vMemberH;\n#include <common>')
