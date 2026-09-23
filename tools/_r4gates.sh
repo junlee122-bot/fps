@@ -17,6 +17,10 @@ run() {  # run <이름> <명령...>
 }
 
 : > "$OUT/SUMMARY.txt"
+# 출처 고정 (발주자 지시 2026-09-23): 이 체인이 어느 상태를 잰 것인지 SHA 로 남긴다.
+# 렌더 도구는 이 스냅샷 워크트리를 서빙하므로, 체인이 도는 동안 작업 트리를 편집해도 결과가 흔들리지 않는다.
+node -e "import('./tools/lib/pinned.mjs').then(m=>{const p=m.pinnedRoot();console.log(p?`pinned sha=${p.sha} dirty=${p.dirty} root=${p.root}`+(p.untracked.length?` 추적안됨=${p.untracked.join(',')}`:''):'pinned 실패 — 작업 트리 서빙')})" | tee -a "$OUT/SUMMARY.txt"
+git rev-parse HEAD | sed 's/^/HEAD /' | tee -a "$OUT/SUMMARY.txt"
 run harnesstest      node tools/harnesstest.mjs
 run determinismaudit node tools/determinismaudit.mjs
 run geometryaudit    node tools/geometryaudit.mjs

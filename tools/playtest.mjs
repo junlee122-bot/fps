@@ -299,6 +299,10 @@ try {
       const [cx, cy, cz] = pose.center;
       const eye = [cx - 0.6, cy, cz];
       await page.evaluate(({ eye, at }) => window.__harness.debugCamera({ from: eye, at }), { eye, at: pose.center });
+      // 층을 껐다 켜며 비교하므로 **노출을 먼저 얼린다** — 얼리지 않으면 데칼을 숨긴 것만으로
+      // 자동 노출이 움직여 전 화면이 "달라진 픽셀"로 잡힌다(첫 실행에서 574891/576000 이 그렇게 나왔다).
+      await step(16);
+      const frozenEv = await page.evaluate(() => window.__harness.debugFreezeExposure());
       // 가로 창살은 판 중앙 높이에 있다(HANJI_LATTICE 띠 0). 중앙 + 가장자리(10 mm 위)
       for (const dy of [0, 0.010]) {
         await page.evaluate(({ eye, dy }) => window.__harness.debugFire({
@@ -336,9 +340,12 @@ try {
       }
       let paintedN = 0, spill = 0;
       for (let i = 0; i < W * H; i++) { if (painted[i]) { paintedN++; if (!bar[i]) spill++; } }
-      check('decal_paints_something', paintedN > 0, { paintedPx: paintedN, note: '데칼이 실제로 그려졌는지 — 검사가 공회전하지 않게' });
+      const barPx = barRaw.reduce((a, b) => a + b, 0);
+      check('decal_paints_something', paintedN > 0 && paintedN < W * H * 0.2, {
+        paintedPx: paintedN, frame: W * H, note: '데칼이 실제로 그려졌는지 + 화면 전체가 잡히지 않았는지(노출 오염 감시)',
+      });
       check('decal_within_member', spill === 0, {
-        paintedPx: paintedN, barPx: barRaw.reduce((a, b) => a + b, 0), spillPx: spill,
+        paintedPx: paintedN, barPx, spillPx: spill, frozenEv: frozenEv?.ev100 ?? null,
         note: '창살 실루엣(1px 팽창) 밖에 칠해진 데칼 픽셀 = 종이 위 번짐',
       });
     }

@@ -492,6 +492,16 @@ export function installHarness(ctx) {
       return n;
     },
 
+    /**
+     * [R4] 노출 적응 동결 (테스트 훅). 층을 껐다 켜며 비교하는 검사는 노출이 움직이면 전 화면이
+     * 바뀌어 "무엇이 달라졌나"를 못 잰다 — PATCH-015/016 에서 같은 오염을 이미 겪었다.
+     * 되돌릴 수 없다(다음 resetState/페이지 재적재까지). 반환값은 얼린 시점의 노출 상태.
+     */
+    debugFreezeExposure() {
+      pipeline.exposure.render = () => {};
+      return pipeline.exposure.read();
+    },
+
     /** [R4] 카메라를 from 에 두고 at 을 본다 (테스트 훅 — 근접 검사용 시점 고정) */
     debugCamera({ from, at }) {
       state.cameraOverride = true;
