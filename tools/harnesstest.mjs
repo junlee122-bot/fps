@@ -29,6 +29,7 @@
  * 25. fxaudit 시각 축 — 양성(105쌍 전부 색·모양 2축 이상) + 음성 훅 (--test-look-clone: 색·모양만 동일화, 운동학은 그대로 상이 → exit 1)
  * 26. playtest 구멍 모델 음성 훅 (--inject-no-holes: 피격은 기록되고 구멍만 차단 → exit 1 + 표식 + hanji_hole_per_hit 실패) (PATCH-014-D 6항)
  * 27. 창호지 판별 유니폼 기본값 금지 — 부팅 가드 (baseline --test-hanji-unsync: 판 하나를 기본값으로 오염 → exit 1 + 표식 + 판 이름) (PATCH-001-D 유니폼판)
+ * 28. 탄흔 데칼 부재 클립 음성 훅 (playtest --inject-decal-noclip: 클립 해제 → 창살 탄흔이 창호지로 번짐 → exit 1 + 표식 + decal_within_member 실패) (R4)
  */
 
 import { spawnSync } from 'node:child_process';
@@ -429,6 +430,27 @@ const SHORT = ['--duration', '16', '--runs', '1', '--dpr', '1', '--w', '640', '-
   const ok = neg.code === 1 && marked && holeCheckFailed && hitRecorded === true;
   record(26, 'playtest 구멍 모델 음성 (--inject-no-holes → exit 1 + 표식 + 구멍 검사만 실패)', ok,
     `exit=${neg.code} 표식=${marked} 구멍검사실패=${holeCheckFailed} 피격기록=${hitRecorded}`);
+}
+
+/* ---- 28. 탄흔 데칼 부재 클립 음성 훅 (R4 구멍 모양 이상) ----
+ * 데칼은 부재에 맞춰 잘리지 않는 쿼드다. 24 mm 창살에 찍힌 38~64 mm 탄흔이 창호지 위로 번져
+ * "곧은 모서리 별"로 읽혔다(R4 실측). 클립을 해제하면 그 상태가 그대로 돌아오므로 반드시 실패해야 한다.
+ * 양성 경로는 게이트 목록의 playtest 실행 자체가 담당한다(케이스 26과 같은 규칙 — 비싼 도구는 한 번만).
+ * 데칼이 실제로 그려졌는지(decal_paints_something)는 음성 실행에서도 참이어야 한다 — 배선을 끊은 게
+ * 아니라 클립만 푼 것이기 때문이다. */
+{
+  const neg = runAudit('node', ['tools/playtest.mjs', '--inject-decal-noclip']);
+  let marked = false, clipFailed = false, painted = null, spillPx = null;
+  try {
+    const j = JSON.parse(neg.out);
+    marked = String(j.testOverride ?? '').includes('inject-decal-noclip');
+    const f = (j.failures ?? []).find((x) => x.check === 'decal_within_member');
+    clipFailed = !!f; spillPx = f?.spillPx ?? null;
+    painted = (j.log ?? []).find((l) => l.check === 'decal_paints_something')?.ok ?? null;
+  } catch { /* fail */ }
+  const ok = neg.code === 1 && marked && clipFailed && painted === true;
+  record(28, '탄흔 데칼 부재 클립 음성 (--inject-decal-noclip → exit 1 + 표식 + 종이 위 번짐)', ok,
+    `exit=${neg.code} 표식=${marked} 클립검사실패=${clipFailed} 번짐px=${spillPx} 데칼그려짐=${painted}`);
 }
 
 /* ---- 25. fxaudit 시각 구별 축 (발주자 지시 2026-09-20) ----

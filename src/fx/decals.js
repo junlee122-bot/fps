@@ -8,7 +8,8 @@
  * 가리키는 층의 **진입면**에 찍힌다 (호출자 firecontrol/FxSystem이 보장).
  * 관통 층은 진입면마다 1개.
  *
- * HANJI는 데칼 대상이 아니다 — 구멍(불투명도) + 찢김(tear)은 별도 시스템.
+ * HANJI는 데칼 대상이 아니다 — 구멍·찢어짐은 해석적(materials/index.js). 다만 **창살**(24 mm)에 찍힌
+ * 탄흔이 쿼드 크기(38~64 mm)만큼 종이 위로 번지던 결함이 있었다 — 이제 맞은 부재의 AABB 로 자른다.
  * DANCHEONG/LACQUER(DECAL 표면)는 하부재 데칼 위에 박리 데칼이 얹힌다.
  *
  * 룩(색·실루엣)은 P3 소유 — src/materials/fx-look.js 의 DECAL_LOOK/PEEL_LOOK 표와
@@ -41,12 +42,30 @@ const PEEL_SIZE = [0.10, 0.16];    // 박리는 더 크다
 function patchAtlasUv(mat, cacheKey) {
   mat.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', 'attribute vec2 aCell;\n#include <common>')
+      .replace('#include <common>',
+        'attribute vec2 aCell;\nattribute vec3 aMemberC;\nattribute vec3 aMemberH;\n'
+        + 'varying vec3 vDecalW;\nvarying vec3 vMemberC;\nvarying vec3 vMemberH;\n#include <common>')
       .replace('#include <uv_vertex>',
-        `#include <uv_vertex>\n\tvMapUv = ( vMapUv + aCell ) * vec2( ${(1 / DECAL_COLS).toFixed(6)}, ${(1 / DECAL_ROWS).toFixed(6)} );`);
+        `#include <uv_vertex>\n\tvMapUv = ( vMapUv + aCell ) * vec2( ${(1 / DECAL_COLS).toFixed(6)}, ${(1 / DECAL_ROWS).toFixed(6)} );`)
+      // 부재 상자 클립용 월드 좌표. abs() 는 비선형이라 정점에서 접으면 안 된다 — 보간은 월드 좌표로 하고
+      // 프래그먼트에서 접는다. 상자는 인스턴스마다 상수라 보간해도 값이 변하지 않는다.
+      .replace('#include <worldpos_vertex>',
+        '#include <worldpos_vertex>\n\tvDecalW = ( modelMatrix * instanceMatrix * vec4( transformed, 1.0 ) ).xyz;'
+        + '\n\tvMemberC = aMemberC;\n\tvMemberH = aMemberH;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', 'varying vec3 vDecalW;\nvarying vec3 vMemberC;\nvarying vec3 vMemberH;\n#include <common>')
+      // 맞은 **부재** 밖은 그리지 않는다. 데칼은 부재에 맞춰 잘리지 않는 쿼드라서, 부재가 데칼보다 좁으면
+      // (24 mm 창살 위 38~64 mm 탄흔) 이웃 표면 — 창호지 — 위로 번졌다. R4 실측으로 잡은 결함.
+      .replace('#include <clipping_planes_fragment>',
+        '#include <clipping_planes_fragment>\n\tif ( any( greaterThan( abs( vDecalW - vMemberC ) - vMemberH, vec3( 0.0 ) ) ) ) discard;');
   };
   mat.customProgramCacheKey = () => cacheKey;
 }
+
+/** 부재 상자가 없을 때(동적 강체 등) 쓰는 "자르지 않음" 반폭 */
+const NO_CLIP_HALF = 1.0e4;
+/** 데칼은 표면에서 1.5 mm 떠 있다 — 상자를 노멀 방향으로만 넓혀 자기 자신이 잘리지 않게 한다 */
+const CLIP_LIFT = 0.01;
 
 export class DecalPool {
   constructor(scene) {
@@ -59,6 +78,13 @@ export class DecalPool {
     this.cellAttr = new THREE.InstancedBufferAttribute(new Float32Array(DECAL_BUDGET * 2), 2);
     this.cellAttr.setUsage(THREE.DynamicDrawUsage);
     geo.setAttribute('aCell', this.cellAttr);
+    this.memberCAttr = new THREE.InstancedBufferAttribute(new Float32Array(DECAL_BUDGET * 3), 3);
+    this.memberHAttr = new THREE.InstancedBufferAttribute(new Float32Array(DECAL_BUDGET * 3), 3);
+    this.memberCAttr.setUsage(THREE.DynamicDrawUsage);
+    this.memberHAttr.setUsage(THREE.DynamicDrawUsage);
+    this.memberHAttr.array.fill(NO_CLIP_HALF); // 기본은 "자르지 않음"
+    geo.setAttribute('aMemberC', this.memberCAttr);
+    geo.setAttribute('aMemberH', this.memberHAttr);
     const mat = new THREE.MeshBasicMaterial({
       color: 0xffffff, map: this.atlas, transparent: true,
       depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
@@ -93,6 +119,13 @@ export class DecalPool {
     this.peelCellAttr = new THREE.InstancedBufferAttribute(new Float32Array(this.peelCapacity * 2), 2);
     this.peelCellAttr.setUsage(THREE.DynamicDrawUsage);
     peelGeo.setAttribute('aCell', this.peelCellAttr);
+    this.peelMemberCAttr = new THREE.InstancedBufferAttribute(new Float32Array(this.peelCapacity * 3), 3);
+    this.peelMemberHAttr = new THREE.InstancedBufferAttribute(new Float32Array(this.peelCapacity * 3), 3);
+    this.peelMemberCAttr.setUsage(THREE.DynamicDrawUsage);
+    this.peelMemberHAttr.setUsage(THREE.DynamicDrawUsage);
+    this.peelMemberHAttr.array.fill(NO_CLIP_HALF);
+    peelGeo.setAttribute('aMemberC', this.peelMemberCAttr);
+    peelGeo.setAttribute('aMemberH', this.peelMemberHAttr);
     this.peelMesh = new THREE.InstancedMesh(peelGeo, peelMat, this.peelCapacity);
     this.peelMesh.name = 'fx_decals_peel';
     this.peelMesh.count = 0;
@@ -120,7 +153,7 @@ export class DecalPool {
     return rngStream('fx:decals')();
   }
 
-  _place(mesh, capacity, cursorField, sizeArr, x, y, z, nx, ny, nz, size, look, cellAttr, covArr) {
+  _place(mesh, capacity, cursorField, sizeArr, x, y, z, nx, ny, nz, size, look, cellAttr, covArr, memberBox, mC, mH) {
     const slot = this[cursorField] % capacity;
     this[cursorField]++;
     this._n.set(nx, ny, nz);
@@ -141,9 +174,30 @@ export class DecalPool {
     mesh.setColorAt(slot, look.color);
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     if (covArr) covArr[slot] = decalCoverageOf(look.look.shape);
+    // 부재 상자 — 이 상자 밖의 프래그먼트는 셰이더가 버린다. 노멀 방향으로만 넓혀 1.5 mm 부양분을 덮는다.
+    if (memberBox) {
+      mC.setXYZ(slot, (memberBox[0] + memberBox[3]) * 0.5, (memberBox[1] + memberBox[4]) * 0.5, (memberBox[2] + memberBox[5]) * 0.5);
+      mH.setXYZ(slot,
+        (memberBox[3] - memberBox[0]) * 0.5 + Math.abs(nx) * CLIP_LIFT,
+        (memberBox[4] - memberBox[1]) * 0.5 + Math.abs(ny) * CLIP_LIFT,
+        (memberBox[5] - memberBox[2]) * 0.5 + Math.abs(nz) * CLIP_LIFT);
+    } else {
+      mC.setXYZ(slot, x, y, z);
+      mH.setXYZ(slot, NO_CLIP_HALF, NO_CLIP_HALF, NO_CLIP_HALF);
+    }
+    mC.needsUpdate = true; mH.needsUpdate = true;
     mesh.count = Math.min(this[cursorField], capacity);
     mesh.instanceMatrix.needsUpdate = true;
     return slot;
+  }
+
+  /**
+   * 음성 테스트 전용 — 부재 클립을 끈다(수정 전 상태 재현). 이 상태에서 창살 탄흔은
+   * 종이 위로 번져야 하고, playtest 의 `decal_within_member` 검사는 반드시 실패해야 한다.
+   */
+  debugDisableClip() {
+    this.memberHAttr.array.fill(NO_CLIP_HALF); this.memberHAttr.needsUpdate = true;
+    this.peelMemberHAttr.array.fill(NO_CLIP_HALF); this.peelMemberHAttr.needsUpdate = true;
   }
 
   /** 표면 id → {look, color} (미등록은 조용히 넘어가지 않는다 — PATCH-001-D) */
@@ -153,20 +207,20 @@ export class DecalPool {
     return { look, color: LOOK_COLOR.get(surfaceId) };
   }
 
-  /** 탄흔 1개. 진입면 위치 + 노멀 + 표면 id(룩 선택) */
-  add(x, y, z, nx, ny, nz, surfaceId) {
+  /** 탄흔 1개. 진입면 위치 + 노멀 + 표면 id(룩 선택) + 맞은 부재의 월드 AABB(클립, 없으면 null) */
+  add(x, y, z, nx, ny, nz, surfaceId, memberBox = null) {
     const L = this._lookOf(DECAL_LOOK, surfaceId, '탄흔');
     const size = (DECAL_SIZE[0] + this._rand() * (DECAL_SIZE[1] - DECAL_SIZE[0])) * L.look.sizeK;
     return this._place(this.mesh, this.capacity, 'cursor', this.sizes, x, y, z, nx, ny, nz, size,
-      L, this.cellAttr, this.coverage);
+      L, this.cellAttr, this.coverage, memberBox, this.memberCAttr, this.memberHAttr);
   }
 
   /** 박리 (DANCHEONG/LACQUER 층이 관통 체인에 있던 히트) */
-  addPeel(x, y, z, nx, ny, nz, surfaceId) {
+  addPeel(x, y, z, nx, ny, nz, surfaceId, memberBox = null) {
     const L = this._lookOf(PEEL_LOOK, surfaceId, '박리');
     const size = (PEEL_SIZE[0] + this._rand() * (PEEL_SIZE[1] - PEEL_SIZE[0])) * L.look.sizeK;
     return this._place(this.peelMesh, this.peelCapacity, 'peelCursor', this.peelSizes, x, y, z, nx, ny, nz, size,
-      L, this.peelCellAttr, this.peelCoverage);
+      L, this.peelCellAttr, this.peelCoverage, memberBox, this.peelMemberCAttr, this.peelMemberHAttr);
   }
 
   /** overdraw 기여: 활성 데칼(탄흔+박리) 화면 투영 면적 합 (§7 — 박리 누락 감사 정정) */

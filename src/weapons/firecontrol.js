@@ -166,6 +166,8 @@ export class FireControl {
         normal: L.normal.slice(),
         incidentEnergy: incident,
         layerIndex: i,
+        /** 맞은 부재 하나의 월드 AABB(6) 또는 null — fx 데칼이 부재 밖으로 번지지 않게 자른다 */
+        memberBox: L.memberBox ?? null,
       });
       // 강체 층: 잔여 에너지 비례 임펄스 (P2B §8 — incidentEnergy 사용)
       if (L.body) {

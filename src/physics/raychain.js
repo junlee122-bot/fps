@@ -64,14 +64,15 @@ export function collectRayChain(staticWorld, ox, oy, oz, dx, dy, dz, maxDist = 1
       objectName: o.objectName,
       entry: o.entry,
       normal: o.normal,
+      memberBox: o.memberBox,
     });
   };
 
   /** 오브젝트 재질 구간 진입 → 표면 열림 카운트 반영 */
-  const surfEnter = (sIdx, t, objectId, objectName, entry, normal) => {
+  const surfEnter = (sIdx, t, objectId, objectName, entry, normal, memberBox) => {
     const o = surfOpen.get(sIdx);
     if (!o) {
-      surfOpen.set(sIdx, { depth: 1, entryT: t, objectId, objectName, entry, normal });
+      surfOpen.set(sIdx, { depth: 1, entryT: t, objectId, objectName, entry, normal, memberBox });
     } else {
       o.depth++;
     }
@@ -91,6 +92,8 @@ export function collectRayChain(staticWorld, ox, oy, oz, dx, dy, dz, maxDist = 1
     const sIdx = h.surface;
     const def = surfaceDef(sIdx);
     const objName = staticWorld.objects[h.object]?.name ?? '(unknown)';
+    // 맞은 **부재 하나**의 월드 AABB — 데칼이 부재 밖으로 번지지 않게 자르는 데 쓴다 (R4)
+    const memberBox = staticWorld.memberBoxOfTri ? staticWorld.memberBoxOfTri(h.tri) : null;
     const open = objOpen.get(h.object);
     if (!open) {
       // 홀수 번째 교차 — 진입 (와인딩 무관)
@@ -104,6 +107,7 @@ export function collectRayChain(staticWorld, ox, oy, oz, dx, dy, dz, maxDist = 1
           objectId: h.object, objectName: objName,
           entry: [h.px, h.py, h.pz],
           normal: [h.nx, h.ny, h.nz],
+          memberBox,
         });
         blocked = true;
         endT = t;
@@ -118,10 +122,10 @@ export function collectRayChain(staticWorld, ox, oy, oz, dx, dy, dz, maxDist = 1
         layers.push({
           surface: decal, thicknessCm: 0, entryT: t, exitT: t,
           objectId: h.object, objectName: objName,
-          entry: [h.px, h.py, h.pz], normal: [h.nx, h.ny, h.nz],
+          entry: [h.px, h.py, h.pz], normal: [h.nx, h.ny, h.nz], memberBox,
         });
       }
-      surfEnter(sIdx, t, h.object, objName, [h.px, h.py, h.pz], [h.nx, h.ny, h.nz]);
+      surfEnter(sIdx, t, h.object, objName, [h.px, h.py, h.pz], [h.nx, h.ny, h.nz], memberBox);
     } else {
       // 짝수 번째 교차 — 출구
       objOpen.delete(h.object);

@@ -2,7 +2,7 @@
  * src/fx/index.js — FX 조정자 (P2B). P2A placeholder를 대체한다.
  *
  * 이벤트 어휘(ARCHITECTURE §3)만 구독한다 — weapons/physics를 import하지 않는다.
- *  ballistic:hit  → 표면 fx 프로파일 파티클 + 데칼(진입면) + 기와 낙하 + HANJI 찢김
+ *  ballistic:hit  → 표면 fx 프로파일 파티클 + 데칼(진입면) + 기와 낙하
  *  weapon:fire    → 총구화염 + light:transient + (다음 첫 히트까지의) 예광 시점 기록
  *
  * 데칼 배치 규약 (§3-4): 모든 히트의 진입면에 찍으므로, 정지 탄의 마지막
@@ -14,8 +14,6 @@
  * 임팩트에서 시각적으로 소멸한다. 미스(히트 0)는 예광 없음 (정직한 한계).
  */
 
-import * as THREE from 'three';
-import { rngStream } from '../core/rng.js';
 import { bus } from '../core/events.js';
 import { SURFACES, PenClass } from '../core/surfaces.js';
 import { ParticlePool } from './particles.js';
@@ -24,10 +22,8 @@ import { TracerPool } from './tracers.js';
 import { MuzzleFlash } from './muzzleflash.js';
 import { TileDebris } from './debris.js';
 
-/** 데칼 제외 표면: HANJI는 구멍+찢김, WATER는 수면 (데칼 부적합) */
+/** 데칼 제외 표면: HANJI는 구멍+찢어짐(해석적, materials/index.js), WATER는 수면 (데칼 부적합) */
 const NO_DECAL = new Set(['HANJI', 'WATER']);
-const TEAR_CAPACITY = 128;
-const TEAR_SIZE = [0.02, 0.045];
 
 export class FxSystem {
   constructor(scene, { spawnBody, despawnBody }) {
@@ -38,32 +34,12 @@ export class FxSystem {
     this.flash = new MuzzleFlash(scene);
     this.debris = new TileDebris(spawnBody, despawnBody);
 
-    // HANJI 찢김 쿼드 풀 (지속 — 불투명도 시스템의 시각 짝)
-    const tearGeo = new THREE.PlaneGeometry(1, 1);
-    const tearMat = new THREE.MeshBasicMaterial({
-      color: 0x1f1f21, side: THREE.DoubleSide,
-      polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3,
-    });
-    tearMat.name = 'FX_TEAR';
-    this.tearMesh = new THREE.InstancedMesh(tearGeo, tearMat, TEAR_CAPACITY);
-    this.tearMesh.name = 'fx_hanji_tears';
-    this.tearMesh.count = 0;
-    this.tearMesh.castShadow = false;
-    this.tearMesh.receiveShadow = false;
-    this.tearMesh.frustumCulled = false;
-    this.tearMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    scene.add(this.tearMesh);
-    this.tearCursor = 0;
+    // HANJI 찢김 쿼드 풀은 없다 — R3 불투명도 시스템의 시각 짝이었고, PATCH-013-B 해석적
+    // 구멍·찢어짐(materials/index.js HANJI_TORN)이 그 역할을 가져갔다. 쿼드는 알파 없는
+    // 불투명 검정 판이라 종이 위에 곧은 모서리 사각형으로 남았다 (R4 실측, pixelowner).
 
     /** 마지막 weapon:fire의 총구 — 격발 직후 펠릿들의 예광 시점 */
     this._muzzle = null;
-
-    this._m = new THREE.Matrix4();
-    this._q = new THREE.Quaternion();
-    this._p = new THREE.Vector3();
-    this._s = new THREE.Vector3();
-    this._z = new THREE.Vector3(0, 0, 1);
-    this._n = new THREE.Vector3();
 
     bus.on('weapon:fire', (e) => {
       this._muzzle = e.muzzleWorldPos.slice();
@@ -86,10 +62,11 @@ export class FxSystem {
     this.particles.emit(surf.fx, x, y, z, nx, ny, nz);
 
     // 2. 데칼 — 진입면. DECAL 표면은 박리로, HANJI/WATER는 제외
+    // memberBox: 맞은 부재 하나의 월드 AABB — 데칼을 그 상자 밖에서 자른다(좁은 부재 번짐 방지, R4)
     if (surf.penClass === PenClass.DECAL) {
-      this.decals.addPeel(x, y, z, nx, ny, nz, e.surfaceType);
+      this.decals.addPeel(x, y, z, nx, ny, nz, e.surfaceType, e.memberBox ?? null);
     } else if (!NO_DECAL.has(e.surfaceType)) {
-      this.decals.add(x, y, z, nx, ny, nz, e.surfaceType);
+      this.decals.add(x, y, z, nx, ny, nz, e.surfaceType, e.memberBox ?? null);
     }
 
     // 3. 기와 낙하 (ARCHITECTURE §2)
@@ -97,33 +74,12 @@ export class FxSystem {
       this.debris.spawnAt(x, y, z, nx, ny, nz, e.incidentEnergy);
     }
 
-    // 4. HANJI 찢김 형상
-    if (e.surfaceType === 'HANJI') {
-      this.spawnTear(x, y, z, nx, ny, nz);
-    }
-
-    // 5. 예광 — 격발 후 첫 레이어 히트가 종점
+    // 4. 예광 — 격발 후 첫 레이어 히트가 종점
     if (e.layerIndex === 0 && this._muzzle) {
       this.tracers.spawn(this._muzzle[0], this._muzzle[1], this._muzzle[2], x, y, z);
     }
   }
 
-  spawnTear(x, y, z, nx, ny, nz) {
-    const rand = rngStream('fx:tear');
-    const slot = this.tearCursor % TEAR_CAPACITY;
-    this.tearCursor++;
-    this._n.set(nx, ny, nz);
-    this._q.setFromUnitVectors(this._z, this._n);
-    const spin = new THREE.Quaternion().setFromAxisAngle(this._n, rand() * Math.PI * 2);
-    this._q.premultiply(spin);
-    const s = TEAR_SIZE[0] + rand() * (TEAR_SIZE[1] - TEAR_SIZE[0]);
-    this._p.set(x + nx * 0.002, y + ny * 0.002, z + nz * 0.002);
-    this._s.set(s, s * (0.5 + rand() * 0.8), s); // 세장비 변주 — 찢김 느낌
-    this._m.compose(this._p, this._q, this._s);
-    this.tearMesh.setMatrixAt(slot, this._m);
-    this.tearMesh.count = Math.min(this.tearCursor, TEAR_CAPACITY);
-    this.tearMesh.instanceMatrix.needsUpdate = true;
-  }
 
   /** 고정 스텝 — 시뮬레이션 (harness simSubstep에서 호출) */
   update(dt) {
@@ -167,9 +123,6 @@ export class FxSystem {
     this.tracers.reset();
     this.flash.reset();
     this.debris.reset();
-    this.tearCursor = 0;
-    this.tearMesh.count = 0;
-    this.tearMesh.instanceMatrix.needsUpdate = true;
     this._muzzle = null;
   }
 
@@ -180,7 +133,6 @@ export class FxSystem {
       tracers: this.tracers.snapshot(),
       flash: this.flash.snapshot(),
       debris: this.debris.snapshot(),
-      tears: this.tearCursor,
     };
   }
 }

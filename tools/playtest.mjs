@@ -15,9 +15,16 @@
  * 비정상 시 exit 1.
  */
 
+import { mkdtempSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { PNG } from 'pngjs';
 import { startServer } from './lib/server.mjs';
 import { HANJI_BASE_OPACITY, HANJI_TEAR_THRESHOLD, HANJI_HOLE_RADIUS } from '../src/materials/hanji.js';
-import { launchBrowser, openGamePage, parseArgs } from './lib/browser.mjs';
+import { launchBrowser, openGamePage, parseArgs, capturePng } from './lib/browser.mjs';
+
+/** 데칼 클립 검사용 임시 캡처 자리 — 판정에만 쓰고 남기지 않는다 */
+const TMP = mkdtempSync(join(tmpdir(), 'playtest-'));
 
 const args = parseArgs();
 /**
@@ -26,7 +33,13 @@ const args = parseArgs();
  * 게이트 판정 경로의 기본값은 바꾸지 않는다(플래그 없이는 원본 그대로).
  */
 const NO_HOLES = args['inject-no-holes'] === true;
-const testOverride = NO_HOLES ? 'inject-no-holes(구멍 생성 차단) — harnesstest 전용, 계약 판정 무효' : undefined;
+/**
+ * 음성 훅 (R4 데칼 부재 클립): 데칼 클립을 인위로 해제한다 — 수정 전 상태. 24 mm 창살에 찍힌
+ * 38~64 mm 탄흔이 창호지 위로 번지므로 `decal_within_member` 는 반드시 실패해야 한다.
+ */
+const DECAL_NO_CLIP = args['inject-decal-noclip'] === true;
+const testOverride = NO_HOLES ? 'inject-no-holes(구멍 생성 차단) — harnesstest 전용, 계약 판정 무효'
+  : DECAL_NO_CLIP ? 'inject-decal-noclip(데칼 부재 클립 해제) — harnesstest 전용, 계약 판정 무효' : undefined;
 const failures = [];
 const log = [];
 
@@ -266,6 +279,70 @@ try {
   check('reset_refills_ammo', cleared.weapons.CARBINE.ammo === 30 && cleared.weapons.SHOTGUN.ammo === 6, {
     carbine: cleared.weapons.CARBINE.ammo, shotgun: cleared.weapons.SHOTGUN.ammo,
   });
+
+  // --- 7f. [R4] 탄흔 데칼 부재 클립 — 창살 탄흔이 창호지 위로 번지지 않는다 ---
+  // 데칼은 부재에 맞춰 잘리지 않는 쿼드다. 창살은 24 mm 각재인데 탄흔 쿼드는 38~64 mm 라
+  // 종이 위로 번져 "곧은 모서리 별"로 읽혔다(R4 실측, pixelowner). 이제 맞은 부재의 월드 AABB 로 자른다.
+  //
+  // 측정은 **픽셀**로 한다 (구조 점검이 아니라 그려진 결과로):
+  //   A = 데칼 보임 · B = 데칼 숨김 · C = 데칼+창살 숨김
+  //   데칼이 칠한 픽셀 = |A−B| ,  창살이 가린 픽셀 = |B−C|
+  //   창살 실루엣(1 px 팽창) 밖에 칠해진 픽셀 = 종이 위 번짐 → 0 이어야 한다.
+  // 조준점은 창살 중앙과 **가장자리**(중앙선에서 10 mm) 두 곳이다 — 가장자리 명중이 더 잘 번진다.
+  {
+    await page.evaluate(() => window.__harness.resetState());
+    const PANE = 'na_w_-3_hanji';
+    const pose = await page.evaluate((n) => window.__harness.debugObjectPose(n), PANE);
+    if (!pose) {
+      check('decal_within_member', false, { reason: `판 ${PANE} 없음 — 검사 대상을 찾지 못했다` });
+    } else {
+      const [cx, cy, cz] = pose.center;
+      const eye = [cx - 0.6, cy, cz];
+      await page.evaluate(({ eye, at }) => window.__harness.debugCamera({ from: eye, at }), { eye, at: pose.center });
+      // 가로 창살은 판 중앙 높이에 있다(HANJI_LATTICE 띠 0). 중앙 + 가장자리(10 mm 위)
+      for (const dy of [0, 0.010]) {
+        await page.evaluate(({ eye, dy }) => window.__harness.debugFire({
+          pos: [eye[0], eye[1] + dy, eye[2]], yaw: -Math.PI / 2, pitch: 0,
+        }), { eye, dy });
+      }
+      await step(16);
+      if (DECAL_NO_CLIP) await page.evaluate(() => window.__harness.debugDecalNoClip());
+      await step(16);
+      const shot = async (tag) => { await capturePng(page, `${TMP}/${tag}.png`); return PNG.sync.read(readFileSync(`${TMP}/${tag}.png`)); };
+      const A = await shot('decalclip_A');
+      await page.evaluate(() => window.__harness.debugSetVisible('fx_decals', false));
+      await step(16);
+      const B = await shot('decalclip_B');
+      await page.evaluate(() => window.__harness.debugSetVisible('inst_lat_', false));
+      await step(16);
+      const C = await shot('decalclip_C');
+      await page.evaluate(() => { window.__harness.debugSetVisible('fx_decals', true); window.__harness.debugSetVisible('inst_lat_', true); });
+
+      const W = A.width, H = A.height, TOL = 8;
+      const diff = (X, Y) => { const m = new Uint8Array(W * H);
+        for (let i = 0; i < W * H; i++) {
+          const d = Math.abs(X.data[i * 4] - Y.data[i * 4]) + Math.abs(X.data[i * 4 + 1] - Y.data[i * 4 + 1]) + Math.abs(X.data[i * 4 + 2] - Y.data[i * 4 + 2]);
+          m[i] = d > TOL ? 1 : 0;
+        } return m; };
+      const painted = diff(A, B), barRaw = diff(B, C);
+      const bar = new Uint8Array(W * H); // 1 px 팽창 — TAA·AA 경계 완충
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        let v = 0;
+        for (let dy = -1; dy <= 1 && !v; dy++) for (let dx = -1; dx <= 1 && !v; dx++) {
+          const yy = y + dy, xx = x + dx;
+          if (yy >= 0 && yy < H && xx >= 0 && xx < W && barRaw[yy * W + xx]) v = 1;
+        }
+        bar[y * W + x] = v;
+      }
+      let paintedN = 0, spill = 0;
+      for (let i = 0; i < W * H; i++) { if (painted[i]) { paintedN++; if (!bar[i]) spill++; } }
+      check('decal_paints_something', paintedN > 0, { paintedPx: paintedN, note: '데칼이 실제로 그려졌는지 — 검사가 공회전하지 않게' });
+      check('decal_within_member', spill === 0, {
+        paintedPx: paintedN, barPx: barRaw.reduce((a, b) => a + b, 0), spillPx: spill,
+        note: '창살 실루엣(1px 팽창) 밖에 칠해진 데칼 픽셀 = 종이 위 번짐',
+      });
+    }
+  }
 
   // --- 8. 페이지 에러 0 ---
   check('no_page_errors', g.errors.length === 0, { errors: g.errors });

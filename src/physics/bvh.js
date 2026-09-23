@@ -117,6 +117,11 @@ export class StaticWorld {
       mask,
       tris: baked.pos,
       triCount: baked.count,
+      /** 삼각형 → 부재(인스턴스) 색인 · 부재 수 — memberBoxOfTri 가 쓴다 (R4 데칼 클립) */
+      members: baked.members,
+      memberCount: baked.memberCount,
+      memberBoxes: null,
+      triBase: 0,
       alive: true,
       userData: opts.userData ?? null,
       /** 시각 DECAL 층(DANCHEONG/LACQUER) — 하부재 위 두께 0 가상층. raychain이 진입 시 삽입 (P3 C3 §10 단청 배치) */
@@ -134,10 +139,50 @@ export class StaticWorld {
     surfaces.fill(s);
     this.objects[id] = {
       id, name, mesh: null, surface: s, surfaces, mask,
+      members: null, memberCount: 1, memberBoxes: null, triBase: 0,
       tris: positions, triCount: count, alive: true, userData: null,
     };
     this.dirty = true;
     return id;
+  }
+
+  /**
+   * 삼각형 → 그 삼각형이 속한 **부재 하나**의 월드 AABB(6 float: min,max).
+   * 인스턴스 메시는 인스턴스 단위, 단일 메시는 메시 전체.
+   *
+   * 쓰임: 탄흔 데칼은 부재에 맞춰 잘리지 않는 쿼드라서, 부재가 데칼보다 좁으면 이웃 표면 위로 번진다
+   * (24 mm 창살 위 38~64 mm 탄흔이 창호지에 찍혔다 — R4 실측). 데칼은 이 상자로 프래그먼트를 자른다.
+   * 곡면 셸·회전 부재는 AABB 가 실제 부재보다 크다 — **느슨한 쪽으로만** 틀리므로 안전하다(자르지 않을 뿐).
+   */
+  memberBoxOfTri(tri) {
+    if (tri < 0 || tri >= this.triCount) return null;
+    const o = this.objects[this.object[tri]];
+    if (!o || !o.alive || !o.tris) return null;
+    const local = tri - o.triBase;
+    if (local < 0 || local >= o.triCount) return null;
+    const inst = o.members ? o.members[local] : 0;
+    if (!o.memberBoxes) {
+      // 객체 전체를 한 번만 훑어 인스턴스별 상자를 만든다 (이후 히트는 조회만)
+      const n = o.memberCount || 1;
+      const b = new Float32Array(n * 6);
+      for (let i = 0; i < n; i++) { b[i * 6] = b[i * 6 + 1] = b[i * 6 + 2] = Infinity; b[i * 6 + 3] = b[i * 6 + 4] = b[i * 6 + 5] = -Infinity; }
+      for (let t = 0; t < o.triCount; t++) {
+        const m = (o.members ? o.members[t] : 0) * 6;
+        const p = t * 9;
+        for (let v = 0; v < 3; v++) {
+          for (let a = 0; a < 3; a++) {
+            const val = o.tris[p + v * 3 + a];
+            if (val < b[m + a]) b[m + a] = val;
+            if (val > b[m + 3 + a]) b[m + 3 + a] = val;
+          }
+        }
+      }
+      o.memberBoxes = b;
+    }
+    const m = inst * 6;
+    const b = o.memberBoxes;
+    if (!(b[m + 3] >= b[m])) return null; // 빈 인스턴스
+    return [b[m], b[m + 1], b[m + 2], b[m + 3], b[m + 4], b[m + 5]];
   }
 
   removeObject(id) {
@@ -187,6 +232,8 @@ export class StaticWorld {
     let w = 0;
     for (const o of this.objects) {
       if (!o || !o.alive) continue;
+      o.triBase = w;         // 전역 삼각형 색인 → 객체 내부 색인 (memberBoxOfTri)
+      o.memberBoxes = null;  // 재배치 시 부재 상자 캐시 폐기
       pos.set(o.tris.subarray(0, o.triCount * 9), w * 9);
       for (let i = 0; i < o.triCount; i++) {
         this.surface[w + i] = o.surfaces ? o.surfaces[i] : o.surface;
@@ -835,6 +882,8 @@ export function bakeMesh(mesh, surface) {
   const out = new Float32Array(total * 9);
   const surfaces = new Uint8Array(total);
   surfaces.fill(baseSurface);
+  // 삼각형 → 부재(인스턴스) 색인. 퇴화 삼각형 제거로 인스턴스 경계가 밀리므로 나눗셈으로 되살릴 수 없다.
+  const members = instances > 65535 ? new Uint32Array(total) : new Uint16Array(total);
 
   mesh.updateWorldMatrix(true, false);
 
@@ -851,6 +900,7 @@ export function bakeMesh(mesh, surface) {
     }
     const e = _m4.elements;
     const base = inst * triPerInstance;
+    members.fill(inst, base, base + triPerInstance);
     for (let t = 0; t < triPerInstance; t++) {
       const o = (base + t) * 9;
       for (let v = 0; v < 3; v++) {
@@ -878,9 +928,10 @@ export function bakeMesh(mesh, surface) {
     if (w !== t) {
       out.copyWithin(w * 9, p, p + 9);
       surfaces[w] = surfaces[t];
+      members[w] = members[t];
     }
     w++;
   }
 
-  return { pos: out, count: w, surfaces, uniformSurface: baseSurface };
+  return { pos: out, count: w, surfaces, members, memberCount: instances, uniformSurface: baseSurface };
 }

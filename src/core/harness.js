@@ -471,6 +471,53 @@ export function installHarness(ctx) {
       return { ...fire.snapshot(), hanji: hanji.snapshot() };
     },
 
+    /**
+     * [R4] 지정 원점에서 1발 격발 (테스트 훅 — playtest 데칼 클립 검사).
+     * 플레이어 조준으로는 24 mm 창살의 **가장자리**를 맞힐 수 없어서 원점·방향을 직접 준다.
+     * 시드 RNG 경로는 그대로라 결정적이다.
+     */
+    debugFire({ pos, yaw, pitch }) {
+      if (mode !== 'fixed') throw new Error('debugFire requires fixed mode');
+      if (state.busy) throw new Error('debugFire called while stepFrames in progress');
+      fire.fire({ pos, yaw, pitch });
+      return fire.snapshot().counters;
+    },
+
+    /** [R4] 이름이 접두사로 시작하는 오브젝트 표시/숨김 (테스트 훅 — 층 분리 촬영). 바뀐 개수 반환 */
+    debugSetVisible(namePrefix, visible) {
+      let n = 0;
+      pipeline.scene.traverse((o) => {
+        if (o.name && o.name.startsWith(namePrefix)) { o.visible = visible; n++; }
+      });
+      return n;
+    },
+
+    /** [R4] 카메라를 from 에 두고 at 을 본다 (테스트 훅 — 근접 검사용 시점 고정) */
+    debugCamera({ from, at }) {
+      state.cameraOverride = true;
+      pipeline.camera.position.set(from[0], from[1], from[2]);
+      pipeline.camera.lookAt(at[0], at[1], at[2]);
+      pipeline.camera.updateMatrixWorld(true);
+      return { from, at };
+    },
+
+    /** [R4] 음성 훅 — 탄흔 데칼의 부재 클립 해제(수정 전 상태). 판정 무효 표기 */
+    debugDecalNoClip() {
+      state.testOverride = 'debugDecalNoClip(데칼 부재 클립 해제) — harnesstest 전용, 계약 판정 무효';
+      fx.decals.debugDisableClip();
+      return true;
+    },
+
+    /** [R4] 오브젝트 월드 포즈 — {center, size} (테스트 훅: 조준점 계산). 없으면 null */
+    debugObjectPose(name) {
+      const o = pipeline.scene.getObjectByName(name);
+      if (!o) return null;
+      o.updateWorldMatrix(true, false);
+      const gp = o.geometry?.parameters ?? null;
+      const c = o.localToWorld(new (o.position.constructor)(0, 0, 0));
+      return { center: [c.x, c.y, c.z], size: gp ? [gp.width ?? 0, gp.height ?? 0, gp.depth ?? 0] : null };
+    },
+
     /** FX 풀 상태 스냅샷 (P2B — playtest 복원 검증·디버그) */
     getFxState() {
       return fx.snapshot();
