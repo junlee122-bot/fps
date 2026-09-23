@@ -66,6 +66,8 @@ function patchAtlasUv(mat, cacheKey) {
 const NO_CLIP_HALF = 1.0e4;
 /** 데칼은 표면에서 1.5 mm 떠 있다 — 상자를 노멀 방향으로만 넓혀 자기 자신이 잘리지 않게 한다 */
 const CLIP_LIFT = 0.01;
+/** 기하 판정 허용오차 (m) */
+const FIT_EPS = 1e-6;
 
 export class DecalPool {
   constructor(scene) {
@@ -189,6 +191,35 @@ export class DecalPool {
     mesh.count = Math.min(this[cursorField], capacity);
     mesh.instanceMatrix.needsUpdate = true;
     return slot;
+  }
+
+  /**
+   * 테스트 전용 — 그려지는 탄흔마다 **쿼드 월드 반폭**과 **클립 상자 반폭**, 그리고 실제로 잘리는지.
+   *
+   * 왜 픽셀이 아니라 이것을 재는가: 같은 장면을 두 번 찍어 차분하면 TAA 지터 잔여가 화면 전체에
+   * 11,600 px 남는데 탄흔 발자국은 1,104 px, 클립이 지우는 양은 435 px 다 — **잡음이 신호를 삼킨다**
+   * (R4 실측). 클립의 성립은 기하 성질이므로 기하로 재고, 그림은 보고용 증거로 따로 남긴다.
+   */
+  debugDecalClipReport() {
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), sc = new THREE.Vector3();
+    const u = new THREE.Vector3(), v = new THREE.Vector3();
+    const out = [];
+    for (let i = 0; i < this.mesh.count; i++) {
+      this.mesh.getMatrixAt(i, m); m.decompose(p, q, sc);
+      if (sc.x === 0) continue; // debugTrimDecals 로 접은 인스턴스
+      u.set(1, 0, 0).applyQuaternion(q); v.set(0, 1, 0).applyQuaternion(q);
+      const qh = [
+        (Math.abs(u.x) + Math.abs(v.x)) * sc.x * 0.5,
+        (Math.abs(u.y) + Math.abs(v.y)) * sc.y * 0.5,
+        (Math.abs(u.z) + Math.abs(v.z)) * sc.z * 0.5,
+      ];
+      const ch = [this.memberHAttr.getX(i), this.memberHAttr.getY(i), this.memberHAttr.getZ(i)];
+      const cc = [this.memberCAttr.getX(i), this.memberCAttr.getY(i), this.memberCAttr.getZ(i)];
+      const pc = [p.x, p.y, p.z];
+      const cuts = qh.some((h, k) => Math.abs(pc[k] - cc[k]) + h > ch[k] + FIT_EPS);
+      out.push({ i, quadHalf: qh.map((n) => +n.toFixed(4)), clipHalf: ch.map((n) => +n.toFixed(4)), cuts });
+    }
+    return out;
   }
 
   /**

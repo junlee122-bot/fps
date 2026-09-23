@@ -15,16 +15,9 @@
  * 비정상 시 exit 1.
  */
 
-import { mkdtempSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { PNG } from 'pngjs';
 import { startServer } from './lib/server.mjs';
 import { HANJI_BASE_OPACITY, HANJI_TEAR_THRESHOLD, HANJI_HOLE_RADIUS } from '../src/materials/hanji.js';
-import { launchBrowser, openGamePage, parseArgs, capturePng } from './lib/browser.mjs';
-
-/** 데칼 클립 검사용 임시 캡처 자리 — 판정에만 쓰고 남기지 않는다 */
-const TMP = mkdtempSync(join(tmpdir(), 'playtest-'));
+import { launchBrowser, openGamePage, parseArgs } from './lib/browser.mjs';
 
 const args = parseArgs();
 /**
@@ -282,13 +275,12 @@ try {
 
   // --- 7f. [R4] 탄흔 데칼 부재 클립 — 창살 탄흔이 창호지 위로 번지지 않는다 ---
   // 데칼은 부재에 맞춰 잘리지 않는 쿼드다. 창살은 24 mm 각재인데 탄흔 쿼드는 38~64 mm 라
-  // 종이 위로 번져 "곧은 모서리 별"로 읽혔다(R4 실측, pixelowner). 이제 맞은 부재의 월드 AABB 로 자른다.
+  // 종이 위로 번졌다(R4 실측). 맞은 부재의 월드 AABB 를 인스턴스 속성으로 넘겨 프래그먼트에서 자른다.
   //
-  // 측정은 **픽셀**로 한다 (구조 점검이 아니라 그려진 결과로):
-  //   A = 데칼 보임 · B = 데칼 숨김 · C = 데칼+창살 숨김
-  //   데칼이 칠한 픽셀 = |A−B| ,  창살이 가린 픽셀 = |B−C|
-  //   창살 실루엣(1 px 팽창) 밖에 칠해진 픽셀 = 종이 위 번짐 → 0 이어야 한다.
-  // 조준점은 창살 중앙과 **가장자리**(중앙선에서 10 mm) 두 곳이다 — 가장자리 명중이 더 잘 번진다.
+  // **기하로 잰다(픽셀 아님)**: 같은 장면을 두 번 찍어 차분하면 TAA 지터 잔여가 화면 전체에
+  // 11,600 px 남는데 탄흔 발자국은 1,104 px, 클립이 지우는 양은 435 px 라 잡음이 신호를 삼킨다.
+  // 클립의 성립은 기하 성질이므로 기하로 판정하고, 그림 증거(클립 유무 두 실행의 직접 차분:
+  // 435 px 삭제, 남는 띠 16 px = 24 mm 창살)는 docs/R4-LOG.md 에 남긴다.
   {
     await page.evaluate(() => window.__harness.resetState());
     const PANE = 'na_w_-3_hanji';
@@ -298,64 +290,23 @@ try {
     } else {
       const [cx, cy, cz] = pose.center;
       const eye = [cx - 0.6, cy, cz];
-      await page.evaluate(({ eye, at }) => window.__harness.debugCamera({ from: eye, at }), { eye, at: pose.center });
-      // 층을 껐다 켜며 비교하므로 **노출을 먼저 얼린다** — 얼리지 않으면 데칼을 숨긴 것만으로
-      // 자동 노출이 움직여 전 화면이 "달라진 픽셀"로 잡힌다(첫 실행에서 574891/576000 이 그렇게 나왔다).
-      await step(16);
-      const frozenEv = await page.evaluate(() => window.__harness.debugFreezeExposure());
-      // 가로 창살은 판 중앙 높이에 있다(HANJI_LATTICE 띠 0). 중앙 + 가장자리(10 mm 위)
+      // 창살 중앙(띠 0)과 **가장자리**(중앙선 +10 mm) 두 곳 — 가장자리 명중이 더 잘 번진다
       for (const dy of [0, 0.010]) {
-        await page.evaluate(({ eye, dy }) => window.__harness.debugFire({
-          pos: [eye[0], eye[1] + dy, eye[2]], yaw: -Math.PI / 2, pitch: 0,
-        }), { eye, dy });
+        await page.evaluate(({ e, d }) => window.__harness.debugFire({
+          pos: [e[0], e[1] + d, e[2]], yaw: -Math.PI / 2, pitch: 0,
+        }), { e: eye, d: dy });
       }
-      await step(16);
-      // 판정 대상만 남긴다: 파티클·예광·화염은 A/B 사이에 움직여 데칼과 구별되지 않고,
-      // 판을 뚫고 뒤의 기둥·벽에 찍힌 탄흔은 종이를 통과해 보여 번짐처럼 읽힌다(둘 다 실측으로 확인).
-      await page.evaluate(() => {
-        window.__harness.debugSetVisible('fx_particles', false);
-        window.__harness.debugSetVisible('fx_tracers', false);
-        window.__harness.debugSetVisible('fx_muzzleflash', false);
-      });
+      await step(2);
+      // 판정 대상만 남긴다 — 탄자는 판을 뚫고 뒤의 기둥·벽에도 탄흔을 남긴다(그 자체는 정상)
       const trim = await page.evaluate((e) => window.__harness.debugTrimDecals(e, 1.0), eye);
       if (DECAL_NO_CLIP) await page.evaluate(() => window.__harness.debugDecalNoClip());
-      await step(16);
-      const shot = async (tag) => { await capturePng(page, `${TMP}/${tag}.png`); return PNG.sync.read(readFileSync(`${TMP}/${tag}.png`)); };
-      const A = await shot('decalclip_A');
-      await page.evaluate(() => window.__harness.debugSetVisible('fx_decals', false));
-      await step(16);
-      const B = await shot('decalclip_B');
-      await page.evaluate(() => window.__harness.debugSetVisible('inst_lat_', false));
-      await step(16);
-      const C = await shot('decalclip_C');
-      await page.evaluate(() => { window.__harness.debugSetVisible('fx_decals', true); window.__harness.debugSetVisible('inst_lat_', true); });
-
-      const W = A.width, H = A.height, TOL = 8;
-      const diff = (X, Y) => { const m = new Uint8Array(W * H);
-        for (let i = 0; i < W * H; i++) {
-          const d = Math.abs(X.data[i * 4] - Y.data[i * 4]) + Math.abs(X.data[i * 4 + 1] - Y.data[i * 4 + 1]) + Math.abs(X.data[i * 4 + 2] - Y.data[i * 4 + 2]);
-          m[i] = d > TOL ? 1 : 0;
-        } return m; };
-      const painted = diff(A, B), barRaw = diff(B, C);
-      const bar = new Uint8Array(W * H); // 1 px 팽창 — TAA·AA 경계 완충
-      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-        let v = 0;
-        for (let dy = -1; dy <= 1 && !v; dy++) for (let dx = -1; dx <= 1 && !v; dx++) {
-          const yy = y + dy, xx = x + dx;
-          if (yy >= 0 && yy < H && xx >= 0 && xx < W && barRaw[yy * W + xx]) v = 1;
-        }
-        bar[y * W + x] = v;
-      }
-      let paintedN = 0, spill = 0;
-      for (let i = 0; i < W * H; i++) { if (painted[i]) { paintedN++; if (!bar[i]) spill++; } }
-      const barPx = barRaw.reduce((a, b) => a + b, 0);
-      check('decal_paints_something', paintedN > 0 && paintedN < W * H * 0.2, {
-        paintedPx: paintedN, frame: W * H, decals: trim,
-        note: '데칼이 실제로 그려졌는지 + 화면 전체가 잡히지 않았는지(노출 오염 감시)',
+      const rep = await page.evaluate(() => window.__harness.debugDecalClipReport());
+      check('decal_clip_wired', rep.length >= 1 && rep.every((r) => r.clipHalf[1] < 1000), {
+        decals: trim, report: rep, note: '창살 탄흔마다 부재 상자가 실렸는지 (1e4 = 상자 없음)',
       });
-      check('decal_within_member', spill === 0, {
-        paintedPx: paintedN, barPx, spillPx: spill, frozenEv: frozenEv?.ev100 ?? null,
-        note: '창살 실루엣(1px 팽창) 밖에 칠해진 데칼 픽셀 = 종이 위 번짐',
+      check('decal_within_member', rep.length >= 1 && rep.every((r) => r.cuts), {
+        report: rep,
+        note: '쿼드가 부재 상자를 넘으므로 프래그먼트에서 잘린다 = 종이 위로 번지지 않는다',
       });
     }
   }

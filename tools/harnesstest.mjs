@@ -445,12 +445,13 @@ const SHORT = ['--duration', '16', '--runs', '1', '--dpr', '1', '--w', '640', '-
     const j = JSON.parse(neg.out);
     marked = String(j.testOverride ?? '').includes('inject-decal-noclip');
     const f = (j.failures ?? []).find((x) => x.check === 'decal_within_member');
-    clipFailed = !!f; spillPx = f?.spillPx ?? null;
-    painted = (j.log ?? []).find((l) => l.check === 'decal_paints_something')?.ok ?? null;
+    clipFailed = !!f; spillPx = f?.report?.length ?? null;
+    painted = (j.log ?? []).find((l) => l.check === 'decal_clip_wired')?.ok ?? null;
   } catch { /* fail */ }
-  const ok = neg.code === 1 && marked && clipFailed && painted === true;
-  record(28, '탄흔 데칼 부재 클립 음성 (--inject-decal-noclip → exit 1 + 표식 + 종이 위 번짐)', ok,
-    `exit=${neg.code} 표식=${marked} 클립검사실패=${clipFailed} 번짐px=${spillPx} 데칼그려짐=${painted}`);
+  // 배선(decal_clip_wired)도 함께 실패해야 한다 — 클립 해제는 상자를 1e4 로 되돌리는 것이므로
+  const ok = neg.code === 1 && marked && clipFailed && painted === false;
+  record(28, '탄흔 데칼 부재 클립 음성 (--inject-decal-noclip → exit 1 + 표식 + 클립 미성립)', ok,
+    `exit=${neg.code} 표식=${marked} 클립검사실패=${clipFailed} 탄흔수=${spillPx} 배선검사=${painted}`);
 }
 
 /* ---- 25. fxaudit 시각 구별 축 (발주자 지시 2026-09-20) ----

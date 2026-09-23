@@ -511,6 +511,11 @@ export function installHarness(ctx) {
       return { from, at };
     },
 
+    /** [R4] 테스트 훅 — 탄흔마다 쿼드 반폭·클립 상자 반폭·실제 절단 여부 (playtest decal_within_member) */
+    debugDecalClipReport() {
+      return fx.decals.debugDecalClipReport();
+    },
+
     /** [R4] 테스트 훅 — 기준점에서 먼 탄흔을 접는다 (판정 대상만 남기기). {kept, trimmed} */
     debugTrimDecals(fromXyz, maxDist) {
       return fx.decals.debugTrimDecals(fromXyz, maxDist);
