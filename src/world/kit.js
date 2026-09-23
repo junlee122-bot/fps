@@ -13,6 +13,7 @@
  */
 
 import * as THREE from 'three';
+import { HANJI_BASE_OPACITY } from '../materials/hanji.js';
 
 /** 부재 두께·치수 상수 (m). P1-BRIEF §2 표와 1:1 대조 가능해야 한다 */
 export const T = Object.freeze({
@@ -44,7 +45,7 @@ export function makeMaterials() {
     GREY_LIGHT: std(0x9a9a97), // 석재·흙
     GREY_MID: std(0x7b766f),   // 목재·초가
     GREY_DARK: std(0x585b5f),  // 기와·창살
-    HANJI: std(0xe3e0d8, { transparent: true, opacity: 0.95, side: THREE.DoubleSide }), // = materials/hanji.js HANJI_BASE_OPACITY (PATCH-005-D)
+    HANJI: std(0xe3e0d8, { transparent: true, opacity: HANJI_BASE_OPACITY, side: THREE.DoubleSide }), // 값은 materials/hanji.js 단일 출처 (PATCH-005-D)
     WATER: std(0x6e7a80, { transparent: true, opacity: 0.85, roughness: 0.25 }),
     BRONZE: std(0x6f6d62, { roughness: 0.5, metalness: 0.55 }),
     LANTERN: new THREE.MeshStandardMaterial({
