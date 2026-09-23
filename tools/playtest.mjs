@@ -310,6 +310,14 @@ try {
         }), { eye, dy });
       }
       await step(16);
+      // 판정 대상만 남긴다: 파티클·예광·화염은 A/B 사이에 움직여 데칼과 구별되지 않고,
+      // 판을 뚫고 뒤의 기둥·벽에 찍힌 탄흔은 종이를 통과해 보여 번짐처럼 읽힌다(둘 다 실측으로 확인).
+      await page.evaluate(() => {
+        window.__harness.debugSetVisible('fx_particles', false);
+        window.__harness.debugSetVisible('fx_tracers', false);
+        window.__harness.debugSetVisible('fx_muzzleflash', false);
+      });
+      const trim = await page.evaluate((e) => window.__harness.debugTrimDecals(e, 1.0), eye);
       if (DECAL_NO_CLIP) await page.evaluate(() => window.__harness.debugDecalNoClip());
       await step(16);
       const shot = async (tag) => { await capturePng(page, `${TMP}/${tag}.png`); return PNG.sync.read(readFileSync(`${TMP}/${tag}.png`)); };
@@ -342,7 +350,8 @@ try {
       for (let i = 0; i < W * H; i++) { if (painted[i]) { paintedN++; if (!bar[i]) spill++; } }
       const barPx = barRaw.reduce((a, b) => a + b, 0);
       check('decal_paints_something', paintedN > 0 && paintedN < W * H * 0.2, {
-        paintedPx: paintedN, frame: W * H, note: '데칼이 실제로 그려졌는지 + 화면 전체가 잡히지 않았는지(노출 오염 감시)',
+        paintedPx: paintedN, frame: W * H, decals: trim,
+        note: '데칼이 실제로 그려졌는지 + 화면 전체가 잡히지 않았는지(노출 오염 감시)',
       });
       check('decal_within_member', spill === 0, {
         paintedPx: paintedN, barPx, spillPx: spill, frozenEv: frozenEv?.ev100 ?? null,

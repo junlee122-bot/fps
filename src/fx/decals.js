@@ -192,6 +192,26 @@ export class DecalPool {
   }
 
   /**
+   * 테스트 전용 — 기준점에서 maxDist 보다 먼 탄흔 인스턴스를 스케일 0 으로 접는다.
+   * 왜: "창살 탄흔이 종이 위로 번지는가"를 재려면 **그 창살의 탄흔만** 보여야 한다.
+   * 탄자는 판을 뚫고 뒤의 기둥·벽에도 탄흔을 남기고, 그것들이 종이를 통과해 보이면
+   * 화면 비교에서 번짐과 구별되지 않는다. 판정 대상만 남기는 것이지 배선을 끊는 게 아니다.
+   */
+  debugTrimDecals(fromXyz, maxDist) {
+    const m = new THREE.Matrix4(); let kept = 0, trimmed = 0;
+    for (let i = 0; i < this.mesh.count; i++) {
+      this.mesh.getMatrixAt(i, m);
+      const e = m.elements;
+      const d = Math.hypot(e[12] - fromXyz[0], e[13] - fromXyz[1], e[14] - fromXyz[2]);
+      if (d <= maxDist) { kept++; continue; }
+      e[0] = e[1] = e[2] = e[4] = e[5] = e[6] = e[8] = e[9] = e[10] = 0;
+      this.mesh.setMatrixAt(i, m); trimmed++;
+    }
+    this.mesh.instanceMatrix.needsUpdate = true;
+    return { kept, trimmed };
+  }
+
+  /**
    * 음성 테스트 전용 — 부재 클립을 끈다(수정 전 상태 재현). 이 상태에서 창살 탄흔은
    * 종이 위로 번져야 하고, playtest 의 `decal_within_member` 검사는 반드시 실패해야 한다.
    */

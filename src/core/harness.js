@@ -511,6 +511,11 @@ export function installHarness(ctx) {
       return { from, at };
     },
 
+    /** [R4] 테스트 훅 — 기준점에서 먼 탄흔을 접는다 (판정 대상만 남기기). {kept, trimmed} */
+    debugTrimDecals(fromXyz, maxDist) {
+      return fx.decals.debugTrimDecals(fromXyz, maxDist);
+    },
+
     /** [R4] 음성 훅 — 탄흔 데칼의 부재 클립 해제(수정 전 상태). 판정 무효 표기 */
     debugDecalNoClip() {
       state.testOverride = 'debugDecalNoClip(데칼 부재 클립 해제) — harnesstest 전용, 계약 판정 무효';
