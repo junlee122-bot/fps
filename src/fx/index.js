@@ -112,7 +112,6 @@ export class FxSystem {
     this.decals.addPeel(0.3, 2, 0, 0, 0, 1, 'DANCHEONG');
     this.tracers.spawn(0, 2, 0, 0, 2, -3);
     this.flash.fire(0, 2, 0, 0, 0, -1);
-    this.spawnTear(0.6, 2, 0, 0, 0, 1);
     this.writeInstances(camera);
   }
 

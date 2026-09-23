@@ -54,6 +54,29 @@ Retina DPR 실제 게임플레이(내부 해상도 3.34MP, 2.07MP 아님)에서 
 
 ---
 
+## 1-2. 어떤 서버 위에서 도는가 (사실 확인, 발주자 지시 2026-09-23)
+
+| 실행 주체 | 서버 | 코드 변환 |
+|---|---|---|
+| 브라우저 도구 10종 — `baseline` · `capture` · `shotset` · `playtest` · `profile` · `rendervariance` · `albedoaudit` · `viewmodelaudit` · `pixelowner` · `_progcount` | `tools/lib/server.mjs` — **순수 정적 http 서버**. `Cache-Control: no-store` | **없음.** 브라우저가 `index.html` 의 import map 으로 `src/*` · `three` 를 원본 그대로 읽는다. 번들러·HMR·트랜스파일 **없음** |
+| 노드 헤드리스 도구 — `geometryaudit` · `shotaudit` · `chainaudit` · `surfaceaudit` · `coveraudit` · `fxaudit` · `determinismaudit` · `harnesstest` · `imagediff` · `paletteaudit` | 서버 없음 | **없음.** 노드가 `src/*` 를 직접 import |
+| `npm run build` / `preview` | vite | vite 번들 — **게이트 대상 아님**(P5 배포). `FPS_SERVE_ROOT` 로 `dist/` 를 서빙해 baseline 을 1회 돌리는 선택 검증 경로만 있고, 그 실행은 계약 판정이 아니다 |
+
+**섞여 있지 않다.** 게이트·프로브 경로에 vite 개발 서버는 존재하지 않으므로, 결정성 게이트가 서버마다 다르게
+변환된 코드를 재고 있을 가능성은 없다.
+
+## 1-3. 고정 스냅샷 서빙 (발주자 지시 2026-09-23)
+
+렌더 프로브·게이트는 작업 트리가 아니라 **불변 스냅샷 워크트리**를 서빙한다(`tools/lib/pinned.mjs`).
+`git stash create` 로 현재 작업 트리 그대로를 가리키는 댕글링 커밋을 만들고(인덱스·작업 트리는 건드리지 않는다),
+`/tmp/fps-pinned/<sha>` 에 `git worktree add --detach` 한다. 트리가 깨끗하면 HEAD 를 쓴다.
+
+- **도는 동안 작업 트리를 편집해도 프로브가 영향을 받지 않는다** — "건드리지 않는다"는 기억에 기댄 규칙을 구조로 바꾼 것이다.
+- 서버 핸들이 `sha` · `dirty` 를 돌려주므로 **결과가 어느 상태의 것인지 자동으로 확정**된다.
+- **추적되지 않은 파일은 스냅샷에 들어가지 않는다.** 서빙 경로(`index.html` · `src` · `tools/shots.js`)에 그런 파일이
+  있으면 경고를 낸다 — 조용히 다른 코드를 재지 않게. (`tools/*.mjs` 는 노드가 작업 트리에서 직접 실행하므로 무관하다.)
+- 끄는 법: `FPS_NO_PIN=1`, 또는 루트를 직접 주는 호출(`pixelowner --root`), 또는 `FPS_SERVE_ROOT`.
+
 ## 2. 결정성 요구사항
 
 `baseline.mjs`가 비트 동일하려면 게임 코드가 아래를 만족해야 한다.
