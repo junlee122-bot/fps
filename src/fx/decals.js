@@ -57,7 +57,7 @@ function patchAtlasUv(mat, cacheKey) {
       // 맞은 **부재** 밖은 그리지 않는다. 데칼은 부재에 맞춰 잘리지 않는 쿼드라서, 부재가 데칼보다 좁으면
       // (24 mm 창살 위 38~64 mm 탄흔) 이웃 표면 — 창호지 — 위로 번졌다. R4 실측으로 잡은 결함.
       .replace('#include <clipping_planes_fragment>',
-        '#include <clipping_planes_fragment>\n\tdiscard;');
+        '#include <clipping_planes_fragment>\n\tif ( any( greaterThan( abs( vDecalW - vMemberC ) - vMemberH, vec3( 0.0 ) ) ) ) discard;');
   };
   mat.customProgramCacheKey = () => cacheKey;
 }
