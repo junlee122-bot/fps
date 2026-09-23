@@ -7,6 +7,7 @@
 
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
+import { writeFileSync, readFileSync, unlinkSync } from 'node:fs';
 import { resolve, extname, normalize, sep } from 'node:path';
 import { pinnedRoot } from './pinned.mjs';
 
@@ -42,7 +43,37 @@ function resolveRoot(root) {
   return { root: pin.root, pin };
 }
 
+/**
+ * 렌더 프로브 단독 실행 잠금 (발주자 지시 4 를 기억이 아니라 구조로).
+ * 같은 머신에서 브라우저 도구 둘이 겹쳐 돌면 4코어 소프트웨어 GL 을 나눠 쓰다 한쪽이 죽거나
+ * 측정이 흔들린다(실제로 두 번 겪었다). 살아 있지 않은 PID 의 잠금은 스스로 치운다.
+ * FPS_NO_LOCK=1 로 끈다 — 끌 때는 왜 끄는지 알고 끄는 것이다.
+ */
+const LOCK = process.env.FPS_LOCK_FILE ?? '/tmp/fps-render.lock';
+function acquireLock() {
+  if (process.env.FPS_NO_LOCK === '1') return () => {};
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      writeFileSync(LOCK, `${process.pid} ${process.argv.slice(1).join(' ')}\n`, { flag: 'wx' });
+      return () => { try { if (readFileSync(LOCK, 'utf8').startsWith(`${process.pid} `)) unlinkSync(LOCK); } catch { /* 이미 없음 */ } };
+    } catch {
+      let holder = '';
+      try { holder = readFileSync(LOCK, 'utf8').trim(); } catch { continue; }
+      const pid = Number(holder.split(' ')[0]);
+      let alive = false;
+      try { process.kill(pid, 0); alive = true; } catch { alive = false; }
+      if (alive) {
+        throw new Error(`렌더 프로브가 이미 돌고 있다 (pid ${pid}: ${holder.slice(String(pid).length + 1)}). `
+          + `끝난 뒤에 실행하라 — 겹쳐 돌리면 측정이 흔들린다. 의도한 병렬이면 FPS_NO_LOCK=1.`);
+      }
+      try { unlinkSync(LOCK); } catch { /* 경쟁 */ }
+    }
+  }
+  return () => {};
+}
+
 export async function startServer(rootArg) {
+  const releaseLock = acquireLock();
   const { root, pin } = resolveRoot(rootArg);
   const server = http.createServer(async (req, res) => {
     try {
@@ -75,6 +106,6 @@ export async function startServer(rootArg) {
     sha: pin?.sha ?? null,
     pinned: !!pin,
     dirty: pin?.dirty ?? null,
-    close: () => new Promise((r) => server.close(r)),
+    close: () => new Promise((r) => server.close(() => { releaseLock(); r(); })),
   };
 }
