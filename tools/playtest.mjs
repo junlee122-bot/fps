@@ -169,8 +169,33 @@ try {
   const aimPitch = Math.atan2(2.2 - 1.69, Math.hypot(3.2, 43.5));
   await setInput({ yaw: aimYaw, pitch: aimPitch, ads: true });
   await step(30); // ADS 블렌드 완료
+  // [R4 정정] 두 번에 나눠 쏜다. 종전의 60 프레임 연사(≈11 발)는 임계 T=6 을 바로 넘겨 판이 찢어지므로
+  // 구멍 검사 1·2 의 대상(임계 미만 판)이 **비어** every() 가 공허하게 참이 됐다 — 마감 체인 2차의 케이스 26
+  // (--inject-no-holes 음성)이 exit 0 으로 그것을 처음 드러냈다. 1차 연사 14 프레임(≈3 발, T 미만)에서 구멍 검사를
+  // 비공허하게 하고, 2차 연사 44 프레임으로 임계를 넘겨 찢어짐을 검사한다(합 ≈12 발, 종전 8~13 범위 유지).
   await setInput({ fire: true });
-  await step(60); // 1초 @700rpm ≈ 11발
+  await step(14); // ≈3 발 @700rpm — 임계 미만
+  await setInput({ fire: false });
+  await step(6);
+  const ws1 = await page.evaluate(() => window.__harness.getWeaponState());
+  const panes1 = Object.keys(ws1.hanji);
+  check('hanji_hit_recorded', panes1.length >= 1, { panes: ws1.hanji, fired: ws1.counters.fired });
+  {
+    // [PATCH-014-D] 구멍 모델 검사 1·2 — 상태가 "판 전체 반투명"이 아니라 "맞은 자리 구멍"인지. **비공허 조건**: 임계 미만 판이 1 개 이상.
+    const belowT = Object.entries(ws1.hanji).filter(([, p]) => p.hits < HANJI_TEAR_THRESHOLD);
+    check('hanji_below_threshold_pane', belowT.length >= 1 && ws1.counters.fired < HANJI_TEAR_THRESHOLD,
+      { fired: ws1.counters.fired, threshold: HANJI_TEAR_THRESHOLD, panes: Object.entries(ws1.hanji).map(([id, p]) => [id, p.hits]) });
+    // 1. 임계 미만이면 피격 수 = 구멍 수
+    check('hanji_hole_per_hit', belowT.length >= 1 && belowT.every(([, p]) => p.holes.length === p.hits),
+      { panes: belowT.map(([id, p]) => [id, p.hits, p.holes.length]) });
+    // 2. 구멍 위치가 판 안(0..1)이고 반지름이 무기 상수와 일치 (카빈 사격이었다) — 구멍이 하나도 없으면 실패
+    const R = HANJI_HOLE_RADIUS.CARBINE;
+    const holes1 = Object.values(ws1.hanji).flatMap((p) => p.holes);
+    check('hanji_hole_uv_in_pane', holes1.length >= 1 && holes1.every(([u, v, r]) => u >= 0 && u <= 1 && v >= 0 && v <= 1 && Math.abs(r - R) < 1e-3),
+      { sample: holes1.slice(0, 3), count: holes1.length, expectedR: R });
+  }
+  await setInput({ fire: true });
+  await step(44); // 2차 연사 — 합 ≈12 발, 임계 초과 → 찢어짐
   await setInput({ fire: false, ads: false });
   await step(10);
   const ws = await page.evaluate(() => window.__harness.getWeaponState());
@@ -181,22 +206,11 @@ try {
   check('fire_multilayer_hits', ws.counters.hits > ws.counters.fired, { counters: ws.counters });
   check('fire_stops_at_wall', ws.counters.stops >= 1, { stops: ws.counters.stops });
   const hanjiPanes = Object.keys(ws.hanji);
-  check('hanji_hit_recorded', hanjiPanes.length >= 1, { panes: ws.hanji });
   if (hanjiPanes.length) {
     const hp = ws.hanji[hanjiPanes[0]];
     check('hanji_opacity_drops', hp.opacity < HANJI_BASE_OPACITY, { got: hp, base: HANJI_BASE_OPACITY }); // PATCH-005-D: 기본값은 materials 상수
-    // [PATCH-014-D] 구멍 모델 검사 1·2·4 — 상태가 "판 전체 반투명"이 아니라 "맞은 자리 구멍"인지
-    // 1. 임계 미만이면 피격 수 = 구멍 수 (임계 이상은 찢어짐이라 구멍 수를 따지지 않는다)
-    const belowT = Object.entries(ws.hanji).filter(([, p]) => p.hits < HANJI_TEAR_THRESHOLD);
-    check('hanji_hole_per_hit', belowT.every(([, p]) => p.holes.length === p.hits),
-      { panes: belowT.map(([id, p]) => [id, p.hits, p.holes.length]) });
-    // 2. 구멍 위치가 판 안(0..1)이고 반지름이 무기 상수와 일치 (카빈 사격이었다)
-    const R = HANJI_HOLE_RADIUS.CARBINE;
-    check('hanji_hole_uv_in_pane', Object.values(ws.hanji).every(
-      (p) => p.holes.every(([u, v, r]) => u >= 0 && u <= 1 && v >= 0 && v <= 1 && Math.abs(r - R) < 1e-3)),
-      { sample: hp.holes.slice(0, 3), expectedR: R });
-    // 4. 임계 초과 판은 찢어짐 상태 — 그리고 임계 미만 판은 찢어지지 않았다
-    check('hanji_tear_threshold', Object.values(ws.hanji).every(
+    // [PATCH-014-D] 4. 임계 초과 판은 찢어짐 상태 — 그리고 임계 미만 판은 찢어지지 않았다. **비공허 조건**: 찢어진 판이 1 개 이상(2차 연사가 임계를 넘겼다)
+    check('hanji_tear_threshold', Object.values(ws.hanji).some((p) => p.torn) && Object.values(ws.hanji).every(
       (p) => p.torn === (p.hits >= HANJI_TEAR_THRESHOLD)),
       { threshold: HANJI_TEAR_THRESHOLD, panes: Object.entries(ws.hanji).map(([id, p]) => [id, p.hits, p.torn]) });
   }
