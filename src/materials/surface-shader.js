@@ -250,22 +250,10 @@ const FRAG_ROUGH = /* glsl */`
 const FRAG_METAL = /* glsl */`
   float metalnessFactor = metalness * surfORM.b;
 `;
-/**
- * 스펙큘러 앨리어싱 억제 계수 — 픽셀 내 노멀 분산을 거칠기 제곱에 얼마나 더할지.
- * 전후 같은 타일 지표(고주파 에너지 비)로 정한 값. R4 작업 5.
- */
-const SPEC_AA = 0.35;
-
 const FRAG_NORMAL = /* glsl */`
   {
     vec3 nw = mix(surfTn, surfN, surfWear * 0.7);
     normal = normalize(mat3(viewMatrix) * nw);
-    // [R4 작업 5] 천장 무아레·파이어플라이는 둘 다 같은 원인에서 온다: 한 픽셀 안에서 노멀이
-    // 흔들리는데 거칠기는 그대로다. 밉맵·이방성은 알베도 축소만 다루고 노멀 분산은 다루지 않는다.
-    // 화면 미분으로 분산을 재서 거칠기 제곱에 더한다(Kaplanyan/Tokuyoshi 근사). 프로그램 +0.
-    vec3 surfDNx = dFdx(normal), surfDNy = dFdy(normal);
-    float surfNVar = max(dot(surfDNx, surfDNx), dot(surfDNy, surfDNy));
-    roughnessFactor = sqrt(clamp(roughnessFactor * roughnessFactor + ${SPEC_AA} * surfNVar, 0.0, 1.0));
   }
 `;
 const FRAG_AO = /* glsl */`
@@ -324,7 +312,7 @@ export function applySurfaceShader(mat, opts = {}) {
       .replace('#include <aomap_fragment>', FRAG_AO);
   };
   // 프로그램 캐시 키: 모드 정의는 material.defines로 이미 키에 포함된다(three) — 패치 버전만 보탠다
-  mat.customProgramCacheKey = () => 'surf4'; // C3 POM textureGrad 교정(surf2) → R1 거시 변조·서까래 하면(surf3) → R4 스펙큘러 AA(surf4)
+  mat.customProgramCacheKey = () => 'surf3'; // C3 POM textureGrad 교정(surf2) → R1 거시 변조·서까래 하면(surf3)
   mat.needsUpdate = true;
   return mat;
 }

@@ -274,7 +274,7 @@ export class ProceduralSynth {
     tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
     tex.minFilter = THREE.LinearMipmapLinearFilter; tex.magFilter = THREE.LinearFilter;
     tex.generateMipmaps = true;
-    tex.anisotropy = Math.min(4, this.renderer.capabilities.getMaxAnisotropy());
+    tex.anisotropy = Math.min(16, this.renderer.capabilities.getMaxAnisotropy());
   }
 
   _blit(mat, rt) {
