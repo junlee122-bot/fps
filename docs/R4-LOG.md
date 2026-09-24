@@ -484,3 +484,8 @@ R3′ 대조표에서 봤던 옅은 별도 같은 기전일 가능성이 크지�
 **케이스 28 은 처음으로 완주했고 통과했다**: `exit=1 표식=true 클립검사실패=true 탄흔수=2 배선검사=false` — 클립을 풀면 두 창살 탄흔의
 상자가 1e4 로 돌아가 `decal_clip_wired`·`decal_within_member` 가 함께 실패한다. 재시도 0.
 
+**단독 프로브 실측**(체인 정지 뒤, 스냅샷 `79963e8`, 같은 조준·같은 프레임 수): 1차 14 프레임 → **3 발**, `dh_bay_1.6_hanji` hits 3 · holes 3
+(r .026 = CARBINE) · torn false · opacity .9991. 2차 44 프레임 → 합 **11 발**, hits 11 · holes 11 · **torn true** · opacity 0. 종전 범위(8~13) 안이고,
+구멍 검사는 이제 비공허하게 3 = 3 을 잰다. 음성(`--inject-no-holes`)에서는 같은 자리에서 hits 3 · holes 0 이 되어 `hanji_hole_per_hit` 와
+`hanji_hole_uv_in_pane` 이 실패한다 — 케이스 26 이 요구하는 서명이다. 3차 체인(`/tmp/r4gates3`)으로 확인한다.
+
