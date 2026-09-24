@@ -61,6 +61,7 @@ export class MuzzleFlash {
     this.mat = mat;
     this.mesh = new THREE.Mesh(geo, mat);
     this.mesh.name = 'fx_muzzleflash';
+    this.mesh.userData.noAO = true; // GTAO 노멀/깊이 패스 제외 (R4)
     this.mesh.visible = false;
     this.mesh.castShadow = false;
     this.mesh.receiveShadow = false;

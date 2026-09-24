@@ -95,6 +95,7 @@ export class DecalPool {
     patchAtlasUv(mat, 'fx_decal_atlas');
     this.mesh = new THREE.InstancedMesh(geo, mat, DECAL_BUDGET);
     this.mesh.name = 'fx_decals';
+    this.mesh.userData.noAO = true; // GTAO 노멀/깊이 패스 제외 (R4)
     this.mesh.count = 0;
     this.mesh.castShadow = false;
     this.mesh.receiveShadow = false;
@@ -130,6 +131,7 @@ export class DecalPool {
     peelGeo.setAttribute('aMemberH', this.peelMemberHAttr);
     this.peelMesh = new THREE.InstancedMesh(peelGeo, peelMat, this.peelCapacity);
     this.peelMesh.name = 'fx_decals_peel';
+    this.peelMesh.userData.noAO = true; // GTAO 노멀/깊이 패스 제외 (R4)
     this.peelMesh.count = 0;
     this.peelMesh.castShadow = false;
     this.peelMesh.receiveShadow = false;

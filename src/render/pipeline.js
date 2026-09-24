@@ -188,6 +188,7 @@ export class RenderPipeline {
     this.aoRT = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType });
     this.renderPass = new RenderPass(scene, camera);
     this.gtao = new GTAOPass(scene, camera, size.x, size.y);
+    this._noAOCache = []; // GTAO 패스에서 잠시 숨긴 FX 메시 (매 프레임 재사용)
     this.gtao.output = GTAOPass.OUTPUT.Default;
     // R1 비평 수정 B: 기본 반경 0.25m·scale 1은 계약 해상도(3024×1964)에서 기단·기둥 밑 접지 음영이
     // 읽히지 않았다(R1 S01·S03·S05·S11). 반경은 월드 m — 주춧돌·기단 턱(0.3~0.6m) 규모의 폐색을 잡도록
@@ -439,7 +440,12 @@ export class RenderPipeline {
     const c0 = info.calls, t0 = info.triangles;
     this.renderPass.render(this.renderer, this.aoRT, this.sceneRT, 0, false); // 3번째 인자에 그린다
     const c1 = info.calls, t1 = info.triangles;
+    // [R4] userData.noAO 메시(FX 쿼드)는 GTAO 노멀/깊이 패스에서 숨긴다 — GTAOPass 는 Points/Line 만 빼고
+    // 전부 불투명 기하로 그려서, 투명 데칼 쿼드가 그 모양대로 AO 그늘을 종이에 남겼다(0.6 m 실측).
+    const noAO = this._noAOCache; noAO.length = 0;
+    this.scene.traverse((o) => { if (o.visible && o.userData && o.userData.noAO) { o.visible = false; noAO.push(o); } });
     this.gtao.render(this.renderer, this.aoRT, this.sceneRT, 0, false); // sceneRT를 읽어 aoRT에 합성
+    for (const o of noAO) o.visible = true;
     const c2 = info.calls, t2 = info.triangles;
     this.passStats.shadowBeauty = [c1 - c0, t1 - t0];
     this.passStats.gtao = [c2 - c1, t2 - t1];

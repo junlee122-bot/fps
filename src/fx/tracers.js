@@ -31,6 +31,7 @@ export class TracerPool {
     mat.name = 'FX_TRACER';
     this.mesh = new THREE.InstancedMesh(geo, mat, TRACER_CAPACITY);
     this.mesh.name = 'fx_tracers';
+    this.mesh.userData.noAO = true; // GTAO 노멀/깊이 패스 제외 (R4)
     this.mesh.count = 0;
     this.mesh.castShadow = false;
     this.mesh.receiveShadow = false;

@@ -86,6 +86,7 @@ export class ParticlePool {
     mat.customProgramCacheKey = () => 'fx_particle_atlas';
     this.mesh = new THREE.InstancedMesh(geo, mat, n);
     this.mesh.name = 'fx_particles';
+    this.mesh.userData.noAO = true; // GTAO 노멀/깊이 패스 제외 (R4)
     this.mesh.count = 0;
     this.mesh.castShadow = false;
     this.mesh.receiveShadow = false;
