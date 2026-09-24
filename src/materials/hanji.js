@@ -31,7 +31,7 @@ import { bus } from '../core/events.js';
  * (CONTRACT-PATCH-005-D). .62(P0 잠정값)는 착색 유리로 읽혔다 → .95: 종이는 거의 불투명한 확산 투과체이고 배면광은 발광으로 넣는다
  * (materials/index.js applyHanjiTransmit). kit makeMaterials HANJI 호환값과 동일하게 유지한다.
  */
-export const HANJI_BASE_OPACITY = 0.95;
+export const HANJI_BASE_OPACITY = 1.0;
 
 /**
  * 무기별 구멍 반지름 (m) — PATCH-014-C 의 동작 기준을 **PATCH-015-F 정지 규칙에 따라 육안으로** 확정한 값.
