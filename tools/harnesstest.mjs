@@ -58,6 +58,11 @@ function record(id, name, pass, detail) {
  * 30분으로 두고, 타임아웃은 exit 코드와 별도로 명시 기록한다(무기록 금지).
  */
 const AUDIT_TIMEOUT_MS = 1800000;
+/* playtest 는 1,498 프레임 + 사격 8회를 960×600 소프트웨어 GL 로 돌려 유휴 기계에서 ≈38 분(R4 실측, 2026-09-23 23:02–23:40).
+ * 30 분 상한이 케이스 26·28 을 SIGTERM 으로 끊었고(마감 체인 1차, 2026-09-24 03:11–04:11) 위와 같은 서명(출력 공백·표식 없음)으로
+ * 음성 판정 실패처럼 보였다 — 케이스 10·13 과 같은 부류의 리그 결함이 재발한 것. 실측의 2.5 배(케이스 10·13 과 같은 여유율)로 둔다.
+ * 시간 초과는 케이스 detail 에도 `timedOut=` 으로 박는다 — retries 기록만으로는 요약 줄에서 보이지 않았다. */
+const PLAYTEST_TIMEOUT_MS = 6000000;
 const LIMIT_FOR_20 = 1.5; // paletteaudit LIMIT_PCT — 케이스 20(a)의 패치(3%)가 단독으로 넘어야 하는 값
 function run(cmd, args, timeoutMs = AUDIT_TIMEOUT_MS) {
   const r = spawnSync(cmd, args, { cwd: ROOT, encoding: 'utf8', timeout: timeoutMs });
@@ -418,7 +423,7 @@ const SHORT = ['--duration', '16', '--runs', '1', '--dpr', '1', '--w', '640', '-
  * 게임 규칙 결함이고, 이 케이스가 그 결함의 재발을 막는다.
  * 양성 경로는 게이트 목록의 playtest 실행 자체가 담당한다 — 가장 비싼 도구를 두 번 돌리지 않는다. */
 {
-  const neg = runAudit('node', ['tools/playtest.mjs', '--inject-no-holes']);
+  const neg = runAudit('node', ['tools/playtest.mjs', '--inject-no-holes'], PLAYTEST_TIMEOUT_MS);
   let marked = false, holeCheckFailed = false, hitRecorded = null;
   try {
     const j = JSON.parse(neg.out);
@@ -429,7 +434,7 @@ const SHORT = ['--duration', '16', '--runs', '1', '--dpr', '1', '--w', '640', '-
   // 피격 자체는 기록되어야 한다 — 구멍만 막은 것이지 배선을 끊은 것이 아니다
   const ok = neg.code === 1 && marked && holeCheckFailed && hitRecorded === true;
   record(26, 'playtest 구멍 모델 음성 (--inject-no-holes → exit 1 + 표식 + 구멍 검사만 실패)', ok,
-    `exit=${neg.code} 표식=${marked} 구멍검사실패=${holeCheckFailed} 피격기록=${hitRecorded}`);
+    `exit=${neg.code} timedOut=${neg.timedOut} 표식=${marked} 구멍검사실패=${holeCheckFailed} 피격기록=${hitRecorded}`);
 }
 
 /* ---- 28. 탄흔 데칼 부재 클립 음성 훅 (R4 구멍 모양 이상) ----
@@ -439,7 +444,7 @@ const SHORT = ['--duration', '16', '--runs', '1', '--dpr', '1', '--w', '640', '-
  * 데칼이 실제로 그려졌는지(decal_paints_something)는 음성 실행에서도 참이어야 한다 — 배선을 끊은 게
  * 아니라 클립만 푼 것이기 때문이다. */
 {
-  const neg = runAudit('node', ['tools/playtest.mjs', '--inject-decal-noclip']);
+  const neg = runAudit('node', ['tools/playtest.mjs', '--inject-decal-noclip'], PLAYTEST_TIMEOUT_MS);
   let marked = false, clipFailed = false, painted = null, spillPx = null;
   try {
     const j = JSON.parse(neg.out);
@@ -451,7 +456,7 @@ const SHORT = ['--duration', '16', '--runs', '1', '--dpr', '1', '--w', '640', '-
   // 배선(decal_clip_wired)도 함께 실패해야 한다 — 클립 해제는 상자를 1e4 로 되돌리는 것이므로
   const ok = neg.code === 1 && marked && clipFailed && painted === false;
   record(28, '탄흔 데칼 부재 클립 음성 (--inject-decal-noclip → exit 1 + 표식 + 클립 미성립)', ok,
-    `exit=${neg.code} 표식=${marked} 클립검사실패=${clipFailed} 탄흔수=${spillPx} 배선검사=${painted}`);
+    `exit=${neg.code} timedOut=${neg.timedOut} 표식=${marked} 클립검사실패=${clipFailed} 탄흔수=${spillPx} 배선검사=${painted}`);
 }
 
 /* ---- 25. fxaudit 시각 구별 축 (발주자 지시 2026-09-20) ----
