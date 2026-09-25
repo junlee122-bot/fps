@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# P4 서브패스 종료 게이트 드라이버 — P4-BRIEF §7 목록 + R4 에서 승인된 rendervariance(장부 #14 — §7 에서 또 빠졌다, 착수 전 스캔), **순차 실행**(PATCH-005-J).
+# 게이트 체인 드라이버 — **게이트 목록의 유일한 원본**(발주자 결정 2026-09-25, 장부 #27 조치). 브리프는 목록을 손으로 쓰지 않고 이 파일을 따른다.
+# 새 게이트는 여기에 추가하고 브리프에는 "이번 패스에서 새로 추가되는 게이트"만 적는다. 케이스 수 같은 개수도 브리프에 쓰지 않는다. **순차 실행**(PATCH-005-J).
 # 하나라도 실패하면 즉시 멈춘다. audioaudit 는 발주자 청감 판정 전까지 체인 밖(P4-BRIEF −1-B) — 판정이 오면 아래 주석을 푼다.
-# silhouetteaudit 는 P4B 에서 생긴다. 사용: bash tools/_p4gates.sh <출력디렉토리>
+# silhouetteaudit 는 P4B 에서 생긴다. 사용: bash tools/gates.sh <출력디렉토리>   (이력: tools/_r4gates.sh 는 R4 판)
 set -u
 OUT="${1:-/tmp/r4gates}"
 mkdir -p "$OUT"

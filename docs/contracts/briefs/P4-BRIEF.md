@@ -612,6 +612,26 @@ FX · 오디오 프로파일도 함께 늘어난다.
 > 실측(3 m, 648펠릿)에서도 창살을 먼저 맞은 131펠릿이 전부 창살을 지나 종이까지 갔다.
 > 착수 시 이 열을 **§2-1 표에서 기계적으로 다시 뽑아** 교체하라. 표와 이 열이 다르면 표가 이긴다.
 
+> **[발주자 결정 2026-09-25]** 아래 표의 "결과적 벽 접근권" 열은 **폐기**한다. 권위는 `node tools/wallaccess.mjs` 가 동결 §2-1 표에서 기계적으로 뽑는 다음 표다(스캔 시점 출력, 재실행하면 갱신):
+>
+> | 표면 (등급 · 두께 · 출처) | SHOTGUN (k 0.425, 200 J/펠릿) | CARBINE (k 5.6, 1800 J) | DMR (k 9.332, 3400 J) |
+> |---|---|---|---|
+> | HANJI (free, 0.03 cm — HANJI_T) | ○ 100 % | ○ 100 % | ○ 100 % |
+> | FABRIC (free, 0.5 cm — audio refCm) | ○ 98 % | ○ 100 % | ○ 100 % |
+> | WOOD_LATTICE (light, 2.4 cm — LATTICE_T) | ○ 29 % | ○ 91 % | ○ 95 % |
+> | WOOD_PLANK (light, 3 cm — audio refCm) | ○ 2 % | ○ 75 % | ○ 84 % |
+> | ROOF_TILE (light, 3 cm — TILE_T) | ✕ 정지 | ○ 65 % | ○ 78 % |
+> | THATCH (light, 20 cm — THATCH_T) | ✕ 정지 | ○ 28 % | ○ 46 % |
+> | ROOF_SOIL (light, 10 cm — audio refCm) | ✕ 정지 | ○ 8 % | ○ 22 % |
+> | WOOD_COLUMN (medium, 30 cm — COL_D) | ✕ 정지 | ✕ 정지 | ○ 6 % |
+> | EARTH_WALL (heavy, 10 cm — SIMBYEOK_T) | ✕ 정지 | ✕ 정지 | ○ 6 % |
+> | GRANITE (block, 30 cm — audio refCm) | ✕ 정지 | ✕ 정지 | ✕ 정지 |
+> | BRONZE (block, 5 cm — audio refCm) | ✕ 정지 | ✕ 정지 | ✕ 정지 |
+> 
+> ○ = 통과(잔여 %), ✕ = 정지(초기 2 % 미만). 출처: surfaces.js computePenetration · params.js WEAPONS · ballistics.js penetrate.
+>
+> 읽기: 산탄 펠릿은 종이·천·창살(29 %)까지, 판벽·기와는 정지. 카빈은 종이·창살(91)·판벽(75)·초가(14)·지붕흙(8)·기와(기와 3 cm 는 정지). DMR 은 기둥·흙벽 6 %("긁는 수준", §4-4).
+
 | 진영 | 캐릭터 | 계열 | 개체 성격 | 결과적 벽 접근권 (§2-1 표에서 재유도할 것) |
 |---|---|---|---|---|
 | 이세계 | **자라** | 산탄 | 묵직한 한 방 | 종이 · 천 · 창살(실측) · 나머지는 표에서. **등껍질로 붙어야 한다** |
@@ -809,26 +829,14 @@ PvP이므로 AI는 **적**이 아니라 **봇**이다. 우선순위가 내려간
 
 각 서브패스에서 전체 게이트 체인을 **순차** 실행한다(`PATCH-005-J`).
 
-```bash
-node tools/harnesstest.mjs         # 23케이스 (audioaudit · silhouetteaudit · shotaudit 음성 포함)
-node tools/audioaudit.mjs          # 신규 — 차폐 표면 쌍 전부 2축 이상 상이 (§2-5)
-node tools/silhouetteaudit.mjs     # 신규 — 6쌍 2축 이상 상이, 대비 ≥ 0.15
-node tools/shotaudit.mjs           # 신규 (PATCH-009-B) — 샷이 선언한 감시 대상을 실제로 담는가
-node tools/determinismaudit.mjs
-node tools/geometryaudit.mjs
-node tools/paletteaudit.mjs
-node tools/albedoaudit.mjs
-node tools/viewmodelaudit.mjs
-node tools/fxaudit.mjs
-node tools/surfaceaudit.mjs
-node tools/coveraudit.mjs          # 축소 구역 기준
-node tools/chainaudit.mjs          # 자라 차폐 경로 추가
-npm test
-node tools/baseline.mjs --out current/    # 오디오 해시 포함
-node tools/imagediff.mjs baseline/ current/
-node tools/profile.mjs
-node tools/playtest.mjs
-```
+> **[발주자 결정 2026-09-25 로 개정 — 원문 명령 목록은 git 이력(93a5639 이전)에 있다. 장부 #27 조치]**
+> **게이트 목록의 유일한 원본은 `tools/gates.sh` 다.** 브리프는 목록을 손으로 쓰지 않고, 케이스 수 같은 개수도 쓰지 않는다.
+> 이번 패스(P4)에서 **새로 추가되는 게이트**만 적는다:
+> - `audioaudit` (§2-5) — 발주자 청감 판정 뒤 편입
+> - `silhouetteaudit` (§3-2) — P4B
+> - `distaudit` (아래 「배포물 검사」)
+> - `coveraudit` 는 축소 구역 기준(§4-5), `chainaudit` 는 자라 차폐 경로 추가(§4-2), `baseline` 은 오디오 해시 포함(§2-6) — 기존 게이트의 인자·검사 확장
+
 
 #### 배포물 검사 (신규 — 하네스 공백)
 게이트는 import map과 자체 정적 서버에서 돈다. 그러나 **배포는 `vite build`로 만든 `dist/`**다
