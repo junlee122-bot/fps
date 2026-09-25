@@ -497,3 +497,28 @@ R3′ 대조표에서 봤던 옅은 별도 같은 기전일 가능성이 크지�
   6 m 참고값 p_min = 4 는 게임 정보로 P3-DEBT 에 기록.
 - **케이스 26 정정 승인** — 음성 테스트가 양성 경로의 공허 통과를 처음 드러낸 사례(PATCH-003-B).
 
+## 마감 게이트 체인 3차 — ALL GREEN (2026-09-24 06:23 → 09-25 00:02 UTC, 17 h 38 m)
+
+고정 스냅샷 `b5abed6`(dirty=false), 출력 `/tmp/r4gates3`. **18 단계 전부 exit 0**, 순차 실행, 렌더 병행 없음. 계약 캡처는 `baseline/r4`(= base1).
+
+| 단계 | 시작 | 소요 | 결과 |
+|---|---|---|---|
+| harnesstest | 06:23 | 2 h 04 m | 26/26, 재시도 0 (케이스 26·28 첫 완주 통과) |
+| determinismaudit · geometryaudit · chainaudit · surfaceaudit · coveraudit · fxaudit · npm test | 08:27 | 3 s | src 위반 0 · 검사 42/실패 0 · 경로 18 · 위반 8(상한 내) · 105쌍 · 24/24 |
+| playtest | 08:27 | 39 m | 52 검사 실패 0 — 구멍 검사 비공허(1차 3발 = 구멍 3, 2차 11발 찢어짐) |
+| baseline1 / baseline2 | 09:07 / 13:49 | 4 h 42 m / 4 h 46 m | 12샷 + 마스크, 프로그램 44 |
+| imagediff | 18:35 | 11 s | **24/24 비트 동일, tol 0** |
+| shotaudit · rendervariance · paletteaudit | 18:35 | 1 m | 12샷 감시 대상 통과 · 12샷×4회 640×416 변동 0 · 위반 최대 1.03 %(muzzle_interior, 상한 1.5), 자발광 최대 2.98 %(상한 8) |
+| albedoaudit · viewmodelaudit | 18:37 / 18:52 | 15 m / 15 m | 매니페스트 편차 0 · 조도비 0.990(1.0 ± .10) |
+| profile p3 | 19:07 | 4 h 55 m | 선행 지표 전부 통과(아래) |
+
+**profile 선행 지표**: trisScene 135,622(예산 600k) · trisFrame_p95 122,610(250k) · drawCalls 480(900) · **programs 44**(110; R3 45) · cpuFrameMs_p95 2.1(6) ·
+overdraw_p95 2.0(3) · particlesMax 731 · decalsMax 135. 플레이 중 셰이더 컴파일 0 · 하네스 오류 0 · 결정성 창 위반 0 · 지평선 판독 0. boot_cpu 중앙값 346 ms(예산 3 s, R3 211 ms).
+boot_gpu 13.7 s(GPU-INVALID, 프리웜 44 프로그램 11.5 s). 시나리오 유효(ROOF_TILE 피격 ≥130·파편 ≥130). gpuDependent 무효(소프트웨어 렌더러) — 010-D 실기 측정 대상 그대로.
+
+**R3 체인(4 h 49 m)보다 3.7 배 오래 걸린 이유** — 코드가 아니라 기계다. 같은 도구·같은 해상도의 profile 이 R3 3 h 26 m → 4 h 55 m(×1.43), baseline 한 벌이 ×2 이상.
+fps_p50 은 두 번 다 0.1(무효 지표). 렌더 비용 지표(tris·drawCalls·overdraw·programs)는 R3 와 같거나 줄었다(programs 45→44, drawCalls 483→480).
+cpuFrameMs_p95 1.02 → 2.1 은 같은 CPU 코드가 두 배 느려진 것으로, 컨테이너 CPU 공급이 R3 때의 절반 수준이었다는 뜻이다. 판정에는 영향 없다(선행 지표는 전부 예산 안).
+
+**사고 없음**(3차). 세션 쪽 재시작이 두 번 있었지만 nohup 드라이버는 살아 있었고 감시만 다시 걸었다.
+
