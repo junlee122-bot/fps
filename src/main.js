@@ -29,6 +29,8 @@ import { createTagMask } from './render/tagmask.js';
 import { bakeGroundAo } from './render/groundao.js';
 import { PhysicsWorld } from './physics/index.js';
 import { collectRayChain } from './physics/raychain.js';
+import { AudioSystem } from './audio/index.js';
+import { SURFACES, PenClass } from './core/surfaces.js';
 import { buildWorld, HANJI_LATTICE, hanjiLatticeCount } from './world/level.js';
 import { createSurfaceMaterials, finalizeSurfaceShaders, LANTERN_EMISSIVE, applyHanjiTransmit, HANJI_TRANSMIT } from './materials/index.js';
 import { PlayerInput } from './player/input.js';
@@ -267,6 +269,28 @@ handleResize(renderer, camera, (r) => pipeline.setSize(r.domElement.width, r.dom
 let readyResolve;
 const readyPromise = new Promise((r) => { readyResolve = r; });
 
+// P4A 오디오 — 구독은 생성자에서 한다(bus.markBoot 이전). physics·카메라는 주입 — audio 는 physics 를 import 하지 않는다 (ARCHITECTURE §3)
+const _audioFwd = new THREE.Vector3();
+const audio = new AudioSystem({
+  bus, clock,
+  traceChain: (from, to) => {
+    const dx = to[0] - from[0], dy = to[1] - from[1], dz = to[2] - from[2];
+    const dist = Math.hypot(dx, dy, dz);
+    if (dist < 1e-6) return [];
+    return collectRayChain(physics.static, from[0], from[1], from[2], dx / dist, dy / dist, dz / dist, dist).layers;
+  },
+  raycast: (origin, dir, maxDist) => {
+    const { layers } = collectRayChain(physics.static, origin[0], origin[1], origin[2], dir[0], dir[1], dir[2], maxDist);
+    const L = layers.find((l) => SURFACES[l.surface]?.penClass !== PenClass.DECAL); // 첫 비-DECAL 층
+    return L ? { dist: L.entryT, surface: L.surface, normal: L.normal } : null;
+  },
+  getListener: () => { camera.getWorldDirection(_audioFwd); return { pos: camera.position.toArray(), forward: _audioFwd.toArray(), up: [0, 1, 0] }; },
+});
+// 브라우저 자동재생 정책 — 첫 사용자 제스처(포인터 락)에서 컨텍스트 시작. fixed(하네스) 모드에서는 락이 없으므로 시작되지 않는다
+document.addEventListener('pointerlockchange', () => {
+  if (document.pointerLockElement) audio.start().catch((e) => console.error('[audio] start 실패', e));
+});
+
 const tagMask = createTagMask({ renderer, scene, camera, pipeline });
 const harness = installHarness({
   renderer, scene, camera, player, input, physics, world, pipeline,
@@ -274,6 +298,7 @@ const harness = installHarness({
   readyPromise, mode,
   // P2A 배선
   fire, viewmodel, hanji, fx,
+  audio, // P4A: resetState 에서 audio.reset() (울리는 소리 정지·공간 재측정)
   hanjiPanes, // C2 §8: HANJI 반투과 화면 면적 → overdraw_estimate 편입
   opacityApplier, // resetState 방어선 — hanji.reset()은 더럽혀진 판만 이벤트를 쏜다 (PATCH-013-B)
   hanjiOccluders, // PATCH-008-B: 프로브가 더미 이동 후 재등록
@@ -377,6 +402,7 @@ if (mode === 'realtime') {
     const substepMs = clock.wallNowMs() - subT0;
     if (steps === MAX_SUBSTEPS) accum = 0; // 백로그 폐기 — 나선 방지
     harness._internal.renderFrame(cpuT0, { substeps: steps, substepMs });
+    audio.update(); // P4A: 청자 자세 · 공간 잔향 재측정 (컨텍스트 미시작이면 무동작)
     markSimWindow(false);
   };
   requestAnimationFrame(loop);

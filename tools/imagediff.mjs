@@ -34,6 +34,16 @@ if (!Number.isFinite(TOL) || TOL < 0) {
 const PARTIAL = flags.partial === true;
 const DIFFDIR = resolve(flags.diffdir ?? 'tmp/diff');
 
+// P4A(P4-BRIEF §2-6): report.json 의 오디오 해시도 대조한다 — 양쪽에 있으면 같아야 한다(한쪽에만 있으면 실패)
+let audioRow = null;
+{
+  const rd = (d) => { try { return JSON.parse(readFileSync(`${d}/report.json`, 'utf8')).audioHash ?? null; } catch { return null; } };
+  const ha = rd(A), hb = rd(B);
+  if (ha || hb) {
+    const same = !!(ha?.scenarioHash && hb?.scenarioHash && ha.scenarioHash === hb.scenarioHash);
+    audioRow = { shot: '__audio_scenario', status: same ? 'IDENTICAL' : 'AUDIO_HASH_MISMATCH', a: ha?.scenarioHash ?? null, b: hb?.scenarioHash ?? null };
+  }
+}
 const namesA = readdirSync(A).filter((f) => f.endsWith('.png')).sort();
 const namesB = new Set(readdirSync(B).filter((f) => f.endsWith('.png')));
 const rows = [];
@@ -116,6 +126,7 @@ for (const n of namesB) {
   fail = true;
 }
 
+if (audioRow) { rows.push(audioRow); if (audioRow.status !== 'IDENTICAL') fail = true; }
 const identical = !fail;
 console.log(JSON.stringify({ a: A, b: B, tolerance: TOL, partial: PARTIAL, identical, rows }, null, 2));
 process.exit(identical ? 0 : 1);

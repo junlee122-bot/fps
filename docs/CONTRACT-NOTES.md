@@ -1862,6 +1862,7 @@ R4 이전 `OpacityApplier` 생성자는 유니폼을 전혀 쓰지 않았고(`gi
 | 24 | 미전달 초안 | B탭 | "이 프로젝트는 vite를 쓰지 않는다"고 단정 — 실제 배포는 vite `dist/` (#7 과 같은 사안) | 대화 | — |
 | 25 | R4 착수 | `013-B` | **교체되는 시스템의 시각 짝을 열거하지 않음** — 불투명도 모델을 해석적 구멍·찢어짐으로 바꾸면서 그 짝인 `fx_hanji_tears`(알파 없는 불투명 검정 쿼드)를 남겨 두었다. `005-D` 산란 연동 잔재와 같은 유형 | 대화(R4 구멍 모양 이상 실측) | — |
 | 26 | R4 p 재측정 | `P4-BRIEF §4-6` (미전달 초안) | **"산탄은 창살을 뚫지 못한다"** — 기억으로 쓴 문장. 동결된 `§2-1` 표(`WOOD_LATTICE` 관통 ~85 %)와 실측(창살이 먼저인 131 펠릿 전부 통과, 잔여 57.9 J)이 맞다. 에이전트가 출처를 요구해 드러남 | 대화(2026-09-24) | — |
+| 27 | P4 착수 | `P4-BRIEF §7` | 종료 게이트 목록에서 **`rendervariance` 를 또 누락** — R4-BRIEF §5 와 같은 실수(#14). 드라이버(`_p4gates.sh`)에는 유지했다 | 대화(착수 전 스캔 2026-09-25) | — |
 
 **#19 번호 충돌 정정**: 내가 `016-E` 를 #11 로 적었으나 #11·#12 는 `PATCH-014 §1`(013-B 관련 2건)이 이미 쓰고 있었다.
 원인은 장부가 패치 표 · CONTRACT-NOTES · 대화 **세 곳**에 흩어져 있었던 것이고, 이 통합이 그 처방이다.
@@ -2065,6 +2066,46 @@ R3′ 결함 중 이 수정만으로 사라질 수 있는 것은 원리적으로
   P3-DEBT 등급 C. 발주자가 예고한 다음 용의자(종이 너머 원거리 형체)는 이 세션에서 언급되지 않았다.
 - 선행 버그 수정으로 해소 0 건 · 013-B 누락 정정으로 해소 2 건 · FABRIC 태그 0 건.
 - **R5 없음**(011-F). 잔여 P3 소유분은 `docs/P3-DEBT.md` 실제 목록으로, P3 → P4 이월은 `docs/CARRYOVER-AUDIT.md` 표로 확정.
+
+### P4-BRIEF 착수 전 모순·모호 스캔 (PATCH-014-A, 2026-09-25) — 구현 전 보고
+
+수령 즉시 `docs/contracts/briefs/P4-BRIEF.md` 커밋(17818a6, 이 판이 우선 — 탭 B 판은 병합에서 버림). 이월 12행은 §−1-A 아래 원문 첨부 + 서브패스 배정.
+
+| # | 지점 | 종류 | 내용 · 처리 |
+|---|---|---|---|
+| 1 | §7 `harnesstest # 23케이스` | 표기 낡음 | 현재 26 케이스(번호 1–20 · 23–28). 21(audioaudit) · 29(distaudit) 편입으로 **28**, P4B 의 22(silhouetteaudit)로 29. 번호 21·22 가 비어 있어 브리프의 "케이스 21·22 신규"는 그대로 맞는다 |
+| 2 | §7 게이트 목록 | **누락(반복)** | `rendervariance` 없음 — R4-BRIEF §5 와 같은 누락(장부 #14 → **#27**). `_p4gates.sh` 에 유지. 발주자 확인 요청 |
+| 3 | §7 `baseline --out current/` + `imagediff baseline/ current/` | 모호 | R4 관행은 **같은 커밋 2회(base1/base2) 비트 동일**이고 브리프 형태는 **저장된 기준선 대비 회귀**다. `baseline/` 은 gitignore·기계 종속이라 두 기계가 같은 픽셀을 내지 않는다. **처리:** 게이트는 2회 동일(오디오 해시 포함)로 두고, `baseline/r4` 대비 차분은 의도 변경 확인용 정보로만 남긴다(HARNESS 기존 규칙). 다른 뜻이면 지시 바람 |
+| 4 | §−1-B 6 "Vercel 미리보기에서 WAV 8개 200" | 모호 | 이 환경에 Vercel 프로젝트·미리보기 URL 정보가 없다. **대체:** 신설 `distaudit`(vite build → dist 부팅 → 매니페스트 에셋 200 · 콘솔 오류 0)로 같은 사실을 로컬에서 확인 — 통과(8/8 WAV 200, 빌드 4 s, 부팅 12 s). Pages(`junlee122-bot.github.io/fps/`)는 체인 뒤 배포 브랜치 FF 후 확인 |
+| 5 | §2-1 "에이전트 할 일: 파일 목록 조사 · 세 계열 대응 · 7.62 확인" | 이미 처리 | 탭 B 가 완료: 12ga Charles Daly(H_21P) · 5.56 AR-15(D_32P, 라이브러리 유일) · **7.62×51 부재 → Mosin-Nagant 7.62×54R 대체**(볼트액션이라 기계음은 반자동 DMR 과 다름 — 합성 MECH 로). 원본 CC0 원문 2곳 확인, 가공본 8 파일 96 KB 커밋(재생성 `_prepare.mjs`). `docs/ASSET-LICENSES.md` 「오디오 소재」로 이관 |
+| 6 | §2-1 "압축 포맷 디코딩 차이 확인" | 확인 | 소재는 전부 48 kHz/16-bit 무압축 WAV(decodeAudioData 는 PCM 을 손실 없이 읽음). 압축(mp3/ogg)은 브라우저·버전별 디코더가 달라 해시 게이트에 못 들어간다 — 규칙 유지 |
+| 7 | §2-5 쌍 수·제외 표면 | 사실 | surfaces.js 기계 도출: 제외 `DANCHEONG` · `LACQUER`(DECAL, audio null) · `WATER` · `PACKED_DIRT`(지면 — 월드의 모든 배치 윗면이 지면판 위라 벽이 될 수 없음, 런타임 `isPassThrough` 와 일치 검사). **차폐 11종 · 55쌍.** 관통 등급이 다른 쌍 ≥2축 규칙에서 **3쌍 1축**: `WOOD_LATTICE(light)–FABRIC(free)` [cutoff만], `WOOD_COLUMN(medium)–THATCH(light)` [감쇠만], `WOOD_COLUMN(medium)–ROOF_SOIL(light)` [감쇠만]. `ROOF_SOIL–EARTH_WALL` 2축 통과. **발주자 청감 판정 대기** — 청감 파일 `docs/audio-listen/` (step_·gun_ 각 표면). 판정 전 체인 밖 |
+| 8 | §4-3 장독 표면(옹기) | 제안 | 새 표면 유형은 `surfaces.js` 동결 절차 + audioaudit 쌍 증가. **제안:** 탄도는 `ROOF_TILE`(도자기, light, ~60 %, `ceramic_crack`) 재사용 + 장독 오브젝트에 **내구도**(깨짐 = 표면 파괴 이벤트, 원시 효과 추가 없음). 발주자 판단 |
+| 9 | §4-1-C 직녀 방패 표면 유형 (P4D) | 제안(미리) | 탄도 값을 `EARTH_WALL` 과 동일하게 하라는 요구이므로 **`EARTH_WALL` 재사용**(새 유형 불필요, audioaudit 무변화). 시각 재질은 `FABRIC` — DECAL 이 하부재를 따르듯 "시각 재질 ≠ 탄도 표면"은 이미 있는 구조다. P4D 착수 시 재확인 |
+| 10 | §4-6 벽 접근권 열 | 기계 재유도 | 아래 표. `ballistics.penetrate`(두께/k → 동결 `computePenetration`, 정지 = 초기의 2 % 미만). 두께는 킷 상수(`kit.js` T)가 있으면 그 값, 없으면 오디오 기준 두께(`occlusion.js` refCm) — 출처를 칸에 적었다 |
+| 11 | §0 "아군 사격 켬" | 구현 | 현재 firecontrol 에 팀 개념이 없다 — P4C 데미지(PATCH-002-F 배선)에서 팀·관통 경로 위 아군 판정을 함께 만든다 |
+| 12 | §5-1 ⓐ 노출 적응 범위·속도 동결 | 구현(P4B 착수 전) | `render/exposure.js` 적응 파라미터를 계약값으로 승격 — 값은 플레이테스트. R4 결함 S02 #4 · S11 #5(명암 극단·순백)와 같은 자리 |
+| 13 | §7 `shotaudit # 신규 (PATCH-009-B)` | 표기 낡음 | R4 부터 있었다(케이스 23). 변경 없음 |
+| 14 | §1 "P4A 는 이미 끝나 있다" vs −1-B "audioaudit exit 1" | 상태 | P4A 종료 조건(§7 체인)은 **audioaudit 를 뺀 채** 돈다. 청감 판정 → 기준 조정/프로파일 수정 → 편입 후에야 P4A 가 닫힌다. 그 전까지 "끝났다"는 코드가 있다는 뜻이지 게이트가 닫혔다는 뜻이 아니다 |
+| 15 | §−1-B 1·2·3·4·7·8 | 처리 완료 | 케이스 21 편입(별도 러너 삭제) · `baseline.mjs` 오디오 해시(`report.json.audioHash`) + `imagediff` 25행 대조 · `main.js` 배선(markBoot 전 생성 · pointerlockchange → `start()` · 루프 `update()` · `resetState` → `reset()`) · 라이선스 이관 · 브리프 이 판 · ARCHITECTURE/ASSET-LICENSES "사운드 파일 0개" 정정(.gitignore 는 wav 를 막지 않아 변경 없음). 5(체인 편입)는 판정 대기, 6 은 4번 항목 |
+| 16 | §7 배포물 검사 | 신설 | `tools/distaudit.mjs` + 케이스 29(음성 `--inject-missing`). 체인(`_p4gates.sh`)에 편입 |
+
+**§4-6 벽 접근권 — 동결 §2-1 표에서 기계적으로 재유도 (○ = 통과, 잔여 %; ✕ = 정지)**
+
+| 표면 (등급 · 두께 출처) | SHOTGUN 펠릿 (k .425, 200 J) | CARBINE (k 5.6, 1800 J) | DMR (k 9.332, 3400 J) |
+|---|---|---|---|
+| HANJI (free, 0.03 cm — HANJI_T) | ○ 100 % | ○ 100 % | ○ 100 % |
+| FABRIC (free, 0.5 cm — audio refCm) | ○ 98 % | ○ 100 % | ○ 100 % |
+| WOOD_LATTICE (light, 2.4 cm — LATTICE_T) | **○ 29 %** (실측 131/131 통과와 일치) | ○ 91 % | ○ 95 % |
+| WOOD_PLANK (light, 3 cm — audio refCm) | ○ 2 % (정지 임계 경계 — 실질 불가) | ○ 75 % | ○ 84 % |
+| ROOF_TILE (light, 2 cm — audio refCm; 킷 TILE_T 3 cm 면 정지) | ○ 2 % (경계) | ○ 75 % | ○ 84 % |
+| THATCH (light, 30 cm — audio refCm) | ✕ | ○ 15 % | ○ 31 % |
+| ROOF_SOIL (light, 10 cm — audio refCm) | ✕ | ○ 8 % | ○ 22 % |
+| WOOD_COLUMN (medium, 30 cm — COL_D) | ✕ | ✕ | ○ 6 % |
+| EARTH_WALL (heavy, 10 cm — SIMBYEOK_T) | ✕ | ✕ | ○ 6 % ("긁는 수준", §4-4 와 일치) |
+| GRANITE · BRONZE (block) | ✕ | ✕ | ✕ |
+
+브리프 표와의 차이: 카빈 열은 "종이 · 창살 · 판벽 · 기와"에 **초가(15 %) · 지붕흙(8 %)** 이 더 있다. 산탄 열의 "나머지는 표에서"는 **판벽·기와가 2 % 경계**라 실질 불가 — "종이 · 천 · 창살"이 맞다. DMR 열 "기둥 · 흙벽까지"는 맞다(잔여 6 %).
 
 ## C. 표류 방지 메모 (충돌은 아니지만 오해 소지)
 

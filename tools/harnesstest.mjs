@@ -27,6 +27,8 @@
  * 23. shotaudit — 양성(12샷 등록 전부 통과) + 음성 훅 (--inject-occluder: 대상 앞 불투명 상자 → exit 1 + 표식 + 차폐 이름) (PATCH-009-B; 21·22 는 P4 예약)
  * 24. geometryaudit [8] 창살 방향 톱니 — 양성(위반 4 = 상한, exit 0) + 음성 훅 (--inject-lattice-flip: 정상 판 1개 반사 → 위반 5 > 상한 → exit 1 + 표식)
  * 25. fxaudit 시각 축 — 양성(105쌍 전부 색·모양 2축 이상) + 음성 훅 (--test-look-clone: 색·모양만 동일화, 운동학은 그대로 상이 → exit 1)
+ * 21. audioaudit 음성 훅 (--test-clone ROOF_SOIL=EARTH_WALL: 두 프로파일을 인위로 동일하게 → exit 1 + 표식 + 복제 쌍 0축 + 핵심쌍 실패 기록) (P4-BRIEF §2-5)
+ * 29. distaudit 음성 훅 (--inject-missing <stem>: 매니페스트에 없는 파일명 → 번들에 없음 → exit 1 + 표식) (P4-BRIEF §7 배포물 검사)
  * 26. playtest 구멍 모델 음성 훅 (--inject-no-holes: 피격은 기록되고 구멍만 차단 → exit 1 + 표식 + hanji_hole_per_hit 실패) (PATCH-014-D 6항)
  * 27. 창호지 판별 유니폼 기본값 금지 — 부팅 가드 (baseline --test-hanji-unsync: 판 하나를 기본값으로 오염 → exit 1 + 표식 + 판 이름) (PATCH-001-D 유니폼판)
  * 28. 탄흔 데칼 부재 클립 음성 훅 (playtest --inject-decal-noclip: 클립 해제 → 창살 탄흔이 창호지로 번짐 → exit 1 + 표식 + decal_within_member 실패) (R4)
@@ -457,6 +459,41 @@ const SHORT = ['--duration', '16', '--runs', '1', '--dpr', '1', '--w', '640', '-
   const ok = neg.code === 1 && marked && clipFailed && painted === false;
   record(28, '탄흔 데칼 부재 클립 음성 (--inject-decal-noclip → exit 1 + 표식 + 클립 미성립)', ok,
     `exit=${neg.code} timedOut=${neg.timedOut} 표식=${marked} 클립검사실패=${clipFailed} 탄흔수=${spillPx} 배선검사=${painted}`);
+}
+
+/* ---- 21. audioaudit 음성 훅 (P4-BRIEF §2-5 "케이스 21") ----
+ * 두 표면 프로파일을 인위로 동일하게 만든 입력에서 반드시 exit 1 이어야 한다. 다른 이유로 실패한 exit 1 을
+ * 통과로 세지 않는다: 표식(testOverride) + 복제 쌍(EARTH_WALL vs ROOF_SOIL)이 0축으로 측정 + 핵심쌍 실패가 problems 에 기록.
+ * 양성 경로(전 쌍 판정)는 게이트 목록의 audioaudit 본 실행이 담당한다 — 발주자 청감 판정 전까지 체인 밖(−1-B). */
+{
+  const neg = runAudit('node', ['tools/audioaudit.mjs', '--test-clone', 'ROOF_SOIL=EARTH_WALL']);
+  let marked = false, zeroAxes = false, flagged = false;
+  try {
+    const j = JSON.parse(neg.out);
+    marked = !!j.testOverride;
+    const pair = (j.pairs ?? []).find((p) => p.a === 'EARTH_WALL' && p.b === 'ROOF_SOIL');
+    zeroAxes = pair?.n === 0;
+    flagged = !!(j.problems ?? []).some((p) => String(p).includes('ROOF_SOIL vs EARTH_WALL'));
+  } catch { /* fail */ }
+  const ok = neg.code === 1 && marked && zeroAxes && flagged;
+  record(21, 'audioaudit 음성 (--test-clone ROOF_SOIL=EARTH_WALL → exit 1 + 표식 + 복제 쌍 0축 + 핵심쌍 실패 기록)', ok,
+    `exit=${neg.code} timedOut=${neg.timedOut} 표식=${marked} 0축=${zeroAxes} 핵심쌍기록=${flagged}`);
+}
+
+/* ---- 29. distaudit 음성 훅 (P4-BRIEF §7 「배포물 검사」) ----
+ * 매니페스트에 없는 파일명을 하나 넣은 입력에서 반드시 exit 1 — 번들 누락을 잡는 검사가 실제로 잡는가.
+ * 빌드는 케이스 안에서 한 번만 한다(--skip-build 는 직전 빌드 재사용). 양성 경로는 게이트 목록의 distaudit 본 실행이 담당한다. */
+{
+  const neg = runAudit('node', ['tools/distaudit.mjs', '--inject-missing', 'no_such_gun_zz']);
+  let marked = false, missingListed = false;
+  try {
+    const j = JSON.parse(neg.out);
+    marked = String(j.testOverride ?? '').includes('inject-missing');
+    missingListed = (j.problems ?? []).some((p) => String(p).includes('no_such_gun_zz'));
+  } catch { /* fail */ }
+  const ok = neg.code === 1 && marked && missingListed;
+  record(29, 'distaudit 음성 (--inject-missing → 번들에 없음 → exit 1 + 표식)', ok,
+    `exit=${neg.code} timedOut=${neg.timedOut} 표식=${marked} 누락기록=${missingListed}`);
 }
 
 /* ---- 25. fxaudit 시각 구별 축 (발주자 지시 2026-09-20) ----

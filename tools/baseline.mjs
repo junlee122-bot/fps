@@ -26,6 +26,27 @@ import { startServer } from './lib/server.mjs';
 import { launchBrowser, openGamePage, parseArgs, capturePng, captureMask } from './lib/browser.mjs';
 import { SHOTS, FIXED_STEP_FRAMES, VIEW } from './shots.js';
 
+/** P4A(P4-BRIEF §2-6): 오디오 결정성 해시 — audioaudit renderSet 과 같은 방식. 고정 시나리오(render.js SCENARIO)를
+ *  OfflineAudioContext 로 렌더해 스테레오 샘플 바이트의 SHA-256. 동일 커밋 2회 실행에서 같아야 한다(imagediff 가 대조). */
+async function renderAudioHash(browser, baseUrl) {
+  const ctx = await browser.newContext();
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${baseUrl}/__audiohash`); // 같은 출처 문서(404 본문) — 모듈 import 용
+  const out = await page.evaluate(async () => {
+    const m = await import('/src/audio/render.js');
+    const [L, R] = await m.renderScenario();
+    const bytes = new Uint8Array(L.length * 8);
+    bytes.set(new Uint8Array(L.buffer), 0);
+    bytes.set(new Uint8Array(R.buffer), L.length * 4);
+    const hex = (buf) => Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
+    return { scenarioHash: hex(await crypto.subtle.digest('SHA-256', bytes)), samples: L.length };
+  });
+  await ctx.close();
+  return { ...out, errors };
+}
+
 const args = parseArgs();
 const OUTDIR = resolve(args.out ?? 'baseline');
 const DPR = Number(args.dpr ?? VIEW.dpr);
@@ -46,7 +67,15 @@ const server = await startServer();
 let browser = await launchBrowser();
 let shotsOnBrowser = 0;
 async function freshBrowser() {
-  await browser.close().catch(() => {});
+  // P4A: 오디오 결정성 해시 (픽셀과 함께 저장 — P4-BRIEF §2-6 · −1-B 2)
+try {
+  report.audioHash = await renderAudioHash(browser, server.url);
+  if (report.audioHash.errors.length) report.ok = false;
+  console.error(`[audio] scenarioHash=${report.audioHash.scenarioHash.slice(0, 12)} samples=${report.audioHash.samples}`);
+} catch (e) {
+  report.audioHash = { error: e.message }; report.ok = false;
+}
+await browser.close().catch(() => {});
   browser = await launchBrowser();
   shotsOnBrowser = 0;
 }
