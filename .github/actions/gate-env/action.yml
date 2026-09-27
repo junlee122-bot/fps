@@ -1,0 +1,14 @@
+# 게이트 체인 잡 공통 준비 — Node 22 · npm ci · Playwright Chromium(package.json 의 1.56.1 → chromium-1194, 컨테이너와 같은 빌드)
+name: gate-env
+description: Node + deps + Playwright Chromium for tools/gates.sh
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+        cache: npm
+    - run: npm ci
+      shell: bash
+    - run: npx playwright install --with-deps chromium
+      shell: bash

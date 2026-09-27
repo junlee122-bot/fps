@@ -19,7 +19,7 @@
  * 제대로 작동하는지 검증한다. 캡처 경로는 건드리지 않는다.
  */
 
-import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { startServer } from './lib/server.mjs';
@@ -59,6 +59,10 @@ const wanted = args.shots
 
 mkdirSync(OUTDIR, { recursive: true });
 const TEST_UNSYNC = args['test-hanji-unsync'] === true;
+// --resume (2026-09-27): 샷별 사이드카(<샷>.shot.json)가 있고 png·emask 가 그대로면 그 샷은 다시 찍지 않는다.
+// 컨테이너 생존 창(2~4.5 h)이 12샷 캡처(3.7 h)보다 짧아 단계 단위 재개로는 끝을 못 봤다. 샷마다 새 페이지(4샷마다 새 브라우저)라
+// 이어 받은 샷과 새로 찍은 샷은 같은 조건이다 — 그래도 report.resumed 에 이름을 남겨 두 실행이 나뉜 것이 기록에 보이게 한다.
+const RESUME_MODE = args.resume === true;
 
 const server = await startServer();
 // 장시간 실행 내성: 소프트웨어 GL의 GPU 프로세스 누적으로 브라우저가 수십 분 뒤
@@ -67,15 +71,7 @@ const server = await startServer();
 let browser = await launchBrowser();
 let shotsOnBrowser = 0;
 async function freshBrowser() {
-  // P4A: 오디오 결정성 해시 (픽셀과 함께 저장 — P4-BRIEF §2-6 · −1-B 2)
-try {
-  report.audioHash = await renderAudioHash(browser, server.url);
-  if (report.audioHash.errors.length) report.ok = false;
-  console.error(`[audio] scenarioHash=${report.audioHash.scenarioHash.slice(0, 12)} samples=${report.audioHash.samples}`);
-} catch (e) {
-  report.audioHash = { error: e.message }; report.ok = false;
-}
-await browser.close().catch(() => {});
+  await browser.close().catch(() => {});
   browser = await launchBrowser();
   shotsOnBrowser = 0;
 }
@@ -152,7 +148,21 @@ if (TEST_UNSYNC) {
   process.exit(ok ? 1 : 0);
 }
 
+const resumed = [];
 for (const name of wanted) {
+  if (RESUME_MODE) {
+    const side = `${OUTDIR}/${name}.shot.json`, png = `${OUTDIR}/${name}.png`, mask = `${OUTDIR}/${name}.emask.png`;
+    if (existsSync(side) && existsSync(png) && existsSync(mask)) {
+      const prev = JSON.parse(readFileSync(side, 'utf8'));
+      const sha = createHash('sha256').update(readFileSync(png)).digest('hex');
+      if (prev.shot === name && prev.sha256 === sha && !prev.error && !(prev.errors?.length)) {
+        console.error(`[resume] ${name}: 사이드카·png 일치 — 건너뜀`);
+        report.shots.push({ ...prev, resumed: true }); resumed.push(name);
+        continue;
+      }
+      console.error(`[resume] ${name}: 사이드카가 png 와 맞지 않음 — 다시 찍음`);
+    }
+  }
   if (shotsOnBrowser >= 4) await freshBrowser();
   let entry;
   try {
@@ -169,7 +179,19 @@ for (const name of wanted) {
   }
   shotsOnBrowser++;
   if (entry.error || entry.errors?.length) report.ok = false;
+  else writeFileSync(`${OUTDIR}/${name}.shot.json`, JSON.stringify(entry, null, 2));   // 재개용 사이드카 (성공한 샷만)
   report.shots.push(entry);
+}
+if (resumed.length) report.resumed = resumed;
+
+// P4A: 오디오 결정성 해시 (픽셀과 함께 저장 — P4-BRIEF §2-6 · −1-B 2). 실행마다 한 번, 마지막에.
+// (이전 판은 이 블록이 freshBrowser() 안에 들어가 4샷마다 다시 계산되고 단일 샷 실행에서는 아예 안 돌았다 — 2026-09-27 정리)
+try {
+  report.audioHash = await renderAudioHash(browser, server.url);
+  if (report.audioHash.errors.length) report.ok = false;
+  console.error(`[audio] scenarioHash=${report.audioHash.scenarioHash.slice(0, 12)} samples=${report.audioHash.samples}`);
+} catch (e) {
+  report.audioHash = { error: e.message }; report.ok = false;
 }
 
 await browser.close();

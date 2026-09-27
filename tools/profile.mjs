@@ -14,6 +14,8 @@
  *   node tools/profile.mjs [--phase p1] [--duration 30] [--dpr 2] [--runs 3]
  */
 
+import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { startServer } from './lib/server.mjs';
 import { launchBrowser, launchOptions, openGamePage, parseArgs } from './lib/browser.mjs';
 import { percentile, sortedAsc, pairSum } from './lib/stats.mjs';
@@ -148,7 +150,21 @@ const browser = await launchBrowser(LAUNCH);
 const runs = [];
 let environment = null;
 
+// --state=<dir> (2026-09-27): 런·스윕별 사이드카로 잘린 실행을 이어 받는다 — 컨테이너 생존 창(2~4.5 h)이 이 도구(≈5 h)보다 짧다.
+// 런마다 새 페이지(부팅 포함)이므로 이어 받은 런과 새 런은 같은 조건. 이어 받은 런은 resumed:true 로 표시해 기록에 남긴다.
+const STATE = args.state ? resolve(String(args.state)) : null;
+if (STATE) mkdirSync(STATE, { recursive: true });
+const sideRead = (f) => (STATE && existsSync(`${STATE}/${f}`)) ? JSON.parse(readFileSync(`${STATE}/${f}`, 'utf8')) : null;
+const sideWrite = (f, v) => { if (STATE) writeFileSync(`${STATE}/${f}`, JSON.stringify(v)); };
+
 for (let run = 0; run < RUNS; run++) {
+  const prev = sideRead(`run${run + 1}.json`);
+  if (prev && prev.run?.run === run + 1) {
+    console.error(`[resume] run ${run + 1}: 사이드카 — 건너뜀`);
+    environment ??= prev.environment;
+    runs.push({ ...prev.run, resumed: true });
+    continue;
+  }
   const g = await openGamePage(browser, {
     baseUrl: server.url,
     width: W,
@@ -342,23 +358,32 @@ for (let run = 0; run < RUNS; run++) {
     },
     prewarm: prewarm ? { ms: prewarm.ms, programsAfter: prewarm.programsAfter, breakdown: prewarm.breakdown, msPerProgramOverall: prewarm.msPerProgramOverall } : null,
   });
+  sideWrite(`run${run + 1}.json`, { run: runs.at(-1), environment });
 }
 
 /* ---- tris_scene + tris_frame_p95 — 11샷 순회 (P1.5-BRIEF §0 정정) ----
  * 삼각형 카운트는 카메라·컬링에만 의존하고 DPR과 무관하므로 스윕은 DPR 1로 돈다
  * (소프트웨어 GL에서 DPR 2 스윕은 분급 낭비). 단일 카메라 측정은 무효 — 11샷 전부. */
 const SWEEP_FRAMES = 10;
-const gSweep = await openGamePage(browser, {
-  baseUrl: server.url, width: W, height: H, dpr: 1, query: 'mode=fixed',
-});
-const trisScene = await gSweep.page.evaluate(() => window.__harness.getSceneTriangles());
-await gSweep.page.evaluate(() => window.__harness.resetState());
-for (const shot of SHOTS) {
-  await gSweep.page.evaluate((n) => window.__harness.setShot(n), shot.name);
-  await gSweep.page.evaluate((n) => window.__harness.stepFrames(n), SWEEP_FRAMES);
+let trisScene, sweepStats;
+const prevSweep = sideRead('sweep.json');
+if (prevSweep) {
+  console.error('[resume] sweep: 사이드카 — 건너뜀');
+  ({ trisScene, sweepStats } = prevSweep);
+} else {
+  const gSweep = await openGamePage(browser, {
+    baseUrl: server.url, width: W, height: H, dpr: 1, query: 'mode=fixed',
+  });
+  trisScene = await gSweep.page.evaluate(() => window.__harness.getSceneTriangles());
+  await gSweep.page.evaluate(() => window.__harness.resetState());
+  for (const shot of SHOTS) {
+    await gSweep.page.evaluate((n) => window.__harness.setShot(n), shot.name);
+    await gSweep.page.evaluate((n) => window.__harness.stepFrames(n), SWEEP_FRAMES);
+  }
+  sweepStats = await gSweep.page.evaluate(() => window.__harness.getStats());
+  await gSweep.close();
+  sideWrite('sweep.json', { trisScene, sweepStats });
 }
-const sweepStats = await gSweep.page.evaluate(() => window.__harness.getStats());
-await gSweep.close();
 const trisFrameSamples = sweepStats.trianglesScenePerFrame.filter((v) => v >= 0);
 const trisFrameP95 = percentile(sortedAsc(trisFrameSamples), 0.95);
 const trisFrameTotalP95 = percentile(sortedAsc(sweepStats.trianglesPerFrame), 0.95);
