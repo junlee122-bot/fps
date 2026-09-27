@@ -257,6 +257,11 @@ node tools/playtest.mjs                          # exit 0
 >
 > **재개 (2026-09-26, P4A 체인 1·2차 소실 뒤).** 이 컨테이너는 ≈14 h 마다 재부팅되어 nohup 체인까지 죽고, 체인은 17 h 넘게 걸린다. `RESUME=1 bash tools/gates.sh <같은 출력디렉토리>` 는 SUMMARY.txt 첫 줄(pinned sha·dirty)이 지금과 글자까지 같을 때만 `<단계> exit=0` 단계를 건너뛰고(`RESUME <시각>` 줄을 남김), 잘린 단계는 부분 산출물(base1/base2)을 지우고 다시 돈다. 더러운 트리는 부를 때마다 SHA 가 달라지므로 **재개는 커밋된 상태에서만 성립**. 목록·순서·순차 실행은 그대로다(`docs/P4-LOG.md` 구조 조치).
 >
+> **긴 단계의 내부 재개 · 구간 모드 · CI (2026-09-27, 3차 체인이 다섯 번 잘린 뒤).** 컨테이너 생존 창(실측 2~4.5 h)이 baseline(3.7 h)·profile(≈5 h)보다 짧아 단계 단위 재개로는 끝을 못 봤다.
+> `baseline.mjs --resume` 는 샷별 사이드카(`<샷>.shot.json`)와 png 해시가 맞는 샷을 건너뛰고 `report.resumed` 에 남긴다(샷마다 새 페이지라 조건 동일). `profile.mjs --state=<dir>` 는 런·스윕별 사이드카로 같은 일을 한다(`resumed:true`).
+> `GATES_FROM=<이름> GATES_TO=<이름>` 은 목록의 그 구간만 돌린다(구간 밖은 SUMMARY 에 `skip(구간 밖)`, 끝은 `RANGE GREEN`); `bash tools/gates.sh --list` 는 순서대로 이름을 낸다.
+> `.github/workflows/gates.yml` 은 이 구간 모드로 체인을 잡 6개(각 ≤6 h)에 나눠 **순차**(`needs`)로 돌리고, 마지막 잡이 `--list` 의 모든 이름이 어느 잡에선가 `exit=0` 였는지 대조한다 — 게이트 목록의 원본은 여전히 `tools/gates.sh` 하나다. 러너는 4 vCPU · Playwright 1.56.1(chromium-1194) 로 컨테이너와 같은 브라우저 빌드. **체인의 정식 실행 장소를 CI 로 옮길지는 발주자 결정 사항**(트리거: `chain-ci/**` 브랜치 push 또는 수동).
+>
 > **[PATCH-005-J] 게이트 체인은 순차 실행한다.** 병렬 실행으로 시간을 줄이려 하지 마라 — 감사 도구는 페이지 부팅·프레임 스텝의 시간
 > 상한을 가지며(harnesstest 케이스 10이 동시 부하로 시간 초과한 실측), 타임아웃으로 인한 실패는 결과를 신뢰할 수 없게 하고 그 상태의
 > "통과"는 통과가 아니다. 게이트가 도는 동안 같은 기계에서 다른 렌더 작업(프로브·캡처)도 돌리지 않는다.
