@@ -13,6 +13,9 @@
 #           단계는 각각 독립 프로세스이고 스냅샷은 불변이라 여러 번에 나눠 돈 체인과 한 번에 돈 체인은 같은 것을 잰다 —
 #           단, baseline1/2 가 재부팅 양쪽에 걸리면 "다른 컨테이너 인스턴스 2회"가 된다(더 강한 시험).
 #
+# 시간 조각 (2026-10-08): 단계가 exit 75 로 끝나면 실패가 아니라 "조각 끝"이다 — SUMMARY 에 `<이름> partial(75)` 를 남기고 드라이버도 75 로 끝난다.
+#   baseline 은 FPS_MAX_NEW_SHOTS=N, profile 은 FPS_MAX_NEW_RUNS=N 일 때만 75 를 낸다(환경변수가 없으면 한 번에 끝까지). 이어 받기는 RESUME=1.
+#
 # 구간 실행 (GATES_FROM=<이름> GATES_TO=<이름>): 목록 순서에서 그 구간만 돈다 — 6 h 잡 상한이 있는 CI 에서 체인을 잡 여러 개로 나눌 때 쓴다.
 #   목록·순서는 여전히 이 파일 하나다. `bash tools/gates.sh --list` 는 순서대로 이름만 출력하며, CI 의 마지막 잡이 이것으로
 #   모든 단계가 어느 잡에선가 exit=0 였는지 대조한다(구간 밖은 SUMMARY 에 `skip(구간 밖)` 로 남김). 구간 모드는 ALL GREEN 대신 RANGE GREEN 을 찍는다.
@@ -38,6 +41,9 @@ run() {  # run <이름> <명령...>
   echo "=== $name  $(date -u +%H:%M:%S)"
   "$@" > "$OUT/$name.json" 2> "$OUT/$name.log"
   local code=$?
+  if [ $code -eq 75 ]; then   # 시간 조각 끝(baseline FPS_MAX_NEW_SHOTS · profile FPS_MAX_NEW_RUNS) — 실패가 아니다. 같은 디렉토리에 RESUME=1 로 잇는다
+    echo "$name partial(75)" | tee -a "$OUT/SUMMARY.txt"; echo ".. $name 시간 조각 끝 — RESUME=1 bash tools/gates.sh \"$OUT\" 로 이어 받는다"; exit 75
+  fi
   echo "$name exit=$code" | tee -a "$OUT/SUMMARY.txt"
   if [ $code -ne 0 ]; then echo "!! $name 실패 — 중단"; tail -5 "$OUT/$name.log"; exit $code; fi
 }

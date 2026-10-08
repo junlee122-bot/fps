@@ -262,6 +262,8 @@ node tools/playtest.mjs                          # exit 0
 > `GATES_FROM=<이름> GATES_TO=<이름>` 은 목록의 그 구간만 돌린다(구간 밖은 SUMMARY 에 `skip(구간 밖)`, 끝은 `RANGE GREEN`); `bash tools/gates.sh --list` 는 순서대로 이름을 낸다.
 > `.github/workflows/gates.yml` 은 이 구간 모드로 체인을 잡 6개(각 ≤6 h)에 나눠 **순차**(`needs`)로 돌리고, 마지막 잡이 `--list` 의 모든 이름이 어느 잡에선가 `exit=0` 였는지 대조한다 — 게이트 목록의 원본은 여전히 `tools/gates.sh` 하나다. 러너는 4 vCPU · Playwright 1.56.1(chromium-1194) 로 컨테이너와 같은 브라우저 빌드. **체인의 정식 실행 장소를 CI 로 옮길지는 발주자 결정 사항**(트리거: `chain-ci/**` 브랜치 push 또는 수동).
 >
+> **시간 조각 (2026-10-08, CI 시험 실행 1 실측 뒤).** 러너에서 baseline 12샷이 3 h 54 m ~ 5 h 39 m, profile 런 1개가 ≈2 h 09 m 라 잡 상한 6 h 를 넘거나 붙는다. 단계가 **exit 75** 로 끝나면 실패가 아니라 "조각 끝"이다 — gates.sh 는 SUMMARY 에 `<이름> partial(75)` 를 남기고 75 로 끝난다. baseline 은 `FPS_MAX_NEW_SHOTS=N`(새 샷 N장 뒤), profile 은 `FPS_MAX_NEW_RUNS=N`(새 런 N개 뒤, 런이 남았을 때만) 일 때만 75 를 내고, 각각 `--resume`·`--state` 없이 쓰면 인자 오류(exit 2). 조각 안에서 샷이 실패하면 조각을 끊지 않고 실패로 끝낸다(다음 조각이 실패를 덮지 않게). 이어 받기는 `RESUME=1`. `gates.yml` 은 baseline1·2 를 6샷씩 두 잡, profile 을 런 2개 + 나머지 두 잡으로 나눈 잡 10개를 순차 실행하고, coverage 잡이 전 단계 exit=0 · 실패 줄 0 · pinned sha 단일(=실행 커밋) 을 대조한다.
+>
 > **[PATCH-005-J] 게이트 체인은 순차 실행한다.** 병렬 실행으로 시간을 줄이려 하지 마라 — 감사 도구는 페이지 부팅·프레임 스텝의 시간
 > 상한을 가지며(harnesstest 케이스 10이 동시 부하로 시간 초과한 실측), 타임아웃으로 인한 실패는 결과를 신뢰할 수 없게 하고 그 상태의
 > "통과"는 통과가 아니다. 게이트가 도는 동안 같은 기계에서 다른 렌더 작업(프로브·캡처)도 돌리지 않는다.

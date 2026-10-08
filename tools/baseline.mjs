@@ -63,6 +63,11 @@ const TEST_UNSYNC = args['test-hanji-unsync'] === true;
 // 컨테이너 생존 창(2~4.5 h)이 12샷 캡처(3.7 h)보다 짧아 단계 단위 재개로는 끝을 못 봤다. 샷마다 새 페이지(4샷마다 새 브라우저)라
 // 이어 받은 샷과 새로 찍은 샷은 같은 조건이다 — 그래도 report.resumed 에 이름을 남겨 두 실행이 나뉜 것이 기록에 보이게 한다.
 const RESUME_MODE = args.resume === true;
+// 시간 조각 (2026-10-08, CI 잡 상한 6 h): FPS_MAX_NEW_SHOTS=N(또는 --max-new-shots=N) 이면 새로 찍은 샷이 N장이 되는 순간
+// 사이드카만 남기고 exit 75 로 끝낸다 — 같은 --out 에 --resume 으로 다시 부르면 남은 샷부터 잇는다. 실패한 샷이 있으면 조각을 끊지 않고
+// 그 자리에서 실패로 끝낸다(다음 조각이 실패 샷을 다시 찍어 실패를 덮는 일이 없게). --resume 없이 조각을 쓰면 인자 오류.
+const MAX_NEW_SHOTS = Number(args['max-new-shots'] ?? process.env.FPS_MAX_NEW_SHOTS ?? 0) || 0;
+if (MAX_NEW_SHOTS > 0 && !RESUME_MODE) { console.error('--max-new-shots/FPS_MAX_NEW_SHOTS 는 --resume 과 함께만 쓴다'); process.exit(2); }
 
 const server = await startServer();
 // 장시간 실행 내성: 소프트웨어 GL의 GPU 프로세스 누적으로 브라우저가 수십 분 뒤
@@ -149,6 +154,7 @@ if (TEST_UNSYNC) {
 }
 
 const resumed = [];
+let newShots = 0;
 for (const name of wanted) {
   if (RESUME_MODE) {
     const side = `${OUTDIR}/${name}.shot.json`, png = `${OUTDIR}/${name}.png`, mask = `${OUTDIR}/${name}.emask.png`;
@@ -181,6 +187,18 @@ for (const name of wanted) {
   if (entry.error || entry.errors?.length) report.ok = false;
   else writeFileSync(`${OUTDIR}/${name}.shot.json`, JSON.stringify(entry, null, 2));   // 재개용 사이드카 (성공한 샷만)
   report.shots.push(entry);
+  newShots++;
+  if (MAX_NEW_SHOTS > 0 && newShots >= MAX_NEW_SHOTS && report.shots.length < wanted.length) {
+    await browser.close().catch(() => {}); await server.close();
+    if (!report.ok) {   // 조각 안에서 실패 — 실패로 끝낸다
+      writeFileSync(`${OUTDIR}/report.json`, JSON.stringify({ ...report, sliced: true }, null, 2));
+      console.log(JSON.stringify({ ...report, sliced: true }, null, 2));
+      process.exit(1);
+    }
+    console.error(`[slice] 새 샷 ${newShots}장 — 시간 조각 끝(exit 75). 같은 --out 에 --resume 으로 이어 받는다 (완료 ${report.shots.length}/${wanted.length})`);
+    console.log(JSON.stringify({ ok: true, partial: true, done: report.shots.map((x) => x.shot), remaining: wanted.length - report.shots.length }));
+    process.exit(75);
+  }
 }
 if (resumed.length) report.resumed = resumed;
 

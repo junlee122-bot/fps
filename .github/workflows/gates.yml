@@ -1,10 +1,12 @@
 # 게이트 체인을 GitHub Actions 에서 돌린다 — 목록·순서의 원본은 여전히 tools/gates.sh 하나다(발주자 결정 2026-09-25, 장부 #27).
 # 왜: 개발 컨테이너는 2~4.5 h 마다 재시작되어(2026-09-25~27 다섯 번) 17 h 체인이 끝을 못 봤다. 호스트 러너는 잡당 6 h 상한이라
-# 체인을 gates.sh 의 **구간 모드**(GATES_FROM/GATES_TO)로 잡 여섯 개에 나누고, `needs` 로 **순차** 실행한다(PATCH-005-J 문면 준수 —
+# 체인을 gates.sh 의 **구간 모드**(GATES_FROM/GATES_TO)와 **시간 조각**(baseline FPS_MAX_NEW_SHOTS · profile FPS_MAX_NEW_RUNS → exit 75,
+# 다음 잡이 산출물을 받아 RESUME=1 로 잇는다)으로 잡 열 개에 나누고, `needs` 로 **순차** 실행한다(PATCH-005-J 문면 준수 —
 # 러너가 각각 다른 기계라 병렬도 가능하지만 발주자 결정 전에는 순차). 마지막 잡이 `gates.sh --list` 의 모든 이름이 어느 잡에선가
 # exit=0 였는지 대조한다 — 새 게이트를 gates.sh 에 추가하고 잡 구간을 안 고치면 여기서 빨간불이 난다(누락이 조용히 지나가지 않게).
 # 환경: ubuntu-latest 4 vCPU, Playwright 1.56.1 → chromium-1194(SwiftShader), 컨테이너와 같은 브라우저 빌드. 픽셀 게이트(imagediff)는
-# 같은 워크플로의 base1·base2 를 비교한다(러너 두 대 = "다른 기계 2회", 컨테이너의 재개 체인과 같은 성격).
+# 같은 워크플로의 base1·base2 를 비교한다(러너 네 대 = "다른 기계", 컨테이너와 CI 가 같은 픽셀을 낸다는 실측은 docs/P4-LOG.md).
+# 실측(시험 실행 1, 2026-09-27): baseline 12샷 3 h 54 m ~ 5 h 39 m, profile 런 1개 ≈2 h 09 m → 조각 없이는 잡 상한 6 h 를 넘거나 붙는다.
 name: Gate chain (tools/gates.sh)
 
 on:
@@ -46,76 +48,132 @@ jobs:
         if: always()
         with: { name: gates-statics, path: gates-out, retention-days: 14 }
 
-  baseline1:
+  baseline1a:
     needs: statics
     runs-on: ubuntu-latest
     timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/gate-env
-      - run: GATES_FROM=baseline1 GATES_TO=baseline1 bash tools/gates.sh "$OUT"
+      - name: gates (시간 조각 — exit 75 = 조각 끝, 실패 아님)
+        run: |
+          rc=0; FPS_MAX_NEW_SHOTS=6 GATES_FROM=baseline1 GATES_TO=baseline1 bash tools/gates.sh "$OUT" || rc=$?
+          echo "gates rc=$rc"; [ "$rc" = 0 ] || [ "$rc" = 75 ]
       - uses: actions/upload-artifact@v4
         if: always()
-        with: { name: gates-baseline1, path: gates-out, retention-days: 14 }
+        with: { name: gates-baseline1a, path: gates-out, retention-days: 14 }
 
-  baseline2:
-    needs: baseline1
+  baseline1b:
+    needs: baseline1a
     runs-on: ubuntu-latest
     timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/gate-env
-      - run: GATES_FROM=baseline2 GATES_TO=baseline2 bash tools/gates.sh "$OUT"
+      - uses: actions/download-artifact@v4
+        with: { name: gates-baseline1a, path: gates-in/prev }
+      - run: mkdir -p "$OUT" && cp -r gates-in/prev/. "$OUT/" && head -1 "$OUT/SUMMARY.txt" && grep -E "partial|exit=" "$OUT/SUMMARY.txt" | tail -3 || true
+      - run: RESUME=1 GATES_FROM=baseline1 GATES_TO=baseline1 bash tools/gates.sh "$OUT"
       - uses: actions/upload-artifact@v4
         if: always()
-        with: { name: gates-baseline2, path: gates-out, retention-days: 14 }
+        with: { name: gates-baseline1b, path: gates-out, retention-days: 14 }
+
+  baseline2a:
+    needs: baseline1b
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/gate-env
+      - name: gates (시간 조각 — exit 75 = 조각 끝, 실패 아님)
+        run: |
+          rc=0; FPS_MAX_NEW_SHOTS=6 GATES_FROM=baseline2 GATES_TO=baseline2 bash tools/gates.sh "$OUT" || rc=$?
+          echo "gates rc=$rc"; [ "$rc" = 0 ] || [ "$rc" = 75 ]
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: gates-baseline2a, path: gates-out, retention-days: 14 }
+
+  baseline2b:
+    needs: baseline2a
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/gate-env
+      - uses: actions/download-artifact@v4
+        with: { name: gates-baseline2a, path: gates-in/prev }
+      - run: mkdir -p "$OUT" && cp -r gates-in/prev/. "$OUT/" && head -1 "$OUT/SUMMARY.txt" && grep -E "partial|exit=" "$OUT/SUMMARY.txt" | tail -3 || true
+      - run: RESUME=1 GATES_FROM=baseline2 GATES_TO=baseline2 bash tools/gates.sh "$OUT"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: gates-baseline2b, path: gates-out, retention-days: 14 }
 
   post:
-    needs: baseline2
+    needs: baseline2b
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/gate-env
       - uses: actions/download-artifact@v4
-        with: { name: gates-baseline1, path: gates-in/b1 }
+        with: { name: gates-baseline1b, path: gates-in/b1 }
       - uses: actions/download-artifact@v4
-        with: { name: gates-baseline2, path: gates-in/b2 }
-      - run: mkdir -p "$OUT" && cp -r gates-in/b1/base1 "$OUT/base1" && cp -r gates-in/b2/base2 "$OUT/base2" && ls "$OUT/base1" | wc -l
+        with: { name: gates-baseline2b, path: gates-in/b2 }
+      - run: mkdir -p "$OUT" && cp -r gates-in/b1/base1 "$OUT/base1" && cp -r gates-in/b2/base2 "$OUT/base2" && ls "$OUT/base1" "$OUT/base2" | wc -l
       - run: GATES_FROM=imagediff GATES_TO=viewmodelaudit bash tools/gates.sh "$OUT"
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: gates-post, path: gates-out, retention-days: 14 }
 
-  profile:
+  profilea:
     needs: post
     runs-on: ubuntu-latest
     timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/gate-env
-      - run: GATES_FROM=profile bash tools/gates.sh "$OUT"
+      - name: gates (시간 조각 — exit 75 = 조각 끝, 실패 아님)
+        run: |
+          rc=0; FPS_MAX_NEW_RUNS=2 GATES_FROM=profile bash tools/gates.sh "$OUT" || rc=$?
+          echo "gates rc=$rc"; [ "$rc" = 0 ] || [ "$rc" = 75 ]
       - uses: actions/upload-artifact@v4
         if: always()
-        with: { name: gates-profile, path: gates-out, retention-days: 14 }
+        with: { name: gates-profilea, path: gates-out, retention-days: 14 }
+
+  profileb:
+    needs: profilea
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/gate-env
+      - uses: actions/download-artifact@v4
+        with: { name: gates-profilea, path: gates-in/prev }
+      - run: mkdir -p "$OUT" && cp -r gates-in/prev/. "$OUT/" && head -1 "$OUT/SUMMARY.txt" && grep -E "partial|exit=" "$OUT/SUMMARY.txt" | tail -3 || true
+      - run: RESUME=1 GATES_FROM=profile bash tools/gates.sh "$OUT"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: gates-profileb, path: gates-out, retention-days: 14 }
 
   coverage:
-    needs: profile
+    needs: profileb
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with: { pattern: gates-*, path: gates-in }
-      - name: Every gate in tools/gates.sh --list passed in some job
+      - name: Every gate in tools/gates.sh --list passed, no failed step, single pinned sha = this commit
         run: |
-          cat gates-in/*/SUMMARY.txt > all-summary.txt
+          for f in gates-in/*/SUMMARY.txt; do echo "## $f"; cat "$f"; done > all-summary.txt
           fail=0
           for n in $(bash tools/gates.sh --list); do
             grep -qxF "$n exit=0" all-summary.txt && echo "ok   $n" || { echo "MISSING $n"; fail=1; }
           done
-          grep -E '^pinned sha=' all-summary.txt | sort -u
-          [ "$fail" = 0 ] && echo "ALL GREEN (CI) $(date -u +%Y-%m-%dT%H:%M:%SZ)" || exit 1
+          if grep -qE '^[a-z0-9]+ exit=[1-9]' all-summary.txt; then echo 'FAILED STEP PRESENT'; grep -E '^[a-z0-9]+ exit=[1-9]' all-summary.txt; fail=1; fi
+          shas=$(grep -oE '^pinned sha=[0-9a-f]+ dirty=[a-z]+' all-summary.txt | sort -u); echo "$shas"
+          [ "$(echo "$shas" | wc -l)" = 1 ] && [ "$shas" = "pinned sha=$GITHUB_SHA dirty=false" ] || { echo "PINNED SHA MISMATCH"; fail=1; }
+          [ "$fail" = 0 ] && echo "ALL GREEN (CI, $GITHUB_SHA) $(date -u +%Y-%m-%dT%H:%M:%SZ)" | tee -a all-summary.txt || exit 1
       - uses: actions/upload-artifact@v4
         if: always()
-        with: { name: gates-all-summary, path: all-summary.txt, retention-days: 30 }
+        with: { name: gates-all-summary, path: all-summary.txt, retention-days: 90 }

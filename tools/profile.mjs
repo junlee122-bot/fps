@@ -156,6 +156,11 @@ const STATE = args.state ? resolve(String(args.state)) : null;
 if (STATE) mkdirSync(STATE, { recursive: true });
 const sideRead = (f) => (STATE && existsSync(`${STATE}/${f}`)) ? JSON.parse(readFileSync(`${STATE}/${f}`, 'utf8')) : null;
 const sideWrite = (f, v) => { if (STATE) writeFileSync(`${STATE}/${f}`, JSON.stringify(v)); };
+// 시간 조각 (2026-10-08, CI 잡 상한 6 h — 러너에서 런 1개 ≈2 h 09 m): FPS_MAX_NEW_RUNS=N(또는 --max-new-runs=N) 이면 새로 잰 런이
+// N개가 되고 아직 런이 남아 있을 때 사이드카만 남기고 exit 75. 마지막 런 뒤의 스윕은 같은 조각에서 끝낸다. --state 없이 쓰면 인자 오류.
+const MAX_NEW_RUNS = Number(args['max-new-runs'] ?? process.env.FPS_MAX_NEW_RUNS ?? 0) || 0;
+if (MAX_NEW_RUNS > 0 && !STATE) { console.error('--max-new-runs/FPS_MAX_NEW_RUNS 는 --state 와 함께만 쓴다'); process.exit(2); }
+let newRuns = 0;
 
 for (let run = 0; run < RUNS; run++) {
   const prev = sideRead(`run${run + 1}.json`);
@@ -359,6 +364,13 @@ for (let run = 0; run < RUNS; run++) {
     prewarm: prewarm ? { ms: prewarm.ms, programsAfter: prewarm.programsAfter, breakdown: prewarm.breakdown, msPerProgramOverall: prewarm.msPerProgramOverall } : null,
   });
   sideWrite(`run${run + 1}.json`, { run: runs.at(-1), environment });
+  newRuns++;
+  if (MAX_NEW_RUNS > 0 && newRuns >= MAX_NEW_RUNS && run + 1 < RUNS) {
+    await browser.close().catch(() => {}); await server.close();
+    console.error(`[slice] 새 런 ${newRuns}개 — 시간 조각 끝(exit 75). 같은 --state 로 이어 받는다 (완료 ${run + 1}/${RUNS})`);
+    console.log(JSON.stringify({ ok: true, partial: true, runsDone: run + 1, runs: RUNS }));
+    process.exit(75);
+  }
 }
 
 /* ---- tris_scene + tris_frame_p95 — 11샷 순회 (P1.5-BRIEF §0 정정) ----
