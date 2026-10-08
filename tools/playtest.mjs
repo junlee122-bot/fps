@@ -120,7 +120,7 @@ try {
     const r = await page.evaluate(() => window.__harness.getExposureContract());
     check('p4b_exposure_contract_ok',
       r.ok === true && r.hash === NODE_CONTRACT_HASH && r.version === EXPOSURE_CONTRACT.version && r.drawnFrames >= 1, {
-        phase, ok: r.ok, hash: r.hash, nodeHash: NODE_CONTRACT_HASH, version: r.version, status: r.status,
+        phase, contractOk: r.ok, hash: r.hash, nodeHash: NODE_CONTRACT_HASH, version: r.version, status: r.status,
         overrideActive: r.overrideActive, measurement: r.measurement, drawnFrames: r.drawnFrames, drawn: r.drawn, mismatches: r.mismatches,
       });
     return r;
@@ -176,7 +176,7 @@ try {
     check('p4b_exposure_override_caught',
       ov.ok === false && ov.overrideActive === true && ov.mismatches.some((m) => m.key === 'kneeSlope' && m.drawn === ks)
         && String(ovMark ?? '').includes('debugExposureOverride'),
-      { ok: ov.ok, overrideActive: ov.overrideActive, mismatches: ov.mismatches, testOverride: ovMark });
+      { contractOk: ov.ok, overrideActive: ov.overrideActive, mismatches: ov.mismatches, testOverride: ovMark });
     await page.evaluate(() => window.__harness.resetState());
     await step(CONTRACT_FRAMES);
     const cleared = await page.evaluate(() => window.__harness.getExposureContract());
