@@ -1,0 +1,166 @@
+{
+ "verdict": "조건부 반려. 이대로 착수하면 안 된다. 구조의 큰 줄기는 계약을 따른다: 차폐 v2 단일 원천, HDR 정규화 o, 노출 구조 선동결, 014-C 표가 그렇다. 그러나 계약을 어기거나 구현하면 실패할 결함이 12건 있다(치명 1, 중대 11).\n(1) 외견 상태가 골격·자세를 덮어쓰지 못한다. 그래서 케이스 22의 '복제쌍 0축'이 보장되지 않고, P4D 흥부 변장이 '선언 거짓'으로 실패하며, 목록 밖 간파 단서가 생긴다(치명).\n(2) 대조군 30/255를 exit 1 조건으로 썼다. PATCH-016-A가 폐기한 조건이다.\n(3) 누설 검사가 soft_max 때문에 공집합이 된다.\n(4) 내비 클리어런스 캡슐 정의가 틀렸다. 바닥을 관통하고, 0.45 m 문지방·계단을 막는다.\n(5) 단일 기준 에이전트 오라클이 반지름 의존 등반을 무시한다.\n(6) 프리웜 경로 (a)는 main.js:354가 harness renderFrame을 우회하므로 성립하지 않는다.\n(7) 부팅 nav 해시 throw가 노드–크롬 float 비트 일치를 전제한다. 설계 자신의 R14와 모순된다.\n(8) 설계의 v0 데이터가 BRONZE_PLAIN 녹청 때문에 자기 팀 색 규칙을 위반한다.\n(9) 예약 차폐 슬롯이 '가짜' 표식이 된다(§5 위반).\n(10) 서브시스템 간 직접 import가 ARCHITECTURE에 어긋나고 §1-1 자체 규칙과도 모순된다.\n(11) 단계 9가 발주자 결정 전에 조명을 바꾸어 §4-8 순서와 PATCH-016-B에 어긋난다.\n(12) 라인업 paletteaudit에 비공허 조건이 없다.\n나머지 11건은 경미하다. 측정 정의, 테스트 공허성, 순서·의존성, 예산 시간에 관한 것이다. 치명·중대 항목을 고친 뒤 재심사를 권한다.",
+ "issues": [
+  {
+   "severity": "치명",
+   "section": "§2-2 외견 상태 닫힌 규칙 · §2-7 흥부 · §8-10 케이스 22 · §8-6 선언 예외",
+   "issue": "외견 상태가 덮어쓸 수 있는 것은 shape·look·team뿐이고, skeleton(proportions·posture)과 pose(style·aim·dangle)는 진짜 캐릭터 것이 남는다. 원시는 뼈 로컬 좌표이므로 shapeOf=A를 B에 적용하면 'A의 원시를 B의 골격·자세에 붙인 것'이 된다. A와 같은 윤곽이 나오지 않는다.",
+   "evidence": "설계 §2-2: '덮어쓸 수 있는 것은 shape·look·team뿐'. skeleton은 캐릭터별 최상위 필드다. §2-3 원시 a,b,c는 '뼈 로컬'이다. §8-10 케이스 22는 placeForAudit({characterId:B, shapeOf:A})를 쓰고, 통과 조건이 '(tokki,kongjwi) axes.length === 0'이다. 그런데 tokki·kongjwi는 비례·자세가 다르므로 0축이 보장되지 않는다. ρ 아래에서 1축만 달라져도 증거 조건이 깨지고, 2축 이상 달라지면 exit 0이 된다. P4-BRIEF:350·862는 흥부 변장=도깨비를 '의도된 동일쌍'으로 정했다. 그런데 설계 §8-6은 '선언쌍이 2축 이상 다르면 실패'라서 P4D가 막히고 코드 추가가 필요해진다(§4-9 '코드 0' 위반). P4-BRIEF:482-486은 간파 단서를 3개(상대 팀 도깨비 부재·발소리·변신 이벤트)로 닫아 두었는데, 골격·보행 차이가 목록 밖 단서가 된다. §5(:795)의 정보 은닉도 깨진다.",
+   "fix": "외견 단위를 '시각 리그' {skeleton(proportions·posture), shape, pose.style/aim/dangle, look, team}로 정의하고 shapeOf를 rigOf로 바꾼다. 충돌 캡슐·이동 수치·발소리·래그돌 질량만 진짜 값으로 고정한다. 케이스 22 복제 훅은 B의 시각 리그 전체를 A로 교체한다. actor-sim 테스트에 '같은 poseParams에서 외견 A인 B의 월드 원시 == A의 월드 원시' 비트 동일 단언을 추가하고, v1 fixture 흥부 disguise로 같은 단언을 한다."
+  },
+  {
+   "severity": "중대",
+   "section": "§8-2-6 대조군 · §8-13 숫자 출처 표",
+   "issue": "대조군 'B_start 판 평균 sRGB ≥ 30/255, 미달이면 exit 1 「틀린 자리」'는 PATCH-016-A가 폐기한 원 조건 그대로다. §8-13은 이를 '기존 리그 규칙 재사용'이라고 적었다. 장부에 오류로 기록된 규칙이다.",
+   "evidence": "docs/contracts/patches/CONTRACT-PATCH-016.md:11-36: '30/255 미만이면 그 자리도 틀린 자리다'를 폐기했다. 본 조건은 '더미를 켜고 끄면 창 평균이 변해야 한다'이고 밝기는 보조다. '검사 조건은 대상의 상태가 아니라 대상의 변화에 걸어라.' docs/CONTRACT-NOTES.md:1856 장부 #18: '자리 검증을 30/255 밝기(상태)로 씀 — 대상의 변화에 걸었어야 했다'. 008-B 실측에서 2.5 m 창 밝기는 105.92로 통과했지만 쓸모가 없었다(016-A 표).",
+   "fix": "자리 검증 본 조건을 변화에 건다. 정체마다 판 rect 안 Σ(B−A) > 0과 |S| ≥ 1을 보고, B 대 Z(등롱 반응) 차가 > 0인지 본다. 미달이면 exit 1 '리그가 대상에 반응하지 않음'으로 끝낸다. 30/255는 보고 전용 보조 지표로 내리고 §8-13 표를 정정한다."
+  },
+  {
+   "severity": "중대",
+   "section": "§8-3 배경·누설 검사 (checks.leakOutsideInfluence)",
+   "issue": "'액터 경계구 + soft_max/2 밖으로 광선이 지나는 화소는 A==B 비트 동일'이라는 검사 영역이 실제로 공집합이다. 이 검사는 항상 공허 통과한다. 비공허 목록에도 들어 있지 않다.",
+   "evidence": "§4-5: soft_max = (0.12·20+0.03)·1 = 2.43 m이므로 반폭이 1.215 m다. B 조명의 판 창은 액터 공간 ±0.98 m × 0.60–2.09 m이고, 액터 중심(높이 ≈1 m)에서 판 모서리 광선까지는 최대 ≈1.47 m다. 액터 경계구 반지름 0.8–1.1 m에 1.215를 더하면 ≈2.0–2.3 m라서 모든 판 화소가 영역 안에 든다. 셰이더 조기 탈출은 광선별 softB를 쓴다(index.js:328 식, sp = sb + R/len). B에서 그 값은 ≈0.10 m로 훨씬 작다. §8-6 비공허 조건에는 이 영역 크기가 없다.",
+   "fix": "누설 검사 영역을 occlusion-math.js의 광선별 조기 탈출 술어(셰이더와 같은 db > R + softB/2)로 정의한다. '영역 화소 ≥ 1'을 비공허 조건에 추가한다. soft_max는 CPU 판 마스크에만 쓴다."
+  },
+  {
+   "severity": "중대",
+   "section": "§5-1 NAV_CONFIG 클리어런스 캡슐 · §5-2-3/4/5 nodeClear·STAND·edgeClear",
+   "issue": "클리어런스 캡슐을 y+0.45…y+1.75로 고정한 채 반지름을 0..1.0까지 이분 탐색한다. (a) r>0.45이면 아래 구가 바닥을 관통한다. 그래서 nodeClear가 ≈0.44에서 포화하고 clearMax 1.0에 도달할 수 없다. '개활지 단축', '양끝 ≥ clearMax면 바로 WALK', edgeClear 희소 저장이 모두 불발하고 굽기 비용이 폭증한다. (b) 아래 구 하단이 y+0.45−r(r .34 → 0.11 m)이라 0.45 m 문지방, 0.2/0.25 m 계단 단, 0.3 m 디딤돌이 수평 거리 r 안에서 걸린다. 걸어서 넘는 셀이 '좁음/막힘'으로 판정된다.",
+   "evidence": "설계 §5-1 '클리어런스 캡슐 y+0.45 … y+1.75', §5-2-3 '반지름 6회 이분 탐색(0..1.0)'. map_world는 동헌 칸막이 문 문지방 0.45 m(머름 전폭, level.js:284)를 dh_door_sill_walk가 걸어 넘은 것과 누각 계단 rise 0.25를 기록했다. 비교하면 coveraudit.mjs:66-68은 p0 = gy+0.05+r(바닥 상대)이고, character.js:80-86 캡슐은 p0y=y+r다. 문지방 양쪽 셀은 대표점 이동 범위(셀 안 ±0.125 m)로도 문지방에서 0.34 m 이상 떨어질 수 없다.",
+   "fix": "r마다 p0 = y + stepHeight(0.42) + r, p1 = y + h − r로 캡슐을 정의하거나, 수평 디스크·실린더 질의로 바꾼다. 탐색 범위를 [0, agentRadiusMax+여유]로 줄이고, 단차 통과는 Δy 오라클 간선에만 맡긴다. nav-synthetic에 0.45 m 문지방 문과 0.25 m 계단이 WALK인 양성 케이스를 추가하고 굽기 시간을 실측한다."
+  },
+  {
+   "severity": "중대",
+   "section": "§5-2-6 Δy 간선 오라클 · §5-5 '캐릭터별 굽기 없음' · §10-6 nav-gwana",
+   "issue": "WALK/JUMP 분류를 기준 에이전트 하나(r=agentRadiusMax 0.34, 특정 걷기 속도)로 한다. 그런데 컨트롤러의 실효 등반 한계는 stepHeight + r에 가깝다. 반지름이 작은 캐릭터(토끼 0.30, v1 임의 값)에는 WALK 간선이 거짓이 될 수 있다. 질의 시 거르는 조건(radius ≤ 0.34)은 반지름에 대해 단조가 아니다.",
+   "evidence": "character.js:157-160: lift(0.42) 뒤 수평 _slide를 한다. 아래 구 중심(y+0.42+r)보다 낮은 모서리면 접촉 노멀에 위 성분이 생겨 타고 오른다. map_world 실측(r .34)은 0.7 m 걷기, 0.75 m 실패라 한계 ≈0.42+r와 맞는다. 스키마는 반지름 상한만 둔다(§2-5 2). nav-gwana의 무작위 WALK 200 표본에는 단차 간선이 희소해 반지름 차이를 잡지 못한다.",
+   "fix": "스키마에서 radius를 단일 값(0.34)으로 고정한다. 아니면 로스터와 v1 fixture의 (r, h, walk) 클래스마다 오라클을 돌려 간선 유효 비트를 클래스별로 저장한다(굽기는 하나, 비트는 클래스 수). nav-gwana 표본을 Δy>0.3 간선으로 층화한다."
+  },
+  {
+   "severity": "중대",
+   "section": "§3-8 프리웜 (a) · §10-4 · §7-7 renderFrame",
+   "issue": "'샷 3 액터가 프리웜 샷 순회에서 보여 forward·CSM·GTAO 스킨 변형이 생긴다'는 전제가 성립하지 않는다. 프리웜의 renderFrame은 pipeline.render()를 직접 부른다. 설계가 actorView.sync(씬 add·뼈·경계구)를 넣는 harness renderFrame을 거치지 않고, simSubstep도 돌지 않는다.",
+   "evidence": "src/main.js:348-355 prewarmShaders({... renderFrame: () => pipeline.render() }), 354행. 설계 §7-7은 'renderFrame(harness.js:122-150)에서 pipeline.render 전에 actorView.sync'라고 한다. 메시는 sync에서만 scene.add된다(§3-7 함정). 경계구가 null이면 Frustum.js:148-152가 computeBoundingSphere를 부른다. 뼈가 미갱신이면 원점 구가 되어 컬링된다. 스킨 그림자·GTAO 변형은 실제로 그려야 생긴다(map_render (5)).",
+   "fix": "spawn·placeForAudit가 포즈·월드 원시·경계구를 즉시 계산하게 한다. 프리웜 renderFrame을 () => { actorView.sync(actors.viewFor(null)); pipeline.render(); }로 바꾼다. prewarmSpawn이 pipeline.render 전체 패스로 CSM 절두체 안에서 그린다는 것을 명시한다. _progcount로 (a)(b) 각각의 프로그램 기여를 실측해 기록한다."
+  },
+  {
+   "severity": "중대",
+   "section": "§5-3 부팅 worldHash 불일치 throw",
+   "issue": "부팅 시 청크 기하 해시(Float32 pos 바이트의 FNV)를 노드 navbake 산출값과 비교하고, 다르면 throw한다. 이는 노드(헤드리스 buildWorld)와 Chromium의 기하가 비트까지 같다는 전제다. 설계는 같은 이유(V8 초월함수 마지막 비트)로 래그돌 노드–크롬 동등성을 '보고만'으로 둔다(R14·결정 16). 모순이고, 틀리면 게임이 부팅하지 않는다.",
+   "evidence": "설계 §5-3, §6-5 'p4b_ragdoll_headless_parity 보고만', R14. map_core: 현 결정성 보증은 '같은 엔진 안의 재현성'이다. 노드↔브라우저 기하 비트 비교 선례는 없다. level.js 회전·지붕 곡면은 Math.sin/cos를 거친 행렬로 bakeMesh된다(bvh.js 월드 공간 Float32).",
+   "fix": "해시를 소스 해시(level.js·kit.js·BVH 빌드 상수·NAV_CONFIG·bakerVersion)와 양자화 기하 요약(예: 0.1 mm 정수화)으로 바꾼다. 부팅 throw를 켜기 전에 브라우저 해시 = 노드 해시를 playtest와 distaudit에서 먼저 실측 확인한다. 불일치 시에는 다른 청크와 첫 차이 삼각형을 진단 출력한다."
+  },
+  {
+   "severity": "중대",
+   "section": "§8-9 팀 색 규칙 3 · §2-6 자라 look · §3-6 ACTOR_BRONZE_PLAIN",
+   "issue": "설계 자신의 v0 데이터가 자기 정적 팀 색 검사를 통과하지 못한다. ACTOR_BRONZE_PLAIN은 원본 BRONZE 텍스처를 공유하는 클론이고, 녹청이 176–178°(s ≥ .10)에 있다. 이 색은 이세계 후보 대역 [190°,235°] 밖이고 공용 대역도 아니다. 인간계 캐릭터 총기에 쓰면 '상대 팀 팔레트 계열' 색이 된다.",
+   "evidence": "src/materials/index.js:147-150 BRONZE colB 0x4d807e(≈177.6°, s≈.40), colD 0x6a9a97(≈176.3°, s≈.31). CHROMA_SCALE BRONZE .8(index.js:204) 뒤에도 s ≥ .10이다. 설계 §2-6 자라 metal: 'ACTOR_BRONZE_PLAIN'. §8-9 규칙 3: '유채색은 자기 팀 구간 또는 공용 대역에만, 상대 팀 계열 색 0'.",
+   "fix": "무기 금속을 팀별 변형(녹청을 자기 대역으로 이동)하거나, 탈채도(s < .10) 'ACTOR_METAL' 재질로 둔다. team-color 테스트에 'v0 실데이터 4종 양성 통과' 케이스를 넣어 자기모순을 막는다."
+  },
+  {
+   "severity": "중대",
+   "section": "§4-5 HanjiOcclusion 슬롯 규칙 · R13",
+   "issue": "'액터 슬롯 k = 차폐 슬롯 k(0..5), 6·7은 예약(레거시·P4C projectSilhouette)'이라는 고정 매핑 때문에 슬롯 번호 자체가 '가짜 실루엣' 표식이 된다. 브리프는 가짜를 표시 없이 보내라고 했고 지금 구조로 잡으라고 했다. 그런데 설계는 이를 '지금은 기록'으로 미뤘다.",
+   "evidence": "P4-BRIEF:792-796: '정보 은닉 가능성 … 구조화하라', '토끼의 가짜 실루엣은 「가짜」라는 표시 없이 보낸다'. 설계 §4-5 슬롯 규칙과 R13('슬롯 번호·위치로 가짜임을 알아챌 수 있다 — 지금은 기록').",
+   "fix": "차폐 소스 슬롯을 액터 슬롯과 분리한 일반 풀로 만든다. 서버가 할당하고, 진짜 액터와 가짜 실루엣이 같은 소스 형식·같은 풀을 쓰며, 할당 순서는 정체와 무관한 결정적 순열로 한다. 레거시 예약 슬롯은 체크포인트 ② 이후 제거한다. viewFor·snapshotFor 테스트에 '가짜 소스와 진짜 소스의 직렬화가 구별 불가' 단언을 추가한다."
+  },
+  {
+   "severity": "중대",
+   "section": "§1-1 의존 규칙 · §1-2 파일 표 · §5-2-6 probe · §7-3 separation",
+   "issue": "설계가 서브시스템 간 직접 import를 전제한다. src/ai/nav/probe.js가 src/actors/sim/movement.js를 import하고, src/actors/sim/separation.js가 src/physics/math.js(closestPtSegSeg)를 쓰며, src/ai/perception.js가 actors/sim/occlusion-math를 쓴다. ARCHITECTURE 금지 규칙에도 어긋나고, §1-1의 '쓸 수 있는 것은 src/core/*와 physics 파사드(주입)뿐'과도 모순이다. determinismaudit 검사 3이 무엇을 허용할지 정의되지 않는다.",
+   "evidence": "ARCHITECTURE.md:34 '타 디렉터리 … 이벤트 어휘를 통하거나 계약 변경', :157 '금지: 서브시스템 간 직접 import'. 설계 §1-1, §5-2-6 '실제 액터 이동 코드 actors/sim/movement.stepMovement', §7-3 'closestPtSegSeg(math.js)'. 결정 14는 디렉터리 신설만 다루고 교차 import 간선은 다루지 않는다.",
+   "fix": "허용 import 간선 표(예: ai→actors/sim 순수 함수, actors/sim→physics/math 순수 커널)를 결정 14 개정안에 명시하고 발주자 승인을 받는다. determinismaudit 검사 3은 그 표로 대조한다. 또는 movement는 navbake·probe에 함수로 주입하고, 기하 커널은 physics 파사드로 노출한다."
+  },
+  {
+   "severity": "중대",
+   "section": "§13 단계 9·11·12 · §4-8 순서 · 체크포인트 ④",
+   "issue": "단계 9는 '샷 3 액터·앵커·등롱(결정 2·3)'을 반영하고 체크포인트 ④로 굳힌다. 그런데 §4-8과 단계 11은 '현행 L0에서 1차 실측 → 후보 캡처 → 발주자 결정 → 반영'이다. 조명 이동이 발주자 판단보다 먼저 계약 샷에 들어간다. 눈으로 합격시키는 게이트 앞에서 절차를 쪼개라는 규칙에도 어긋난다.",
+   "evidence": "설계 §13 단계 9 '샷 3 액터·앵커·등롱(결정 2·3)', 단계 11 '1차 실측 보고(현 조명 L0 + 후보)', §4-8 순서 1-3. PATCH-016.md:41-56(016-B '눈으로 합격시키는 게이트가 들어간 절차는 그 게이트 앞에서 쪼갠다'). 결정 2는 '후보'로 남아 있다.",
+   "fix": "단계 9는 앵커·액터 교체만 하고 등롱은 L0에 둔다(결정 3 승인 전이면 단계 9 차단을 표시한다). 등롱 이동·intensityScale은 단계 12에서 결정 후 반영한다. 체크포인트 ④를 ④a(액터 교체)와 ④b(조명 반영)로 나눈다."
+  },
+  {
+   "severity": "중대",
+   "section": "§8-9 라인업 · §10-8 paletteaudit_actors",
+   "issue": "새 게이트 줄 paletteaudit_actors는 라인업 캡처에 액터가 실제로 보이는지 검사하지 않는다. 액터가 프레임 밖이거나 어둡게(s < .10) 찍히면 위반 0으로 공허 통과한다. '액터별 객체 마스크 분포는 보고만'이라서 PATCH-010-B '캐릭터 포함 상태'가 증명되지 않는다. 기존 음성 12·20은 도구 논리만 덮고 이 입력 경로는 덮지 않는다.",
+   "evidence": "설계 §8-9 '액터별 객체 마스크의 팀 대역 화소 분포는 보고만 한다', §10-8 '기존 음성 12·20이 덮음'. HARNESS 비공허 규칙(map_tooling invariants: audioaudit.mjs:242, HARNESS.md:47, shotaudit.mjs:18-19). paletteaudit.mjs:92-94는 PNG 수만 본다.",
+   "fix": "silhouetteaudit가 라인업 장마다 renderObjectMask로 액터별 가시 화소 ≥ 1과 s ≥ .10 화소 ≥ 1을 단언하고, 미달이면 exit 1로 끝낸다. 음성 '--test-lineup-empty → exit 1 + 표식'을 harnesstest에 추가한다."
+  },
+  {
+   "severity": "경미",
+   "section": "§8-4 창살 채움 규칙",
+   "issue": "'행 방향 좌우 최근접 비창살 화소가 모두 S면 S로 메운다'는 세로살만 처리한다. 가로띠 3개는 행 전체가 창살이라 이웃이 없어 메워지지 않는다. S에 수평 틈이 생겨 높이 H와 경계·돌출부 검출이 띠 높이에서 왜곡된다.",
+   "evidence": "src/world/level.js:30 HANJI_LATTICE.bands [−0.36, 0, 0.36], :127 가로띠 인스턴스. 판 y 1.737/2.475/3.213은 B 조명 액터 공간 ≈0.81/1.35/1.88 m, L0에서는 0.85/1.28/1.71 m에 해당한다.",
+   "fix": "창살 방향별로 채운다(세로살은 행, 가로띠는 열 방향). 최고점이 띠에 걸리면 H를 '판정 불가'로 둘지 보간할지 규칙을 정의한다. silhouette-metrics 합성 테스트에 가로띠 케이스를 추가한다."
+  },
+  {
+   "severity": "경미",
+   "section": "§13 의존성 표",
+   "issue": "의존이 빠졌다. (1) 단계 7 굽기가 단계 9의 더미 FABRIC 콜라이더 제거보다 먼저라서 worldHash가 바뀌어 부팅 throw가 나고 nav-expect도 바뀐다. 그런데 단계 9 검증에 재굽기가 없다. (2) 단계 3d(silhouettepredict)가 단계 2의 occlusion-math.js에 의존하는데 목록에는 '3b·3c 후'뿐이다. (3) 단계 8(ActorView.sync)이 단계 4의 fields.js VIEW_BRAND·viewFor에 의존한다. (4) 단계 13에서 노출 값이 바뀌면 silhouetteaudit 대비(표시 PNG, evB 적응)가 무효인데, 재실측 계획은 baseline뿐이다.",
+   "evidence": "src/world/level.js:355-365 physics.addStaticMesh(dummy). 설계 §5-3 worldHash throw, §13 표의 병렬·검증 열, §9-7 '값이 바뀌면 baseline 재기준'.",
+   "fix": "단계 9 검증에 navbake --check·nav-fresh·nav-expect 갱신을 추가한다. 3d를 '2 후'로, 8을 '4 후'로 고친다. 단계 13 뒤 silhouetteaudit 재실행을 종료 체인 전제로 명시한다."
+  },
+  {
+   "severity": "경미",
+   "section": "§9-3·9-4 노출 일치 검사와 케이스 30 · §9-5 debugExposureOverride",
+   "issue": "render()가 매 프레임 계약에서 유니폼을 쓰므로 실제 코드에서 '유니폼 vs 계약' 대조는 항등이다. 음성 주입('원본 실행 직후 rateUp=9')은 다음 render가 그리기 전에 덮어쓰므로 어떤 드로우에도 쓰이지 않는다. 케이스 30은 검사기만 시험하고 실제 drift 경로는 시험하지 않는다. 또 debugExposureOverride가 값을 적용하려면 계약이 아닌 쓰기 경로가 필요한데, 이는 '조정 프로브 경로 폐지'와 모순이다.",
+   "evidence": "src/render/exposure.js:155-160(현 구조, 매 프레임 params→유니폼). 설계 §9-3 'render()는 매 프레임 계약에서 유니폼을 쓴다', §9-4 주입 방식, §9-5 debugExposureOverride.",
+   "fix": "contractCheck는 blit 직전 값(그리기 시점 훅)과 컴파일 대상 셰이더 문자열로 대조한다. 음성 주입은 계약→유니폼 쓰기 함수를 감싸 그리기 값 자체를 바꾸게 한다. override는 render가 읽는 명시적 testOverride 층으로 두고, contractCheck가 그 층의 활성 여부를 보고하게 한다."
+  },
+  {
+   "severity": "경미",
+   "section": "§10-6 actor-proxy · silhouette-predict 테스트",
+   "issue": "npm test(게이트 npmtest)가 확정 대기 중인 ρ·K로 '메시–프록시 다른 축 집합 동일'을 판정한다. 'IoU 허용 = 새그 유도'라는 허용치도 새로 만들었다. silhouetteaudit 줄은 확정 전까지 주석으로 두면서 같은 규칙을 다른 게이트로 집행하는 셈이다.",
+   "evidence": "설계 §10-6 actor-proxy 행, §8-13 'ρ 확정 대기·K 확정 대기', §8-12 '확정되기 전에는 주석'. CONTRACT-NOTES:1991-1998(014-C 오류 기록).",
+   "fix": "확정 전에는 해당 항목을 보고 전용으로 둔다. npm test 판정은 ρ와 무관한 기하 불변식(정점 |sdf| ≤ 1e-5, 메시 경계 ⊂ 원시 합집합의 새그 띠)으로만 한다."
+  },
+  {
+   "severity": "경미",
+   "section": "§6-3·6-4 래그돌 초기화와 중심 비교차 클램프",
+   "issue": "입자는 관절 원점에서 시작한다. 그런데 시각·팔 원시는 캡슐(r ≤ .34) 밖으로 나간다(R11). 얇은 판(0.3 mm 창호지) 바로 앞에서 죽은 액터의 손목·팔꿈치 관절이 판 너머에 있으면, '중심은 어떤 삼각형도 건너지 않는다' 클램프가 그 입자를 잘못된 쪽에 영구 고정한다. 그러면 뼈 선분이 판을 관통한 채 접촉 투영과 싸운다.",
+   "evidence": "설계 §6-4-3 '위치는 시뮬 포즈의 관절 원점', §6-3-5 클램프, R11. src/world/level.js:112-116 0.3 mm HANJI 콜라이더.",
+   "fix": "activate 때 골반 입자에서 각 입자로 raycast(MASK.CHARACTER)를 쏘고, 첫 히트 앞(t − r)으로 끌어오는 초기화를 넣는다. ragdoll 테스트에 '판 앞 0.3 m·팔 뻗은 자세에서 사망' 케이스를 추가한다."
+  },
+  {
+   "severity": "경미",
+   "section": "§5-4 런타임 오버레이 · §5-9 오디오 어댑터",
+   "issue": "블로커가 노드 대표점만 차단한다. 두 끝이 블로커 밖인 JUMP·DROP·가로지르기 링크(crossMax 1.5 m)는 블로커를 통과한다. 반경 0.1 오디오 에이전트는 블로커 두께 + 0.2 m가 대각 간선 0.354 m보다 얇으면 8방향 간선으로도 넘는다.",
+   "evidence": "설계 §5-4 '질의 시 노드 대표점이 블로커 ⊕ agent.radius 안이면 차단', §5-1 crossMax 1.5, §5-9 '반경 0.1 에이전트'.",
+   "fix": "질의 시 간선·링크 선분 대 (블로커 ⊕ r) 교차 검사를 한다(활성 블로커 ≤ 슬롯 수라 O(B)). nav-synthetic에 '블로커가 JUMP 링크·대각 간선을 가로막음' 케이스를 추가한다."
+  },
+  {
+   "severity": "경미",
+   "section": "§5-2-1 열 샘플",
+   "issue": "모든 히트에 '입사 반대로 뒤집힌 out 노멀'을 쓰면, 하향 다중 히트에서 고체 아랫면 내부 히트도 ny > 0 바닥 후보가 된다. 두꺼운 담장(화강암 0.9 m × 1.7 m) 내부 지면 높이에 헤드룸 ≈1.65 m인 유령 스팬이 생긴다. overlapCapsule은 면 기반이라 고체 중심에서 접촉 0이 되어 CROUCH 스팬으로 남는다.",
+   "evidence": "src/physics/bvh.js:545-547(out 노멀 항상 입사 반대). map_world 담장 두께 0.9·높이 1.7. 설계 §5-2-1·2·4.",
+   "fix": "오브젝트별 교차 패리티(raychain.js 방식)로 '밖→안' 진입 히트만 바닥 후보로 삼는다. navbake 리포트에 고체 내부 스팬 0 단언을 넣는다."
+  },
+  {
+   "severity": "경미",
+   "section": "§2-6 콩쥐 · §4-7 원리 · 결정 2·4",
+   "issue": "콩쥐의 계약 윤곽 특징('아래가 퍼지는')은 최대폭 0.84 m가 바닥에 있다. 설계 자신이 증명했듯 어떤 점광 배치로도 판에 투영되지 않는다(B 대역 하단 0.60 m). 그런데 이를 발주자 결정 항목으로 올리지 않고 '나머지 축으로 통과'로 우회한다.",
+   "evidence": "P4-BRIEF:325 '콩쥐 치마선. 아래가 퍼지는 윤곽'. 설계 §4-7 '어떤 점광 배치로도 전신은 투영되지 않는다', §2-6 표 '0.84(바닥, 대역 밖)'.",
+   "fix": "결정 2·4에 '계약 특징 중 판에 투영 불가한 것(콩쥐 치마단 등)'을 명시하고, 발주자 판단(P1 머름·판 배치, 특징 재정의, 측정 범위)을 요청한다."
+  },
+  {
+   "severity": "경미",
+   "section": "§7-3 액터 분리",
+   "issue": "분리 push를 controller.move(dx,0,dz)로 하면 수평 변위·접지 조건에서 stepHeight 0.42 리프트, 슬라이드, 하강 스냅, wasGrounded·landingSpeed·steppedUp 갱신이 함께 일어난다. 분리만으로 액터가 단 위로 올라가거나 이동 상태(착지 판정, 발소리 소비자)가 오염된다.",
+   "evidence": "src/physics/character.js:148-171(useStepOffset → lift → _slide → _sweepDown), :173-181 landingSpeed. 설계 §7-3.",
+   "fix": "configure와 함께 분리 전용 수평 슬라이드 API(_slide만 쓰고 리프트·스냅·상태 갱신 없음)를 physics에 추가한다. 분리 후 grounded 계열 필드가 바뀌지 않는지 테스트한다."
+  },
+  {
+   "severity": "경미",
+   "section": "§7-8 공개 필드 표 · §4-3 · §10-3/10-5 메시명",
+   "issue": "(1) 표현은 viewFor()만 읽고 '공개 뷰의 뼈 버퍼'로 원시를 만든다(§4-3). 그런데 public 표에는 bones도 dangle 상태도 없다. poseParams만으로는 dangle 사슬을 재현할 수 없다(evalPose는 dangleState가 필요하다). (2) 메시명 규약은 actor_s<slot>_<id>인데, shots audit·pixelowner 주석은 'actor_s0'이다. pixelowner --hide는 getObjectByName 정확 일치라서 브라우저에서 못 찾는다.",
+   "evidence": "설계 §7-8 public 행, §4-3-3, §1-2 evalPose 시그니처, §3-8 'actor_s<slot>_<id>', §10-3 'audit 대상 → actor_s0', §10-5 pixelowner 행. map_tooling: pixelowner는 scene.getObjectByName().",
+   "fix": "public에 bones(또는 dangleState)를 명시한다. audit 대상은 {match: '^actor_s0_'}로, pixelowner는 접두 일치 숨김으로 정정한다."
+  },
+  {
+   "severity": "경미",
+   "section": "§12 R15 · §5-2/5-3 굽기 시간 · CI statics 잡",
+   "issue": "CI 시간 위험 분석이 harnesstest·silhouette 잡만 다룬다. statics 잡(120분)에는 npmtest(nav-fresh 전체 재굽기, nav-gwana 오라클 재주행)와 playtest P4B 절(stepFrames(360) × 2 등)이 들어가는데 이것이 빠졌다. 굽기 시간도 '수 분'(§5-2)과 '1–3분'(§5-3)으로 자기모순이다. 클리어런스 결함(위 중대 항목)이 있으면 더 늘어난다.",
+   "evidence": ".github/workflows/gates.yml:39-46 statics(timeout 120, GATES_FROM=determinismaudit GATES_TO=playtest). tools/gates.sh:74 npmtest, :76 playtest. 설계 §5-2 '전체 굽기는 수 분', §5-3 'nav-fresh 1–3분 추정'.",
+   "fix": "굽기를 실측한 뒤 statics 예산을 다시 산정한다(실측 × 2.5). nav-fresh는 navbake --check 단독 게이트 줄로 분리하거나 청크 단위 증분 검사로 바꾼다. 결과를 R15에 추가한다."
+  }
+ ]
+}

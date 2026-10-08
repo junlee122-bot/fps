@@ -1,0 +1,96 @@
+{
+ "verdict": "조건부 승인. 치명 0, 중대 4, 경미 9건이다. 개정 2는 재검토 17건을 실질적으로 닫았다. 다음 다섯 가지는 코드로 재확인했고 맞다.\n- 누설 영역 (나) 술어의 정확성: argmin 원시가 자기 s로 만족하면 smoothstep이 정확히 1이다. pane은 HANJI_BASE_OPACITY 1.0·transparent라 A의 배경이 dst×0으로 사라진다. sceneRT는 GTAO·안개·TAA 앞이다.\n- 태양항: hanji_silhouette의 태양은 azim 300이라 hjBack=0이다. 그래서 o=1−V가 정확하다.\n- rc 조기 탈출의 보수성: 사영은 1-립시츠라 |s−sb|·len ≤ h ≤ R이다.\n- 프리웜 줄 번호와 웜 렌더 편승 위치, gates.yml 잡 구조와 coverage 정규식.\n- 24 m 컷오프 때문에 lantern_night는 영향이 없다.\n\n남은 결함은 다섯 묶음이다.\n1. 9b 추천(토끼)이 기존 shotaudit 최소 면적 가드에 걸린다. 더미를 헤드리스로 재 보니 0.71%였고, 토끼는 추정 ≈0.4%다.\n2. 내아 동문의 r .34 통과가 대표점 동률 선택에 달려 있다. A-2가 구조적으로 닫히지 않았다.\n3. silhouetteaudit의 새 브라우저 단계 검사(대조군·누설·B_end·루트)와 새 게이트 줄 navcheck에 harnesstest 음성이 없다(P2A-BRIEF §0-1, PATCH-015 §1).\n4. paletteauditactors는 프레임 전체 비율이라, 액터 색에 반응한다는 증거가 없다(PATCH-010-B).\n5. 경미 9건: 청크 단위 도달 가지치기, 로스터 기준 임계, 컨트롤러 재사용 잔류 상태, 상태별 노출 잠금 누락, 잘린 조각의 미검증 상태, 유효 화소 정의, L0 비공허 근거의 전제 오류, 014-C 표 누락, 단계 10/11 순서.\n\n중대 4건은 해당 단계를 시작하기 전에 설계서에 반영해야 한다. 1은 결정 3 요청 전, 2는 단계 7 전, 3과 4는 단계 11·12b 전이다.",
+ "issues": [
+  {
+   "severity": "중대",
+   "section": "§10-3 9b · §11 결정 3 · §13 9b(④a)",
+   "issue": "9b에서 샷 3 감시 대상을 더미에서 토끼로 바꾸면서 shotaudit 최소 면적 0.5%를 더미 값 그대로 옮겼다. 그런데 추천 캐릭터 토끼는 이 가드를 넘지 못할 가능성이 높다. 그러면 ④a 체크포인트에서 게이트가 빨간불이 되거나, 실측 없이 임계를 고치는 쪽(014-C 위반)으로 몰린다.",
+   "evidence": "현행 헤드리스 실측: `node tools/shotaudit.mjs --shots hanji_silhouette` 결과 silhouette_dummy가 areaPct 0.71%(도달 19/2688 레이, 격자 64×42), minAreaPct 0.5다. 더미는 CapsuleGeometry(0.28, 1.1)로 정면 면적이 ≈0.86 m²다. 카메라 (−36.8,1.9,−10)에서 액터까지 ≈7.45 m라 레이 간격은 ≈0.205×0.207 m, 레이 하나가 ≈0.042 m²를 대표한다. 실측 19레이와 일치한다. 토끼(§2-6: 몸통 el .17/.28, 머리 .10/.11, 귀 2×(.08×.40), 사지 r .055/.075)의 정면 면적을 계산하면 ≈0.5 m²다. 여기서 머름(panBay 0.45 m) 때문에 액터 공간 0–0.22 m가 가려지면 ≈0.45 m²가 남는다. 레이로는 ≈10–11개, ≈0.4%로 0.5%에 못 미친다. 게다가 0.11–0.15 m 사지는 0.2 m 격자에 걸리기도 하고 빠지기도 해서(앨리어싱) 값이 불안정하다. 대안 콩쥐(치마)는 ≈0.75 m²로 ≈0.58%, 자라는 ≈0.57%로 추정된다. 결정 3의 근거는 '가장 가는 돌출부'이므로 최소 면적 검사와 정면으로 충돌한다.",
+   "fix": "3c 직후 posedWorldPositions로 4종의 hanji_silhouette areaPct를 헤드리스로 미리 잰다(브라우저 불필요). 그 표를 결정 3 요청에 붙인다. 토끼를 유지하려면 minAreaPct를 roofline_distant 선례처럼 '실측 X% — 회귀 가드 바닥'으로 재등록하는 것도 결정 3에 포함해 발주자에게 묻는다. 숫자는 고르지 않고 실측과 기능(차폐 검출)만 제시한다. 아니면 추천을 콩쥐로 바꾼다. --grid 128x84 보고값도 함께 적어 앨리어싱 폭을 보인다."
+  },
+  {
+   "severity": "중대",
+   "section": "§5-1 spanRep/spanClear · §5-2 ③⑤ · §5-8 내아 동문 · 심사 A-2 처분",
+   "issue": "대표점은 상한(clearMax)에서 잘린 클리어런스의 최댓값으로 고른다. 그래서 좁은 문 앞 셀에서 동률이 여러 개 생긴다. 어느 동률점이 뽑히느냐에 따라 문을 가로지르는 평탄 간선이 r 0.34로 막히거나 열린다. v0 넷 중 셋(자라·도깨비·콩쥐)이 r 0.34이고, nav-expect는 '동문 r .34 통과'를 기대값으로 고정한다. 그런데 설계에는 그것을 보장하는 장치가 없다. A-2('격자 양자화가 좁은 문 오판')가 대표점 동률 선택으로 자리만 옮겼다.",
+   "evidence": "level.js: 내아 cx −27·cz −10, colsX에 5, rowsZ에 0이 있어 기둥이 (−22, −10)에 선다. 배흘림 최대 r = 0.15×1.05 = 0.1575다(kit.js columnGeometry). na_e_a는 중심 z −11.95, 폭 2.1이라 z ≤ −10.9다. 틈은 [−10.9, −10.1575] = 0.7425 m, 중심 z −10.52875이고, r .34의 측방 여유는 ±3.1 cm다. 문 안쪽 셀 x ∈ [−22.25, −22.0], z ∈ [−10.75, −10.5]의 5×5 표본(0.05 m 간격) 가운데 (−22.225, −10.575)는 벽 끝까지 0.369, 기둥까지 0.46이다. (−22.225, −10.525)는 0.414와 0.46이다. 둘 다 clearMax에서 동률이다. z −10.575가 뽑히면 거울 셀 (−21.775, −10.575)와 잇는 평탄 간선이 벽 평면 x = −22에서 벽 끝과 0.325(−5 mm 허용을 넣어도 0.33) 떨어지므로 r 0.34 sweep가 막힌다. 3×3 정제도 동률 안에서 움직일 뿐이다. 대각 간선은 정렬이 더 나쁘다.",
+   "fix": "대표점 선택은 상한 없는 클리어런스(또는 선택 전용 상한 2·clearMax)의 최댓값으로 한다. 동률은 셀 중심 거리, 그다음 사전순으로 가른다. 저장할 때만 clearMax로 내림한다. 평탄 간선이 r = clearMax로 막히면 양 셀 후보점 쌍(각 3×3) 가운데 sweep 클리어런스가 가장 큰 쌍으로 edgeClear를 정하고, 그 쌍을 간선 오프셋으로 저장해 경로 꺾임점으로 쓴다. nav-synthetic에는 0.7425 m 틈을 셀 격자에 대해 오프셋 {0, .03, .06, .09, .125} m로 놓은 케이스를 추가한다. 모든 오프셋에서 r .34는 통과하고 r .38은 불통이어야 한다(비공허: 간선 ≥ 1)."
+  },
+  {
+   "severity": "중대",
+   "section": "§8-10 음성 · §10-7 케이스 표 · §10-5 navbake 행 · §8-2 대조군",
+   "issue": "silhouetteaudit 브라우저 단계에 새로 생긴 검사에 음성 테스트가 없다. 해당 검사는 대조군(reactsLantern·reactsActor), 누설 영역 비트 동일, B_start = B_end(조각별 B_end_k), 액터 루트 2.5 m 가드다. 새 게이트 줄 navcheck도 harnesstest 음성 없이 npm test 합성 음성만 둔다. 검사가 끝내 발화하지 않는 구현 버그와 '통과'를 구별할 수 없다.",
+   "evidence": "HARNESS.md §0 [P2A-BRIEF §0-1]: '게이트 툴을 추가할 때는 그 툴의 음성 테스트를 harnesstest에 동시에 추가한다.' PATCH-015 §1 오류 기록: '015-A-2의 대조군 규칙은 그 자체가 게이트인데, 음성 테스트 없이 도입됐다'. PATCH-015-B: 대조군은 그림으로 합격시키는데, 무인 게이트 실행에는 그림 확인이 없다. 설계의 음성은 22(쌍 규칙), 31(정적 s1·s2), 35(라인업 가시)뿐이고 checks.reactsLantern·reactsActor·leakRegion·leakBstartBend·actorRoot에 대응하는 케이스가 없다. 케이스 31의 --test-anchor-shift는 정적 (s2)만 친다. §10-5 navbake 행은 '합성 음성은 npm test'다.",
+   "fix": "harnesstest에 silhouetteaudit 음성 묶음을 추가한다. 실행은 `--only <1정체> --orient front --dpr 1`로 묶고 단독 소요를 실측한다. 각 하위 실행은 exit 1, 표식, 해당 check=false를 증거로 낸다.\n- `--test-occluder-off`: A 상태에서 풀 레코드 제출을 막는다 → Σ(B−A)=0 → '리그가 대상에 반응하지 않음'.\n- `--test-lantern-stuck`: Z에서도 등롱을 켠다 → B−Z=0.\n- `--test-leak`: A 상태에만 경계구 밖 정적 캡슐 1개를 둔다 → 누설 영역 A≠B.\n- `--test-root-shift 0.1`: 페이지 단계에서만 루트를 옮긴다.\n- `--test-bend-drift`: B_end 직전에만 debugDrift를 건다.\n\nnavcheck에는 `navbake --check --inject-stale`(자산 1바이트 변조) 케이스를 추가한다. 12b 체크리스트에 '새 check마다 음성 ≥ 1' 행을 둔다."
+  },
+  {
+   "severity": "중대",
+   "section": "§8-9 라인업 · §10-8 paletteauditactors · PATCH-010-B",
+   "issue": "paletteauditactors는 기존 paletteaudit을 라인업 PNG에 그대로 돌린다. 그런데 paletteaudit은 프레임 전체 화소 대비 위반율로 판정한다. 라인업에서 액터 화소가 프레임의 1.5%보다 적으면 액터 색이 전부 팔레트 밖이어도 통과한다. 개정 1 검토 #12의 처분(액터별 가시 ≥ 1 화소)은 액터가 찍혔다는 것만 보이고, 게이트가 액터 색에 반응한다는 것은 보이지 않는다. 그래서 PATCH-010-B '캐릭터 포함 상태에서 한도 유지'의 증거가 되지 못한다.",
+   "evidence": "tools/paletteaudit.mjs: `const pct = (violations / total) * 100; const paletteOk = pct <= LIMIT_PCT;` — total은 프레임 전체 화소다. §8-6의 비공허 조건은 '라인업 장마다 액터별 가시 ≥ 1·s ≥ .10 ≥ 1'뿐이다. 음성 12·20(--inject-patch, --inject-orange)은 첫 샷 중앙에 3% 패치를 넣으므로 액터 경로와 무관하다. §8-9는 라인업 카메라가 액터를 얼마나 채우는지를 정하지 않는다. 배경 자체의 위반율(post 잡 실측 최대 1.03%)도 여유를 깎는다.",
+   "fix": "감도를 음성으로 증명한다. harnesstest에 `--inject-actor-offpalette`(예: ACTOR_ACCENT_* 레시피 색상을 300°로, testOverride)를 넣은 라인업 입력을 추가하고, paletteauditactors가 반드시 exit 1이 되게 한다. 이 음성이 성립하도록 라인업 카메라 자세(액터가 프레임을 채우는 근접 구도)를 고정한다. 숫자 임계를 새로 세우지 않고 '음성이 실패하는 구도'로 정한다. 보고에는 액터 마스크 안 위반율과 액터 화소 비율을 함께 싣는다. 판정은 계약 1.5% 그대로다."
+  },
+  {
+   "severity": "경미",
+   "section": "§5-2 4b 도달 상계 가지치기 · §10-6 nav-synthetic",
+   "issue": "4b 가지치기는 '청크마다(패딩 1.0 m 포함)' 단계 목록 안에 있다. 그런데 바닥 시드에서 닿는지는 전역 성질이다. 다른 청크를 거쳐야만 닿는 스팬(이음선을 걸친 단상·누각형 데크)은 그 청크 안에서 PRUNED가 되고, 그 스팬의 ⑤–⑧이 생략되어 간선이 사라진다. 그러면 '상계라 실제로 닿는 스팬은 가지치지 않는다(판정 무영향)'는 주장이 청크화와 함께 성립하지 않는다. 현 경내에서 확인한 사례(누각 (−30, 28)은 한 청크 안, gate_loft_floor는 양쪽 담 갓에서 도달)는 우연히 맞을 뿐이다. 한양 확장(P4-BRIEF §3-3)에서는 드러난다.",
+   "evidence": "§5-2 '청크마다(패딩 포함) 다음을 한다 … 4b. 시드(바닥 오브젝트 ground)에서 상계 그래프로 닿지 않는 스팬을 PRUNED로 표시하고 ⑤–⑧을 건너뛴다'. nav-synthetic의 '청크 순서 무관'은 청크 독립 계산이면 자명하게 통과하므로 이 결함을 못 잡는다. level.js:466-488 누각 데크(3.0 m)는 북측 계단으로만 닿는다.",
+   "fix": "4b를 두 단계로 나눈다. ① 전 청크 열 샘플 뒤에 상계 그래프(청크 간 이음 후보 포함)로 전역 도달 집합을 계산한다. ② 그 결과를 PRUNED로 고정한 뒤 청크별 ⑤–⑧을 돈다. 도시 규모에서는 청크별 상계 그래프를 만든 뒤 이음선 경계 노드로 시드를 전파하는 고정점으로 한다. nav-synthetic에 '이웃 청크 계단으로만 닿는 단상' 케이스를 추가한다(PRUNED 0, 간선 ≥ 1)."
+  },
+  {
+   "severity": "경미",
+   "section": "§5-1 minHeadroom · §5-2 ④ · §5-5 'P4D 재굽기 불필요' · §1-1 ai 허용 집합",
+   "issue": "이동 클래스는 '로스터 ∪ v1 fixture'로 굽는다. 그런데 스팬 폐기 기준(minHeadroom = 로스터 최소 crouchHeight)과 막힘 기준(nodeClear < 로스터 최소 반지름)은 로스터만으로 정한다. fixture에 로스터보다 작은 crouch나 반지름이 있으면 그 클래스의 스팬이 잘못 버려지거나 막힌다. P4D에서 v1을 로스터로 옮기면 minHeadroom이 바뀌어 NAV_CONFIG와 paramsHash가 바뀌므로 재굽기가 강제된다. 그래서 'P4D 편입에 재굽기 불필요'와 모순된다. 또 config.js가 로스터에서 값을 유도하면 ai → actors 직접 import가 되어 §1-1 허용 집합 {ai, src/core}에 어긋난다.",
+   "evidence": "§5-1 'minHeadroom = 로스터 최소 crouchHeight', '이동 클래스 agentClasses: 로스터 ∪ v1 fixture'. §5-2 ④ 'nodeClear < 로스터 최소 반지름이면 막힘'. §5-5 'v1 fixture 클래스 포함이라 P4D 편입에 재굽기 불필요'. v0 최소값은 crouch 1.00(자라), 반지름 .30(토끼)이고, v1(심청 등)은 미정이다.",
+   "fix": "두 기준을 매니페스트 classes(로스터 ∪ fixture)의 최솟값에서 navbake가 유도한다. 그 값을 매니페스트와 paramsHash에 정수로 기록한다. config.js에는 로스터 의존을 두지 않는다. nav-fresh에 'classes 최솟값 = 기준값'을 단언한다."
+  },
+  {
+   "severity": "경미",
+   "section": "§7-1 컨트롤러 재사용 · §7-7 ⑥b actors.reset · §10-6 actor-sim 'reset = 신규 인스턴스'",
+   "issue": "슬롯 컨트롤러는 부팅 때 하나만 만들어 세션마다 재사용한다. reset은 '주차'만 하고, 스폰은 configure → teleport다. teleport·probeGround는 공중 스폰(접지 프로브 0.06 m 밖)일 때 groundNormal·groundSurface·groundObject를 갱신하지 않는다. 그래서 직전 세션 값이 남아 '리셋 = 신규 인스턴스' 동등성(p4b_actor_reset_byte_identical·actor-sim)이 잠재적으로 깨진다. 지금 플레이어는 SPAWN y 0.05로 접지 스폰이라 우연히 드러나지 않는다.",
+   "evidence": "character.js:96-109 teleport는 velocity·grounded·touchingCeiling/Wall·landingSpeed·steppedUp·lastMoveBlocked·wallNormal만 지운다. probeGround(400-447)는 found=false일 때 groundObject를 건드리지 않고, hit도 없으면 groundNormal·groundSurface도 그대로 둔다. 설계 §7-7은 '⑥b actors.reset()(슬롯 비움·컨트롤러 주차·모드 해제)', §7-1은 '스폰은 configure → checkCapsule → teleport'다.",
+   "fix": "configure()가 접촉·지면 필드 전부를 생성자 기본값으로 되돌리게 한다. 또는 슬롯별 부팅 스냅샷 resetToBoot()를 두고 actors.reset에서 부른다. 테스트는 세션 1에서 비기본 표면에 접지한 뒤 reset, 세션 2에서 공중 스폰한 상태를 신규 인스턴스와 바이트로 대조한다."
+  },
+  {
+   "severity": "경미",
+   "section": "§8-2 상태 절차 · §7-7 ⑫ exposure.reset · §4-8 ② 후보 캡처",
+   "issue": "상태 절차 'resetState → setShot → silhouetteAuditSetup → stepFrames(90) → readSceneRect → capturePng'에 노출 잠금 단계가 없다. resetState의 ⑫는 exposure.reset()(unlock + snap)이므로, '2. 이후 lockExposure(evB)'를 한 번만 걸면 Z·B_start·A·B_end가 자유 적응으로 찍힌다. 대비 C_bg는 AgX 뒤 표시 PNG에서 재므로 노출에 의존한다(PATCH-015-E, 016-C 사유 1). 후보 B·C·D 실행에는 B0가 없어서 어느 EV로 잠그는지도 정해지지 않았다.",
+   "evidence": "§7-7 '⑫ 안 exposure.reset() = unlock + testOverride 해제 + snap'. §8-2 1–4 순서와 상태 절차. §8-12 단계 11 계획 'B·C·D 각 (B + A front 4)'.",
+   "fix": "silhouetteAuditSetup에 `exposure: {lock: ev}` 인자를 두어 매 상태 resetState 뒤 잠근다. 상태마다 JSON에 그리기 시점 `_drawn` 기준의 `{mode, ev100}`를 남기고 evB와 같은지 단언한다. 후보 실행은 후보별 B0를 1상태 추가해 각자 evB로 잠그거나, L0 evB로 고정한다. 어느 쪽인지 정해 JSON에 기록한다(비교 조건 명시)."
+  },
+  {
+   "severity": "경미",
+   "section": "§8-2 이어 받기·시간 조각 · R25",
+   "issue": "B_end_k는 조각이 exit 75로 정상 종료할 때만 그려진다. 컨테이너 회수처럼 조각이 도중에 잘리면, 그 페이지에서 저장된 A 상태 사이드카는 같은 페이지의 B_end 검증 없이 다음 조각에 '이어 받은 상태(resumed)'로 들어간다. 조각을 둔 목적이 컨테이너 생존 창이므로 이 경로가 주된 위험이다.",
+   "evidence": "P4-LOG:31-41(3차 체인 소실 6회, 생존 창 2–4.5 h). §8-2 '--state=FILE은 상태별 사이드카로 이어 받고 resumed로 기록', '조각 k 마지막에 B_end_k를 그려 … 바이트 대조'.",
+   "fix": "사이드카는 '대기(pending)'로 쓰고, 그 조각의 B_end_k가 통과할 때 일괄 확정한다. 확정되지 않은 상태는 재개 때 다시 그린다. 재개한 새 페이지 첫 상태로 B_start 재렌더 대조(B_begin_k)를 하나 더 두면 조각 간 비결정도 앞에서 잡는다."
+  },
+  {
+   "severity": "경미",
+   "section": "§8-3 누설 영역 비공허 · §8-4 유효 화소 · §8-7 bg · §10-6 nav-gwana",
+   "issue": "'유효 화소'를 판 rect에서 창살만 뺀 것으로 정의했다. 그래서 판 가장자리에 걸친 기둥처럼 판이 아닌 화소가 섞인다. castShadow=false 등롱이 이 화소의 옆면을 비추면 B−Z > 0이면서 A == B가 자명하다. 그러면 (1) '정체마다 누설 영역 ∩ 유효 ≥ 1' 비공허 조건을 판이 아닌 화소가 채울 수 있고, (2) C_bg의 bg(o = 0)에 목재 화소가 섞인다. 창살을 뺀 근거('A == B가 자명')가 기둥에도 그대로 적용되는데 기둥은 빠지지 않았다. 또 nav-gwana의 층화 표본 오라클 재주행은 '표본 크기는 리포트'뿐이라 층이 비어도 통과한다.",
+   "evidence": "level.js 내아 서벽: 기둥 x −32, z ∈ {−13, −10, −7}, 배흘림 r .1575(kit.js). 판 na_w_-3은 폭 3 − 0.3 = 2.7, z −12.85..−10.15라 기둥이 판 양끝을 7.5 mm(≈2.7 px @354 px/m) 덮는다. 기둥 −z면은 등롱 (−26, 2.0, −11.5) 쪽을 향해 N·L > 0이다. §8-3 '비공허 = 영역 ∩ 유효(비창살) 화소 ≥ 1(창살 화소는 A == B가 자명하므로)'. §10-6 nav-gwana '표본 크기는 리포트'.",
+   "fix": "유효 화소 = renderObjectMask({match: '^na_w_-3_hanji$'}) ∖ 팽창 창살로 정의한다(판 자신의 가시 화소만). 누설 영역, bg, 비공허를 모두 이 집합 위에서 센다. nav-gwana는 클래스 × 층마다 표본 ≥ 1을 판정 조건으로 둔다."
+  },
+  {
+   "severity": "경미",
+   "section": "§8-3 영역 크기 계산 · §8-1 (s3) · §0-7 · R3",
+   "issue": "L0 비공허의 근거로 '몸보다 굵은 근사(수직 캡슐 r 0.25·2 m)로도 L0 60.6%'를 들었다. 그런데 r 0.25(폭 0.5 m)는 v0 몸보다 가늘다. 자라 등껍질 0.84 m, 도깨비 0.80 m, 콩쥐 치마 0.84 m이므로 이 값은 영역의 하한이 아니다. 또 (s3)는 '§8-3과 같은 정의(무지터 화소 중심)'라고 했지만, §8-3은 판독 프레임 지터의 네 모서리로 정의한다. 실제로 같은 정의가 아니다. 지터는 프레임 번호로 결정되어(90프레임 → JITTER[2]) 미리 계산할 수 있으므로 굳이 다르게 둘 이유가 없다.",
+   "evidence": "§2-6 표(최대폭 자라 0.84 — shell el r_x .42, 도깨비 0.80, 콩쥐 0.84). pipeline.js:432 `const j0 = JITTER[clock.frame % JITTER.length]`, clock.resetSimTime이 frame = 0으로 돌리므로 매 상태 판독 지터는 [0.25, −0.388889]로 고정이다. §8-1 (s3) 문면.",
+   "fix": "L0·B 비공허는 v0 4종 × front/side 실제 원시로 silhouettepredict가 계산한 값으로 바꿔 적는다(3d 산출물). 그 전까지는 '미측정'으로 표기한다. (s3)는 frame 90의 지터와 네 모서리 술어를 그대로 써서 브라우저 정의와 일치시킨다."
+  },
+  {
+   "severity": "경미",
+   "section": "§8-13 숫자의 출처(014-C 준수표) · §8-4 · §8-1 · §8-5",
+   "issue": "판정에 영향을 주는 숫자 일부가 준수표에서 빠졌다. 창살 마스크 2 px 팽창은 유효/미지 화소와 채움 규칙을 거쳐 W·H·P 값을 움직인다. 루트·앵커 거리 단언의 ±1e-6은 exit 1 조건이다. K는 '대역 / soft_actor'로 유도했다면서 실제로는 자기 구간 [h0, H]를 K등분한다. 그러면 칸 폭이 유도 근거(반그림자 폭)와 맞지 않는다.",
+   "evidence": "§8-4 '각각 2 px 팽창해 미지로', §8-1 '2.5 ± 1e-6', §8-5 'K 후보 = floor((Y1 − Y0)/soft_actor)'와 '자기 구간 [h0, H]를 K등분'. §8-13 표에는 2 px와 ±1e-6 행이 없다.",
+   "fix": "표에 2 px(구현 파라미터, 1/2/3 px에서 축 원값 민감도 보고), ±1e-6(정의: anchor.x·pane.x가 리터럴이므로 정확히 2.5, 허용을 0으로 줄일 수 있음)을 올린다. K는 칸 폭 = soft_actor(정체별 K = floor((H − h0)/soft_actor))로 정의를 맞추거나, 대역 기준 고정 칸으로 바꾼다. 어느 쪽이든 결정 4에 명시한다."
+  },
+  {
+   "severity": "경미",
+   "section": "§13 단계 10·11 · §10-7 시간 예산",
+   "issue": "단계 10의 검증에 'CI 분할 여부 결정'(harnesstesta/b)이 있다. 그런데 분할의 주된 원인인 케이스 22·35는 단계 11에서 만들어진다. 선행 그래프상 10은 11에 의존하지 않으므로, 10에서는 22·35의 단독 소요를 잴 수 없다. 두 단계를 병렬로 돌리면 harnesstest.mjs(시간 조각·헤더 주석·케이스 표)를 동시에 고치는 충돌도 생긴다.",
+   "evidence": "§11 선행 그래프 '10←9a, 11←{9a, 3d}'. §13 단계 10 검증 '케이스별 단독 소요 실측, 26·28 절 의존 결과, CI 분할 여부 결정'. 단계 11 내용 '케이스 22·31·35'.",
+   "fix": "'CI 분할 여부 결정'을 단계 11 뒤(또는 12b의 CI 편입 행)로 옮긴다. 선행에 12b ← {10, 11}을 명시하고, harnesstest.mjs는 단일 오너가 10 → 11 순차로 편집한다고 적는다."
+  }
+ ]
+}

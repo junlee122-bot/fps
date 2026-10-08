@@ -1,0 +1,568 @@
+{
+ "subsystem": "코어·하네스·결정성 — src/core/{clock,rng,events,harness,determinism,stats,surfaces,prewarm}.js, src/main.js(배선·루프·harness ctx), tools/determinismaudit.mjs (브랜치 r4-wip, 읽기 전용 조사)",
+ "summary": "(1) 시뮬레이션 틱의 실체는 harness.js:108-116 의 simSubstep()이다(input 무기교체 소비→player.update→fire.update→fx.update→physics.step, dt=PHYSICS_DT=1/120). fixed 모드는 stepFrames 가 프레임당 clock.tickFixed→simSubstep×2→renderFrame 을 돌리고(harness.js:200-213), realtime 루프도 같은 simSubstep 을 누적기로 최대 12회 부른다(main.js:386-404). P4B 의 액터·래그돌·내비메시 갱신은 이 함수에 넣어야 두 모드가 같은 배선을 쓴다. (2) resetState()(harness.js:236-262)는 19단계를 고정 순서로 복원한다: 클록→rng 스트림→입력→플레이어→런타임 강체 제거→상자→무기→HANJI→불투명도→fx→오디오→파이프라인(TAA·노출)→뷰모델→bus 구독 절단→통계→하네스 상태→히트로그→기본 뷰. 액터·래그돌·내비메시는 여기에 없고, hanjiOccluders·errors·compileLog·determinism 카운터·debugFreezeExposure 의 함수 치환·debugSetVisible 도 복원하지 않는다. (3) 난수는 이름별 스트림이다(rng.js:50-57, seed = globalSeed ^ fnv1a(name), mulberry32). resetAllStreams()는 Map 을 비울 뿐이라서 스트림 클로저를 캐시하면 리셋 뒤에도 옛 수열이 이어진다(노드로 확인함). 그래서 '쓸 때마다 rngStream(name) 호출'이 규칙이다(weapon.js:68-73). (4) 결정성 트랩은 Math.random 을 고정 시드 mulberry32 로 바꾸는 방식이고 두 모드 모두에서 장착된다(main.js:55). stepFrames 창 안에서 호출이 1회라도 있으면 예외 대신 harness errors 에 기록된다(harness.js:219-223). 창은 렌더까지 포함하므로 three 의 Object3D·Material·BufferGeometry·Texture·Skeleton 생성(generateUUID)도 걸린다. 따라서 P4B 의 메시·본·래그돌 표시물은 부팅 때 미리 할당해야 한다(DEBRIS_POOL 선례 main.js:163-170). (5) bus 는 어휘 17종만 허용하고 위반 시 throw 한다(events.js:9-32,42,60). actor:damage·actor:death·weapon:ads 는 선언만 있고 발행·구독이 0건이며, surface:breach 는 오디오만 구독하고 발행처가 없다. 구독은 bus.markBoot()(main.js:375) 이전에 해야 하고, 그 뒤에 붙인 구독은 resetState 에서 길이 기준으로 잘린다(events.js:83-92). (6) 코드에 PBD 래그돌·내비메시·액터·src/ai 는 없다. physics 에는 box/sphere/capsule 임펄스 강체와 캐릭터 컨트롤러만 있다(rigidbody.js:28,105,108). 'ragdoll' 은 physics/math.js:228 주석에만 나온다. ARCHITECTURE.md:44,48 과 P4-BRIEF §3-4 의 'physics 의 PBD 래그돌' 은 문서상 주장일 뿐이다. (7) 시뮬과 표현이 섞이는 지점은 다음과 같다. fx.update 가 시뮬 서브스텝 안에 있다. fx 기와 파편 강체를 탄도가 맞힌다. 카메라 반동 스프링이 산포와 같은 무기 rng 스트림을 쓴다. HANJI 구멍 UV 를 렌더 메시 행렬로 계산한다. 게임플레이 변수인 노출이 GPU 1×1 RT 에만 있다. 그리고 트립와이어 창이 렌더까지 덮는다. (8) 노출 계약값을 동결할 지점은 exposure.js:115-118 이다. pipeline.js:51 의 Object.freeze 된 EXPOSURE_PARAMS 를 가변 this.params 로 복사하고, render() 가 매 프레임 다시 읽는다(exposure.js:156-160). 지금은 동결이 구조적으로 보장되지 않는다. (9) 음성 훅은 URL 로 전달되지 않는다. 노드 쪽 CLI 플래그가 ① 노드 내부 합성 주입, ② page.evaluate 로 __harness._internal 몽키패치, ③ testOverride 를 세우는 debug* 하네스 메서드 호출, ④ 빈 동일 출처 페이지에서 src 모듈을 동적 import 하고 노드가 변조한 데이터를 넘기는 방식 중 하나로 전달된다. harnesstest 는 exit 코드와 testOverride 표식을 함께 본다. 케이스 22 는 silhouetteaudit 용으로 예약되어 있다(harnesstest.mjs:27, gates.sh:61). (10) determinismaudit 를 지금 돌리면 초록이다: src 위반 0, 서드파티 11파일 중 SimplexNoise.js:17 앨리어싱 1건, 트랩 장착 확인.",
+ "files": [
+  {
+   "path": "/home/user/fps/src/core/clock.js",
+   "role": "단일 시간 소스. 모드 realtime/fixed, time·dt·frame. 이 파일만 performance.now 를 소비한다(determinismaudit OWNER_SCOPES). clock.time 은 렌더 프레임 단위로만 전진하고 서브스텝은 클록을 진행시키지 않는다(43-59).",
+   "keyExports": [
+    "FIXED_DT=1/60 (16)",
+    "PHYSICS_DT=1/120 (18)",
+    "MAX_FRAME_DT=0.1 (20)",
+    "clock (87): setMode, tickRealtime(rafMs), tickFixed(), resetSimTime(), markBootDone(), bootMs, wallNowMs() — 계측 전용"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/core/rng.js",
+   "role": "이름별 결정적 PRNG 스트림. 스트림 Map 은 이름 → mulberry32 클로저. resetAllStreams 는 Map.clear() 뿐이라 캐시된 클로저는 리셋되지 않는다.",
+   "keyExports": [
+    "DEFAULT_SEED=0x4a53434b (10)",
+    "mulberry32(seed) (25)",
+    "setGlobalSeed(seed) — streams.clear 포함 (37-40)",
+    "getGlobalSeed() (42)",
+    "rngStream(name) — seed=(globalSeed ^ fnv1a(name))>>>0 (50-57)",
+    "resetAllStreams() (60-62)"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/core/events.js",
+   "role": "단일 이벤트 버스. 어휘 밖 이벤트는 on/emit 에서 throw. 동기 발행, 스냅샷 순회로 등록 순서가 결정적이다. 부팅 스냅샷 기준 절단으로 런타임 구독을 해제한다. 페이로드는 검증하지 않는다.",
+   "keyExports": [
+    "EVENT_VOCABULARY (9-32, 17종)",
+    "bus (95): on(type,fn)→unsub (41-50), off (52-57), emit (59-66), clearAll, markBoot (73-76), resetToBoot (83-92)"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/core/determinism.js",
+   "role": "Math.random 을 고정 시드 mulberry32 로 대체하는 구조 트랩. 호출 카운터와 시뮬 창 표시를 맡는다. 머리주석 20행 'realtime 모드에서는 장착하지 않는다' 는 main.js:51-55(두 모드 장착)와 어긋나는 낡은 서술이다.",
+   "keyExports": [
+    "armCaptureDeterminism() (43-51)",
+    "markSimWindow(on) — on 이면 simWindowCalls=0 (54-57)",
+    "simWindowCalls() (59)",
+    "mathRandomStats() → {armed,totalCalls,simWindowTotal} (63-65)"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/core/harness.js",
+   "role": "window.__harness 계약 5종과 확장 30여 종. simSubstep/stepSim/renderFrame/scriptTick 을 _internal 로 main.js 루프에 공급한다. compileLog 훅(renderer.info.programs.push 래핑)도 여기 있다.",
+   "keyExports": [
+    "installHarness(ctx) (20)",
+    "PHYS_STEPS_PER_FRAME=2 (18)",
+    "simSubstep (108-116)",
+    "renderFrame (122-150)",
+    "resetState (236-262)",
+    "_internal (581)",
+    "getCompileLog (611)"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/core/stats.js",
+   "role": "프레임 통계 기록기. renderFrame 이 렌더 직후 1회 record 한다. 벽시계는 clock.wallNowMs 로만 읽는다.",
+   "keyExports": [
+    "StatsRecorder: reset (116-150), record(cpuSimMs,cpuSubmitMs,overdraw,particles,decals,sceneCalls,sceneTris,substeps,substepMs,horizonReadbacks) (153-173), markEvent(tag) (175), snapshot() (180-203)"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/core/surfaces.js",
+   "role": "동결 계약 파일(단독 수정 금지, 1-12). 표면 15종 물성과 관통 계산. 미지 표면은 throw 한다(307). 액터·살(肉) 표면은 없다.",
+   "keyExports": [
+    "PenClass (15)",
+    "SURFACES (37, 15종)",
+    "COVER_SURFACES (271)",
+    "DECAL_SURFACES (278)",
+    "VERTICAL_COVER_SURFACES (285)",
+    "COVER_PLACEMENT_LIMITS (288)",
+    "computePenetration(energy0, layers) (298-330)"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/core/prewarm.js",
+   "role": "셰이더 프리웜. compileAsync@sceneRT → 첫 샷 실렌더 → 나머지 샷 순회 → restoreDefault. three 0.180 의 compile 은 traverseVisible 이라서(WebGLRenderer.js:1312,1330) 숨긴 메시는 컴파일되지 않는다.",
+   "keyExports": [
+    "prewarmShaders({renderer,scene,camera,shots,applyShot,restoreDefault,renderFrame,compileTarget}) (21-99)"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/main.js",
+   "role": "부팅 시퀀스, 서브시스템 생성과 주입 배선, harness ctx 조립, realtime 루프. URL 파라미터는 mode/seed/dpr 3개뿐이고(46-49) 음성 훅용 URL 파라미터는 없다.",
+   "keyExports": [
+    "armCaptureDeterminism 최상위 무조건 호출 (55)",
+    "setGlobalSeed·clock.setMode (57-58)",
+    "FireControl 주입 (106-109)",
+    "DEBRIS_POOL 선할당 (163-170)",
+    "FxSystem spawnBody/despawnBody 주입 (171-192)",
+    "surface:damage→HANJI 어댑터 (196-205)",
+    "applyShot (228-254) / applyDefaultView (256-265)",
+    "AudioSystem 주입 (274-288)",
+    "installHarness ctx (295-318)",
+    "부팅 마감: fire.reset·fx.reset·resetAllStreams·physics.markBootBodies·bus.markBoot·markBootDone·ready (371-379)",
+    "realtime 루프 (382-409)",
+    "window.__materials/__bootPhases/__prewarm/__pipeline/__lighting (337-369)"
+   ]
+  },
+  {
+   "path": "/home/user/fps/tools/determinismaudit.mjs",
+   "role": "결정성 정적 게이트. 검사 1은 src/**/*.js 의 금지 패턴(clock.js·determinism.js 제외)이고, 검사 2는 three/addons 전이 임포트 표면 보고와 main.js 최상위 armCaptureDeterminism() 무조건 호출 검증이다. --inject-test 는 harnesstest 케이스 14 전용이다.",
+   "keyExports": [
+    "PATTERNS (33-43)",
+    "ALIAS_PATTERN (44)",
+    "OWNER_SCOPES (47)",
+    "scanSource (63-86)",
+    "trapArmed 정규식 (133)"
+   ]
+  },
+  {
+   "path": "/home/user/fps/tools/harnesstest.mjs",
+   "role": "하네스 자기검증. 케이스 22 슬롯이 silhouetteaudit 용으로 예약되어 있다(27행 주석 '21·22 는 P4 예약', 21 은 audioaudit 로 이미 사용). 결과 기록은 record(id,name,pass,detail) 패턴이고 브라우저 도구는 runAudit 로 1회 재시도한다.",
+   "keyExports": [
+    "record (50)",
+    "run (73-77)",
+    "runAudit (82-98)",
+    "케이스 14 (301-315)"
+   ]
+  },
+  {
+   "path": "/home/user/fps/tools/playtest.mjs",
+   "role": "리셋 결정성 창(p2b_reset_byte_identical): pristine 과 사격 후 resetState 결과의 JSON 바이트를 비교한다. 대상은 getInvariants 의 player·bodies·simTime·frame, getWeaponState, getFxState 다(249-276). 액터와 래그돌은 대상에 없다.",
+   "keyExports": [
+    "fullState (249-259)",
+    "--inject-no-holes 몽키패치 (66-73)"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/materials/hanji-occluders.js",
+   "role": "창호지 점광 투과용 해석적 캡슐 차폐 등록부(P4 적 캡슐 수용을 전제로 만들어짐). 상한 HANJI_OCC_MAX=4 를 넘으면 경고 없이 잘라낸다(52).",
+   "keyExports": [
+    "HANJI_OCC_MAX=4 (12)",
+    "HanjiOccluders.set(id,{a,b,r}) (29-32), setFromMesh (35-42), delete (44), update(viewMatrix) (47-57)"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/render/exposure.js",
+   "role": "EV100 자동 노출(GPU 3패스, 적응 상태는 1×1 Float RT). P4-BRIEF §5-1 ⓐ 의 동결 대상 범위(evMin/evMax/kneeSlope)와 속도(rateUp/rateDown)가 여기 있다.",
+   "keyExports": [
+    "ExposureMeter: params 복사 (115-118), reset()=스냅 플래그 (150), render(src,w,h,dt) (155-172), read() 동기 readback (175-185)",
+    "ADAPT_FRAG 적응식 (69-90)"
+   ]
+  }
+ ],
+ "apis": [
+  {
+   "name": "ready",
+   "where": "src/core/harness.js:177",
+   "semantics": "main.js readyPromise. 프리웜, 기본뷰 복원, 웜 렌더, pipeline.reset, fire/fx reset, resetAllStreams, markBootBodies, bus.markBoot, markBootDone 이 끝난 뒤 resolve 된다(main.js:348-379).",
+   "signature": "Promise<void>"
+  },
+  {
+   "name": "setShot",
+   "where": "src/core/harness.js:179-189",
+   "semantics": "busy 가드. cameraOverride=true, shotFrame=0. atFrame>0 액션은 pendingActions 로 보내 stepFrames 에서 실행하고, 즉시 액션은 applyShot(shot,{runActions:true}) 에서 실행한다. 액션 타입은 'fire' 만 허용하고 그 외는 throw(main.js:249, harness.js:102). 시뮬 창 밖에서 실행된다.",
+   "signature": "async setShot(name) → {ok, shot}"
+  },
+  {
+   "name": "stepFrames",
+   "where": "src/core/harness.js:191-227",
+   "semantics": "fixed 전용, 정수 n≥1, 재진입 가드. markSimWindow(true) 를 연 뒤 프레임마다 지연 액션(atFrame===shotFrame) → clock.tickFixed → stepSim(simSubstep×2) → renderFrame(t0) → shotFrame++ 순으로 돌고, 32프레임마다 setTimeout 으로 양보한다. finally 에서 창을 닫는다. 창 안에서 Math.random 이 1회라도 불렸으면 errors.push 와 console.error 를 남기고(throw 하지 않음) rAF 2회 양보 후 반환한다.",
+   "signature": "async stepFrames(n) → {ok, frames, simTime}"
+  },
+  {
+   "name": "getStats",
+   "where": "src/core/harness.js:229-234",
+   "semantics": "stats.snapshot(). state.testOverride 가 있으면 snap.testOverride 를 붙인다(비계약 표식).",
+   "signature": "getStats() → {frameTimes, programCountPerFrame, triangles, drawCalls, …확장, events, bootMs, testOverride?}"
+  },
+  {
+   "name": "resetState",
+   "where": "src/core/harness.js:236-262",
+   "semantics": "busy 가드. 순서: ① clock.resetSimTime ② resetAllStreams ③ input.reset ④ player.reset(SPAWN 텔레포트, yaw/pitch override) ⑤ physics.pruneRuntimeBodies ⑥ world.resetDynamic(상자 2개) ⑦ fire.reset ⑧ hanji.reset(더럽혀진 판만 surface:opacity 재발행) ⑨ opacityApplier.restoreAll ⑩ fx.reset(파편은 despawnBody 로 풀에 반납) ⑪ audio.reset ⑫ pipeline.reset(TAA·prevVP·exposure 스냅·RT clear) ⑬ viewmodel.setVisible ⑭ bus.resetToBoot ⑮ stats.reset ⑯ cameraOverride/script/shotFrame/pendingActions/testOverride(debugDrift 는 유지) ⑰ hitLog·hitCounts ⑱ applyDefaultView. 복원하지 않는 것: errors, compileLog, determinism 카운터와 Math.random 수열 위치, hanjiOccluders, debugFreezeExposure 가 치환한 exposure.render, debugSetVisible 로 바꾼 가시성.",
+   "signature": "resetState() → {ok:true}"
+  },
+  {
+   "name": "setInput / runScript / getPlayerState / getBootMs",
+   "where": "src/core/harness.js:266-290",
+   "semantics": "setInput 은 input.override(partial) 후 input.state 를 돌려준다(가드 없음). runScript 는 realtime 전용으로 segments{dur,input,tag,jumpPulse,yawRate} 를 scriptTick 이 렌더 프레임마다 clock.time 기준으로 진행한다(153-174). getPlayerState 는 player.eyeState, getBootMs 는 clock.bootMs.",
+   "signature": "setInput(partial); runScript(segments)→Promise; getPlayerState(); getBootMs()"
+  },
+  {
+   "name": "getInvariants",
+   "where": "src/core/harness.js:293-320",
+   "semantics": "플레이어 유한성, 캡슐 최대 침투 깊이, rigid bodies 목록(id,pos,speed,sleeping,finite), simTime, frame. playtest 결정성 창의 입력이다. 래그돌·액터 상태는 없다.",
+   "signature": "getInvariants() → {player, finitePlayer, penetrationDepth, bodies[], simTime, frame}"
+  },
+  {
+   "name": "getHitLog / getErrors / getDeterminism",
+   "where": "src/core/harness.js:323-334",
+   "semantics": "hitLog 는 boot 시점에 등록된 ballistic:hit 구독(75-79)이 채우는 링 64개와 표면별 누적이다. errors 는 window error, unhandledrejection, determinism 트립와이어 메시지를 누적하며 리셋되지 않는다. getDeterminism 은 mathRandomStats().",
+   "signature": "getHitLog()→{recent,bySurface}; getErrors()→string[]; getDeterminism()→{armed,totalCalls,simWindowTotal}"
+  },
+  {
+   "name": "getProgramList / getCompileLog",
+   "where": "src/core/harness.js:340-350, 591-611",
+   "semantics": "프로그램 목록(해시+태그)과 생성 시점 로그(이름·태그(SKINNING 포함)·frame(부팅 중 -1)·shotFrame·tagMask·스택). '플레이 중 컴파일 0' 위반의 범인을 특정할 때 쓴다.",
+   "signature": "getProgramList(); getCompileLog()"
+  },
+  {
+   "name": "getExposure / getSceneHash / getPassStats / getSceneTriangles",
+   "where": "src/core/harness.js:367-369, 376-386, 410-412, 420-458",
+   "semantics": "계측 전용 동기 readback(프레임 경로 금지). getSceneTriangles 는 world/viewmodel(vm_*)/fx(fx_*)/sky/other 로 분류하고 userData.auditOnly 는 제외한다. P4B 액터 메시는 지금 규칙으로는 'other' 로 집계된다(이름 접두사 규칙 없음).",
+   "signature": "getExposure()→{ev100,evTarget,avgLum,ec,exposure,valid}; getSceneHash(rtName='sceneRT'|'mbRT'); getSceneTriangles(detail)"
+  },
+  {
+   "name": "debug* 테스트·음성 훅",
+   "where": "src/core/harness.js:356-364, 389-394, 480-540",
+   "semantics": "testOverride 를 세우는 것: debugEmitParticles(fixed·busy 가드), debugDrift(fixed), debugDecalNoClip. testOverride 없이 상태만 바꾸는 것: debugFire(fixed·busy), debugSetVisible(리셋 안 됨), debugFreezeExposure(exposure.render 를 no-op 로 치환. 주석 499행은 '다음 resetState 까지' 라고 하지만 resetState 는 이를 되돌리지 않아 페이지를 다시 적재해야만 복구된다), debugCamera(cameraOverride), debugDecalClipReport, debugTrimDecals, debugObjectPose.",
+   "signature": "debugEmitParticles(key,n,x,y,z); debugDrift(on); debugFire({pos,yaw,pitch}); debugSetVisible(prefix,vis); debugFreezeExposure(); debugCamera({from,at}); …"
+  },
+  {
+   "name": "renderTagMask / checkHanjiUniforms / getWeaponState / getFxState / setWeapon",
+   "where": "src/core/harness.js:401-407, 467-473, 543-551",
+   "semantics": "renderTagMask 는 캡처 뒤에만 호출한다(fixed·busy, compileLog 에 tagMask 표식). checkHanjiUniforms 는 부팅 가드를 다시 실행한다. getWeaponState 는 fire.snapshot()+hanji.snapshot()(구멍 목록 포함, 결정성 창 대상).",
+   "signature": "renderTagMask(); checkHanjiUniforms(); getWeaponState(); getFxState(); setWeapon(id)"
+  },
+  {
+   "name": "albedoAuditSetup / viewmodelAuditSetup",
+   "where": "src/core/harness.js:557-578; 배선 main.js:306-317",
+   "semantics": "감사 리그 설치 패턴: ctx 의 *AuditHook 주입 + busy 가드 + cameraOverride=true + 음성 파라미터≠1 이면 출력에 testOverride. silhouetteaudit 리그를 붙일 때의 선례다.",
+   "signature": "albedoAuditSetup({scaleAlbedo}); viewmodelAuditSetup({boost})"
+  },
+  {
+   "name": "_internal",
+   "where": "src/core/harness.js:581",
+   "semantics": "main.js 루프와 프로브 전용: {state, stepSim, simSubstep, renderFrame, scriptTick, pipeline, hanji, opacityApplier, fire, hanjiOccluders, audio}. 도구 사용처는 playtest(_internal.hanji 몽키패치), baseline(_internal.opacityApplier 오염), pixelowner(_internal.pipeline).",
+   "signature": "__harness._internal"
+  },
+  {
+   "name": "simSubstep / renderFrame / scriptTick",
+   "where": "src/core/harness.js:108-116, 122-150, 153-174; 호출 main.js:393-404",
+   "semantics": "simSubstep = 시뮬 1스텝(dt=PHYSICS_DT): consumeWeaponSwitch→switchTo, player.moveSpeedMul=fire.current.adsMoveMul, player.update, fire.update(input.state, player.fireEye), fx.update, physics.step. renderFrame = cameraOverride 가 아니면 player.applyCamera 와 camSpring 오프셋 → viewmodel.update → fx.writeInstances → pipeline.render → overdraw 산출 → stats.record.",
+   "signature": "simSubstep(); stepSim(); renderFrame(cpuStartMs=-1, sub=null)"
+  },
+  {
+   "name": "clock",
+   "where": "src/core/clock.js:22-87",
+   "semantics": "tickFixed 는 dt=FIXED_DT, time+=dt, frame++. tickRealtime 은 dt=min(Δraf, 0.1), 음수면 0. resetSimTime 은 time=0, frame=0. 서브스텝은 클록을 진행시키지 않으므로 서브스텝 2개가 같은 clock.time 을 본다.",
+   "signature": "clock.tickFixed(); clock.tickRealtime(ms); clock.resetSimTime(); clock.wallNowMs()"
+  },
+  {
+   "name": "bus.markBoot / resetToBoot",
+   "where": "src/core/events.js:73-92; 호출 main.js:375, harness.js:251",
+   "semantics": "부팅 시 타입별 구독 수를 저장하고, 리셋 시 리스트 길이를 그 수로 절단한다. 길이 기준이므로 부팅 구독을 off 한 뒤 재구독하면 엉뚱한 핸들러가 남는다.",
+   "signature": "bus.markBoot(); bus.resetToBoot()"
+  },
+  {
+   "name": "physics.markBootBodies / pruneRuntimeBodies",
+   "where": "src/physics/index.js:59-79; 호출 main.js:374, harness.js:242",
+   "semantics": "부팅 로스터 밖의 강체를 제거하고 object3D 를 씬에서 뗀다. 부팅 로스터 강체의 상태 복원은 각 소유자 책임이다(world.resetDynamic, level.js:643-660). '부팅 스냅샷 + 런타임분 절단' 패턴은 내비메시 런타임 간선에도 적용할 수 있다.",
+   "signature": "markBootBodies(); pruneRuntimeBodies()→removed"
+  },
+  {
+   "name": "audio.setPropagationGraph",
+   "where": "src/audio/index.js:83-85; src/audio/propagation.js:50-57",
+   "semantics": "P4A 가 남긴 우회 경로 인터페이스. graph.findDetours(sourcePos, listenerPos) 를 구현하는 객체를 주입한다. P4-BRIEF:263 은 '그래프는 P4B 내비메시와 함께 생긴다' 고 한다. 지금은 NO_GRAPH.",
+   "signature": "audio.setPropagationGraph({findDetours(src,lis)→detour[]})"
+  }
+ ],
+ "invariants": [
+  {
+   "rule": "src/ 에서 Math.random, Math['random'], {random}=Math, MathUtils.rand*/generateUUID, crypto.getRandomValues/randomUUID, performance.now, performance.timeOrigin, Date.now, new Date, '= Math' 앨리어싱을 직접 호출하지 않는다(예외 스코프는 core/clock.js·core/determinism.js 뿐). 주석 행은 제외하고 매칭한다.",
+   "evidence": "tools/determinismaudit.mjs:33-47, 88-94. 현재 실행 결과 ok=true, srcViolations 0."
+  },
+  {
+   "rule": "main.js 최상위에서 armCaptureDeterminism() 을 조건 없이 호출해야 한다. 주석 처리하거나 if/&&/? 로 조건화하면 감사가 exit 1 을 낸다.",
+   "evidence": "tools/determinismaudit.mjs:130-150; src/main.js:55"
+  },
+  {
+   "rule": "rng 스트림 클로저를 캐시하지 말고 쓸 때마다 rngStream(name) 을 호출한다. resetAllStreams 는 Map 만 비우므로 캐시된 클로저는 옛 수열을 계속 낸다.",
+   "evidence": "src/core/rng.js:50-62; src/weapons/weapon.js:68-73; 노드 확인: 리셋 후 새 rngStream 은 원점으로 돌아가고 캐시 클로저는 계속 이어짐"
+  },
+  {
+   "rule": "스트림은 이름별로 격리된다. 현재 이름은 weapon:CARBINE/SHOTGUN/DMR, fx:particles, fx:decals, fx:debris, audio:take 이고, 이와 별개로 audio/synth.js 가 'audio:'+name 해시로 독립 mulberry32 인스턴스(seeded)를 만든다.",
+   "evidence": "src/weapons/weapon.js:73; src/fx/particles.js:111; src/fx/decals.js:157; src/fx/debris.js:31; src/audio/index.js:147; src/audio/synth.js:21-23"
+  },
+  {
+   "rule": "stepFrames 시뮬 창(시뮬과 렌더 모두 포함) 안에서는 Math.random 소비가 0이어야 한다. 1회 이상이면 harness errors 에 기록되고, 그 오류는 baseline 이 report.ok=false 로 반영한다.",
+   "evidence": "src/core/harness.js:198-223; tools/baseline.mjs:114-120,181"
+  },
+  {
+   "rule": "three 의 Object3D, Material, BufferGeometry, Texture(Source), Skeleton, AnimationClip, InterleavedBuffer, Shape 생성과 clone 은 generateUUID 를 통해 Math.random 을 부른다. 시뮬 창 안에서 생성하지 말고 부팅 때 풀로 선할당한다.",
+   "evidence": "src/core/determinism.js:4-8; node_modules/three/src 의 generateUUID() 호출 파일 목록; src/main.js:163-170(DEBRIS_POOL 주석)"
+  },
+  {
+   "rule": "realtime 모드의 시뮬 창은 rAF 프레임 전체(scriptTick, 서브스텝, 렌더, audio.update)를 덮고 카운트만 한다. 오류로 승격하지 않으며 profile 도 simWindowTotal 을 보고만 하고 exit 판정에는 쓰지 않는다.",
+   "evidence": "src/main.js:392-406; tools/profile.mjs:469, 449, 491-492"
+  },
+  {
+   "rule": "이벤트는 EVENT_VOCABULARY 17종만 쓴다. 어휘 밖 타입은 on/emit 모두 throw 한다. 신규 이벤트는 계약 변경이 필요하다.",
+   "evidence": "src/core/events.js:8-32, 42, 60; ARCHITECTURE.md:126-157"
+  },
+  {
+   "rule": "bus 구독은 bus.markBoot() 이전(생성자)에 한다. 이후 구독은 resetState 에서 해제된다.",
+   "evidence": "src/core/events.js:78-92; src/main.js:272, 375; P4-BRIEF −1-B 3항(docs/contracts/briefs/P4-BRIEF.md:78)"
+  },
+  {
+   "rule": "서브시스템 간 직접 import 를 금지한다. physics, HANJI 상태, 오디오 레이캐스트는 main.js 가 클로저로 주입한다. 현재 교차 import 는 core/*, fx→materials(fx-look·fx-alpha-atlas), world→materials/hanji.js 뿐이다.",
+   "evidence": "ARCHITECTURE.md:157; src/main.js:106-109, 171-192, 274-288; src/weapons/firecontrol.js:9-11; import 집계(grep)"
+  },
+  {
+   "rule": "부팅 상태와 resetState 직후 상태가 같아야 한다. 부팅 마감 때 fire.reset, fx.reset, resetAllStreams 로 프리웜 잔여를 지운 뒤 스냅샷(markBootBodies, markBoot)을 찍는다. 도구는 항상 resetState 로 시작한다.",
+   "evidence": "src/main.js:371-379; tools/baseline.mjs:102; tools/playtest.mjs:75; HARNESS.md:176"
+  },
+  {
+   "rule": "resetState 내부 순서에는 의존이 있다. input.reset 이 player.reset 보다 먼저 와야 한다(player 가 SPAWN yaw/pitch 를 override). hanji.reset 은 opacityApplier.restoreAll 보다 먼저다. pruneRuntimeBodies 가 fx.reset 보다 먼저 와도 동작하는 이유는 despawnBody 가 멱등이기 때문이다(rigid.remove 가 indexOf<0 이면 무시). 장면 변경은 pipeline.reset 보다 앞에, applyDefaultView 는 마지막에 둔다.",
+   "evidence": "src/core/harness.js:240-260; src/player/player.js:46-55; src/physics/rigidbody.js:253-258; src/fx/debris.js:66-70; src/main.js:188-191"
+  },
+  {
+   "rule": "fixed 모드에서 렌더 프레임 1개는 물리 서브스텝 정확히 2개다. realtime 은 누적기를 쓰며 서브스텝 상한은 12다(MAX_FRAME_DT/PHYSICS_DT). 상한에 닿으면 백로그를 버리고, 보간은 하지 않는다.",
+   "evidence": "src/core/harness.js:18, 118-120; src/main.js:386-404"
+  },
+  {
+   "rule": "PATCH-001-D: 미지 표면이나 대상을 조용히 무시하지 말고 throw 한다. computePenetration, fx.onHit, hanji.registerHit, HANJI 어댑터, 뷰모델 재질 매핑이 모두 이 규칙을 따른다.",
+   "evidence": "src/core/surfaces.js:307; src/fx/index.js:57; src/materials/hanji.js:108; src/main.js:200, 122"
+  },
+  {
+   "rule": "음성 훅은 게이트 경로의 기본값을 바꾸지 않는다. 플래그를 줄 때만 동작하고, 출력에 testOverride('… harnesstest 전용, 계약 판정 무효')를 남기며, harnesstest 는 exit 1 과 표식을 함께 확인한다(가능하면 양성 대조 exit 0 도).",
+   "evidence": "tools/playtest.mjs:23-35; tools/determinismaudit.mjs:19-20,137; tools/harnesstest.mjs:301-315; HARNESS.md:30-33"
+  },
+  {
+   "rule": "런타임에 스폰하는 재질은 pipeline.patchMaterial(CSM)을 거쳐야 하고 부팅 때 컴파일되어 있어야 한다(플레이 중 컴파일 0). 프리웜은 보이는 오브젝트만 컴파일한다.",
+   "evidence": "src/main.js:160-162, 339; src/core/prewarm.js:193-215; node_modules/three/src/renderers/WebGLRenderer.js:1312,1330(traverseVisible)"
+  },
+  {
+   "rule": "표면 계약은 동결되어 있다(surfaces.js 단독 수정 금지). 액터나 살 표면은 존재하지 않는다.",
+   "evidence": "src/core/surfaces.js:1-12, 37; 노드 확인: SURFACES 15종"
+  }
+ ],
+ "extensionPoints": [
+  {
+   "point": "harness ctx 확장",
+   "where": "src/main.js:295-318 → src/core/harness.js:21-26(구조분해), 581(_internal)",
+   "howP4BUsesIt": "액터·래그돌·내비메시 시스템을 ctx 로 넘기고, 구조분해와 _internal 에 추가해 프로브와 음성 훅이 접근하게 한다. hanjiOccluders 는 이미 ctx 로 전달되지만 구조분해에는 없고 ctx.hanjiOccluders 로만 접근된다."
+  },
+  {
+   "point": "resetState 시퀀스 삽입",
+   "where": "src/core/harness.js:236-262",
+   "howP4BUsesIt": "제안(추측 아님, 순서 의존성 근거): ⑥ world.resetDynamic 다음에 내비메시 런타임 간선 절단(부팅 스냅샷 기준, pruneRuntimeBodies 패턴), 액터 리셋(스폰 자세, 체력, 생사, 이동 능력), 래그돌 비활성화와 입자 위치·속도를 바인드 포즈로 되돌리기, hanjiOccluders 재등록을 넣는다. 이벤트를 발행하는 리셋은 bus.resetToBoot(⑭)보다 앞에 둔다(hanji 선례). 장면 가시성 변경은 pipeline.reset(⑫) 앞에 둔다."
+  },
+  {
+   "point": "시뮬 틱",
+   "where": "src/core/harness.js:108-116 (fixed 와 realtime 공용, main.js:398 주석 '동일 배선')",
+   "howP4BUsesIt": "액터 이동, 내비메시 질의, PBD 래그돌 스텝을 PHYSICS_DT 로 여기에 넣는다. 타이머는 dt 누적으로 센다. clock.time 은 렌더 프레임 단위라 서브스텝 해상도가 아니다(clock.js:53-59)."
+  },
+  {
+   "point": "표현 훅",
+   "where": "src/core/harness.js:122-150(renderFrame), src/render/pipeline.js:287,391(beforeRender 배열), src/main.js:149(hanjiOccluders.update 등록 선례)",
+   "howP4BUsesIt": "액터 스킨 포즈와 래그돌 본을 메시에 쓰는 일, 창호지 차폐 캡슐을 프레임마다 갱신하는 일을 시뮬이 아닌 이 경로에 둔다."
+  },
+  {
+   "point": "부팅 마감 스냅샷",
+   "where": "src/main.js:371-379",
+   "howP4BUsesIt": "액터 풀 생성, 래그돌 본 메시와 스켈레톤 선할당, 내비메시 청크 굽기를 여기보다 앞에서 끝낸다. 내비메시 정적 간선 스냅샷(markBoot 류)을 physics.markBootBodies·bus.markBoot 옆에 추가한다."
+  },
+  {
+   "point": "오브젝트 풀 선할당",
+   "where": "src/main.js:163-170, 171-192",
+   "howP4BUsesIt": "시뮬 창 안 UUID 생성 금지 규칙 때문에 액터 메시, 본, 래그돌 표시물, 자라 등껍질 표면 메시는 DEBRIS_POOL 방식으로 부팅 때 만든다. 소진되면 throw 한다(main.js:174 선례)."
+  },
+  {
+   "point": "프리웜 커버리지",
+   "where": "src/main.js:339, 348-355; src/core/prewarm.js; src/fx/index.js:109-116(prewarmSpawn 선례)",
+   "howP4BUsesIt": "액터 재질(SKINNING 등 신규 순열, compileLog 태그 목록에 SKINNING 있음 harness.js:601)은 프리웜 때 보여야 컴파일된다. 샷에 등장시키거나 actors.prewarm(camera) 같은 전용 경로로 1프레임 그린다. 끝난 뒤의 resetAllStreams(main.js:373)가 프리웜 중 rng 소비를 원점으로 돌린다."
+  },
+  {
+   "point": "샷 액션 실행기(중복 2곳)",
+   "where": "src/main.js:246-253, src/core/harness.js:101-105, 186, 202-206",
+   "howP4BUsesIt": "액터 배치나 사망 같은 결정적 샷 액션을 넣으려면 두 실행기를 같이 바꿔야 한다(현재 'fire' 외 throw). applyShot 은 프리웜에서도 runActions 없이 불리므로 새 샷 필드는 프리웜에서 시뮬 상태를 더럽히면 안 된다."
+  },
+  {
+   "point": "감사 리그 훅",
+   "where": "src/main.js:306-317; src/core/harness.js:557-578",
+   "howP4BUsesIt": "silhouetteaudit 용 silhouetteAuditHook 과 __harness.silhouetteAuditSetup({…}) 을 같은 패턴(busy 가드, cameraOverride, 음성 파라미터 시 testOverride)으로 붙일 수 있다. 다른 대안은 audioaudit 처럼 빈 동일 출처 페이지에서 src 모듈을 import 하는 방식이다(tools/audioaudit.mjs:118-124)."
+  },
+  {
+   "point": "음성 훅 전달 경로",
+   "where": "tools/lib/args.mjs(parseArgs); tools/playtest.mjs:66-73; tools/baseline.mjs:126-149; tools/rendervariance.mjs:24,32; tools/determinismaudit.mjs:95-100; tools/audioaudit.mjs:49,124",
+   "howP4BUsesIt": "케이스 22(윤곽 인위 동일화)는 URL 이 아니라 CLI 플래그(예: --test-clone A=B)로 받는다. 노드 쪽에서 캐릭터 데이터를 복제해 evaluate 인자로 넘기거나 _internal 을 몽키패치한다. 출력 JSON 에 testOverride 를 남기고 exit 1 을 낸다."
+  },
+  {
+   "point": "harnesstest 케이스 22 슬롯과 gates.sh",
+   "where": "tools/harnesstest.mjs:27, 50(record), 82-98(runAudit); tools/gates.sh:61(주석 처리된 silhouetteaudit 행)",
+   "howP4BUsesIt": "케이스 22 를 record(22, …) 로 추가하고 양성(exit 0)과 음성(exit 1 + 표식)을 함께 판정한다. gates.sh:61 의 주석을 해제한다. CONTRACT-NOTES.md:2076 에 따르면 케이스 총수가 29 가 된다."
+  },
+  {
+   "point": "리셋 결정성 창",
+   "where": "tools/playtest.mjs:249-276; harness getInvariants(293-320)",
+   "howP4BUsesIt": "getActorState() 같은 게터(액터, 래그돌 입자, 내비메시 런타임 간선)를 추가해 fullState 에 넣는다. '래그돌 최종 자세 결정적'은 리셋 바이트 동일만으로는 증명되지 않으므로, 같은 입력을 2회 실행한 최종 자세의 동일성 검사를 따로 둔다."
+  },
+  {
+   "point": "이벤트 어휘 actor:damage / actor:death",
+   "where": "src/core/events.js:27-28; ARCHITECTURE.md:151-152",
+   "howP4BUsesIt": "선언만 있고 발행·구독은 0건이다. 페이로드는 actor:damage {actorId, amount, hitZone, throughSurfaces[], residualEnergy}, actor:death {actorId, impulseWorldPos, impulse}. 래그돌 기동은 actor:death 구독(시뮬 측, markBoot 이전)으로 건다."
+  },
+  {
+   "point": "창호지 차폐 캡슐 등록",
+   "where": "src/materials/hanji-occluders.js:29-57; src/main.js:147-149",
+   "howP4BUsesIt": "액터 캡슐을 set(id,{a,b,r}) 로 등록하거나 갱신하고, 사망이나 래그돌 전환 때 delete 한다. HANJI_OCC_MAX=4 중 1자리를 silhouette_dummy 가 차지하고 있다(main.js:148)."
+  },
+  {
+   "point": "오디오 우회 경로 그래프",
+   "where": "src/audio/index.js:83-85; src/audio/propagation.js:50-57",
+   "howP4BUsesIt": "내비메시가 findDetours(sourcePos, listenerPos) 어댑터를 제공하면 main.js 가 audio.setPropagationGraph 로 주입한다(직접 import 금지)."
+  },
+  {
+   "point": "노출 계약값 동결 지점",
+   "where": "src/render/pipeline.js:51(EXPOSURE_PARAMS), src/render/exposure.js:113-118, 155-160",
+   "howP4BUsesIt": "§5-1 ⓐ 범위(evMin/evMax/kneeSlope)와 속도(rateUp/rateDown)를 계약 상수로 승격한다. 지금은 this.params 가 가변 복사본이고 매 프레임 다시 읽히며, window.__pipeline 으로 외부에서 바꿀 수 있다(main.js:368)."
+  }
+ ],
+ "p4bConstraints": [
+  {
+   "constraint": "신규 시스템은 시간을 core/clock(또는 주입된 dt)에서만, 난수를 core/rng 의 이름 스트림에서만 얻는다. determinismaudit 를 초록으로 유지한다.",
+   "source": "P4-BRIEF §5, §5-1 ⓓ (docs/contracts/briefs/P4-BRIEF.md:790, 815-816); HARNESS.md §2-1·2-2; tools/determinismaudit.mjs"
+  },
+  {
+   "constraint": "rngStream 은 매 호출 시 가져온다(캐시 금지). 액터별 이름 스트림(예: actor:<id>)을 쓰면 v1 액터가 추가되어도 v0 수열이 흔들리지 않는다(제안). 이름은 'audio:' 접두사와 겹치지 않게 한다(synth.seeded 가 같은 해시 공간을 쓴다).",
+   "source": "src/core/rng.js:50-62; src/weapons/weapon.js:68-73; src/audio/synth.js:21-23; P4-BRIEF §3-1-B(v1 데이터 확장)"
+  },
+  {
+   "constraint": "stepFrames 안에서 three Object3D·Material·Geometry·Texture·Skeleton 등을 생성하거나 clone 하지 않는다. 액터, 본, 래그돌, 등껍질 메시는 부팅 때 풀로 만든다.",
+   "source": "src/core/determinism.js:4-17; src/core/harness.js:198-223; src/main.js:163-170"
+  },
+  {
+   "constraint": "bus 구독과 시스템 생성은 bus.markBoot()(main.js:375) 이전에 한다. 부팅 때 만든 강체는 부팅 로스터가 되어 prune 대상에서 빠지므로 직접 리셋해야 한다.",
+   "source": "src/core/events.js:78-92; src/physics/index.js:59-79; src/world/level.js:643-660"
+  },
+  {
+   "constraint": "resetState() 가 액터, 래그돌 최종 자세 관련 상태, 내비메시 런타임 간선을 완전히 복원해야 한다. 래그돌 최종 자세는 결정적이어야 한다.",
+   "source": "P4-BRIEF §3-4 (:372-376), §5-1 ⓓ, §7 추가(:854-856)"
+  },
+  {
+   "constraint": "이벤트는 어휘 17종 안에서만 쓴다. 신규 이벤트(예: actor:spawn, nav:edge)는 계약 변경 제안이 필요하다. 페이로드에 필드를 덧붙이는 관례는 코드에 있지만(surface:opacity 의 holes/torn/size, ballistic:hit 의 memberBox, surface:damage 의 weapon/worldPos) 문서에 명시되어 있는지는 확인하지 못했다.",
+   "source": "src/core/events.js:8-9, 42, 60; src/materials/hanji.js:115-117; src/weapons/firecontrol.js:163-171, 186-192; ARCHITECTURE.md:128"
+  },
+  {
+   "constraint": "액터 피격층을 표면 체인에 넣으면 computePenetration 과 fx.onHit 이 미지 표면으로 throw 한다. surfaces.js 는 동결이므로, 액터 판정은 표면 체인 바깥(잔여 에너지 기반 actor:damage)에서 하거나 계약 변경을 거친다.",
+   "source": "src/core/surfaces.js:1-12, 307; src/fx/index.js:55-57; ARCHITECTURE.md:151 ([PATCH-002-F] 피해는 잔여 에너지가 지배)"
+  },
+  {
+   "constraint": "액터 재질 순열(SKINNING 등)은 ready 이전에 컴파일되어야 한다(플레이 중 컴파일 0). 런타임 재질은 CSM patchMaterial 을 거친다.",
+   "source": "HARNESS.md §7; src/main.js:160-162; src/core/prewarm.js; tools/profile.mjs:491-492"
+  },
+  {
+   "constraint": "silhouetteaudit 는 음성 테스트를 harnesstest 케이스 22 로 동시에 추가한다. 비공허 조건(쌍 ≥1, 실루엣 픽셀 ≥1)을 명세에 함께 적는다.",
+   "source": "HARNESS.md:30-33 (P2A §0-1); P4-BRIEF §3-2 (:339-356), −1-C 비공허 조건(:93-95); tools/harnesstest.mjs:27"
+  },
+  {
+   "constraint": "2.5 m 에서 판독되지 않으면 더미를 가까이 옮기지 말고 조명 구성을 고친다.",
+   "source": "P4-BRIEF §3-2 인용(:354-356); PATCH-008-B"
+  },
+  {
+   "constraint": "내비메시는 청크 단위로 만들고 청크 간 연결을 명시적으로 관리한다. 간선은 런타임에 생기고 사라지며, 간선마다 이동 능력 플래그를 둔다. 캐릭터별로 따로 굽지 않는다.",
+   "source": "P4-BRIEF §3-3 (:358-370)"
+  },
+  {
+   "constraint": "노출 적응 범위와 속도를 계약값으로 동결한다. 값은 플레이테스트로 정하고 근거를 보고한다.",
+   "source": "P4-BRIEF §5-1 ⓐ (:802-806); docs/CONTRACT-NOTES.md:2087"
+  },
+  {
+   "constraint": "시뮬레이션과 표현을 분리한다. 스킬, 데미지, 라운드 판정이 렌더와 얽히지 않게 하고, 정보 은닉이 가능한 구조로 만든다.",
+   "source": "P4-BRIEF §5 (:790-796)"
+  },
+  {
+   "constraint": "캐릭터는 데이터 정의(윤곽, 무기 개체, 스킬 조합, 이동 능력)로 만든다. v0 4종도 v1 과 같은 형식을 쓰고, 선언된 동일쌍 예외만 감사에서 면제한다.",
+   "source": "P4-BRIEF §3-1-B (:328-337), §3-2 v1 (:349-352)"
+  },
+  {
+   "constraint": "디렉터리 소유권 규칙: 내비메시와 래그돌 사망은 src/ai, PBD 래그돌은 src/physics 로 문서에 적혀 있다. src/ai 디렉터리와 래그돌 코드는 현재 없다.",
+   "source": "ARCHITECTURE.md:32-35, 44, 48; ls src (audio core fx materials physics player render sky weapons world)"
+  }
+ ],
+ "risks": [
+  {
+   "risk": "PBD 래그돌은 존재하지 않는다. 브리프는 '사용한다'고 쓰지만 새로 구현해야 하는 범위다.",
+   "why": "ARCHITECTURE.md:44 와 P4-BRIEF:373 이 physics 의 PBD 래그돌을 전제한다. 실제 physics 에는 box/sphere/capsule 임펄스 강체와 CharacterController 뿐이고 'ragdoll' 은 math.js:228 주석에만 있다.",
+   "mitigation": "P4B 범위에 래그돌 신규 구현(결정적 고정 반복 횟수, PHYSICS_DT, 입력 순서 고정)을 명시하고, 2회 실행 최종 자세 동일 검사를 추가한다."
+  },
+  {
+   "risk": "HanjiOccluders 상한 4를 경고 없이 넘김",
+   "why": "hanji-occluders.js:52 가 i>=max 에서 break 만 한다. silhouette_dummy 1개와 액터 4종이 등록되면 5개가 되어 마지막 하나가 창호지 점광을 가리지 않는다. PATCH-001-D(조용한 무시 금지)에 어긋나고 silhouetteaudit 결과를 오염시킨다.",
+   "mitigation": "상한을 올리거나(유니폼 배열 크기, 프로그램 순열 영향 확인) 초과 시 throw 하게 한다. 더미를 액터로 대체할지 결정한다."
+  },
+  {
+   "risk": "bus.resetToBoot 가 길이 기준으로 절단한다",
+   "why": "events.js:88-91 은 타입별 구독 수만 비교한다. 부팅 구독을 off 한 뒤 다른 핸들러를 붙이면 리셋 후 엉뚱한 구독이 남는다.",
+   "mitigation": "P4B 는 부팅 구독을 off 하지 않는다. 동적 구독이 필요하면 내부 플래그로 무효화한다."
+  },
+  {
+   "risk": "강체 상한 256에 닿으면 부팅 강체가 축출되고 resetState 가 이를 되살리지 않는다",
+   "why": "rigidbody.js:236-247 은 잠든 강체 중 가장 오래된 것을 지우고, 없으면 index 0 을 지운다. pruneRuntimeBodies 는 부팅 로스터를 다시 add 하지 않고, world.resetDynamic 은 필드만 복원한다(level.js:643-660).",
+   "mitigation": "래그돌을 강체로 구현한다면 예산을 따로 두거나, 리셋 때 부팅 로스터를 재삽입한다. 아니면 래그돌을 rigid 월드와 분리한 PBD 입자계로 만든다."
+  },
+  {
+   "risk": "트립와이어 창이 렌더까지 포함하고 realtime 에서는 판정하지 않는다",
+   "why": "harness.js:198-218 의 창은 stepSim 과 renderFrame 을 함께 감싸므로 범인이 시뮬인지 렌더인지 가를 수 없다. realtime(main.js:392-406)은 카운트만 하고 profile 은 보고만 한다(profile.mjs:469, 492).",
+   "mitigation": "P4B 신규 경로는 fixed 캡처(baseline)와 playtest 의 getErrors 로 확인한다. 필요하면 시뮬과 렌더 창을 나눠 표시하는 방안을 제안한다(계약 판단 필요)."
+  },
+  {
+   "risk": "debugFreezeExposure 가 resetState 뒤에도 남는다",
+   "why": "harness.js:501-503 은 인스턴스 메서드를 no-op 로 바꾼다. pipeline.reset(365-377)과 exposure.reset(150)은 스냅 플래그만 세운다. 499행 주석('다음 resetState 까지')과 실제 동작이 다르고 testOverride 표식도 남기지 않는다.",
+   "mitigation": "노출 동결 실측(§5-1 ⓐ) 도구는 페이지를 새로 열어 실행한다. 훅에 testOverride 표식과 리셋 복원을 넣자고 제안한다."
+  },
+  {
+   "risk": "카메라 반동(표현)이 산포(시뮬)와 같은 rng 스트림을 쓴다",
+   "why": "firecontrol.js:99-100 의 킥 요가 weapon:<id> 스트림을 쓰는데, 이 스트림은 weapon.js:150,157-158 의 반동과 산포가 쓰는 것과 같다. 서버가 표현을 생략하면 다음 발의 산포 수열이 클라이언트와 달라진다.",
+   "mitigation": "넷코드 분리 단계에서 킥을 별도 스트림(예: weapon:<id>:cam)으로 옮긴다. 이 경우 baseline 픽셀이 바뀌므로 재기준이 필요하다(viewmodel 샷)."
+  },
+  {
+   "risk": "FX 파편(표현)이 탄도(시뮬)에 영향을 준다",
+   "why": "fx/debris.js:35-62 가 main.js:171-187 의 spawnBody 로 physics 박스 강체를 만들고, fire 의 raycastBodies(main.js:108; firecontrol.js:131-147)가 박스 강체 전부를 체인에 병합해 임펄스를 준다. 서버가 fx 를 돌리지 않으면 판정이 갈라진다.",
+   "mitigation": "§5 분리 경계를 설계할 때 파편을 시뮬 소속으로 재분류할지, 탄도 질의에서 제외할지 결정해 보고한다."
+  },
+  {
+   "risk": "HANJI 구멍(게임 규칙 상태) UV 를 렌더 메시 행렬로 계산한다",
+   "why": "main.js:196-205 가 THREE 메시의 worldToLocal 과 geometry.parameters 로 UV 를 낸다. 헤드리스 서버가 THREE 씬그래프 없이 판정할 수 없다.",
+   "mitigation": "판 변환을 데이터(원점, 축, 크기)로 등록해 어댑터가 순수 계산하게 한다(P4C 이후 대상, P4B 는 액터 차폐만 해당)."
+  },
+  {
+   "risk": "노출이 GPU 전용 상태다",
+   "why": "exposure.js:107-185 의 적응 상태는 1×1 RT 에 있고 동기 readback(read) 외에는 읽을 길이 없다. §5-1 ⓐ 은 노출을 게임플레이 변수로 규정하지만 서버는 이를 계산할 수 없다.",
+   "mitigation": "동결은 상수 승격으로 해결된다. 권위 판정에 노출이 필요한지는 계약 질의로 남긴다."
+  },
+  {
+   "risk": "샷 액션 실행기가 두 곳에 있다",
+   "why": "main.js:246-253 과 harness.js:101-105 가 같은 로직을 따로 갖고 있다. 액터 관련 새 액션을 한쪽에만 넣으면 즉시와 지연 경로가 갈라진다.",
+   "mitigation": "runShotAction 하나로 합치거나 두 곳을 동시에 수정한다."
+  },
+  {
+   "risk": "determinismaudit 정적 검사에 빈틈이 있다",
+   "why": "(a) 'const r = Math.random;' 같은 호출 없는 참조는 PATTERNS(34)와 ALIAS_PATTERN(44, (?!\\.))이 모두 놓친다. (b) stripComments(57-61)가 문자열 안의 // 이후를 지워 같은 줄 뒤쪽 위반을 놓칠 수 있다. (c) walk 가 .js 만 보므로 src 안의 .mjs 는 제외된다. (d) requestAnimationFrame 타임스탬프, event.timeStamp, AudioContext.currentTime 은 검사 대상이 아니다.",
+   "mitigation": "P4B 코드에서 위 형태를 쓰지 않는다. 런타임 트랩(fixed 창 오류)이 2차 방어선이다. 감사 패턴 보강은 별도 과제로 제안한다."
+  },
+  {
+   "risk": "clock.time 이 서브스텝 해상도가 아니다",
+   "why": "clock.tickFixed 와 tickRealtime 만 시간을 진행시킨다(clock.js:43-59). 서브스텝 2~12개가 같은 clock.time 을 보고, realtime 에서는 누적기 잔여 때문에 시뮬 누적 시간과 clock.time 이 다르다.",
+   "mitigation": "쿨다운, 사망 타이머, 래그돌 정착 판정은 dt 누적이나 서브스텝 카운터로 센다(weapon 쿨다운 선례)."
+  },
+  {
+   "risk": "determinism.js 머리주석이 낡았다",
+   "why": "determinism.js:20 은 'realtime 모드에서는 장착하지 않는다'고 하지만 main.js:51-55 는 두 모드 모두에서 장착한다. 함수 이름 armCaptureDeterminism 도 오해를 부른다.",
+   "mitigation": "설계 문서에는 main.js 의 동작을 기준으로 기술한다."
+  },
+  {
+   "risk": "getSceneTriangles 그룹 분류에 액터가 없다",
+   "why": "harness.js:427-435 는 vm_/fx_/sky_dome/world.group 만 분류한다. 액터 메시는 'other' 로 들어가므로 P4-BRIEF 의 액터 삼각형 상한(PATCH-010-C 25k)을 분리 판정할 수 없다.",
+   "mitigation": "액터 이름 접두사나 그룹 규칙을 추가한다(PATCH-006-G 분해에 'actor' 추가)."
+  }
+ ],
+ "openQuestions": [
+  "액터, 내비메시, 래그돌의 디렉터리 소유권: ARCHITECTURE §1 은 내비메시를 src/ai(없음), PBD 래그돌을 src/physics 로 둔다. 캐릭터 데이터 정의(윤곽, 무기, 스킬, 이동 능력)는 어디에 두는가(새 디렉터리면 소유권 표 개정이 필요한가)?",
+  "액터 피격 판정을 표면 체인(computePenetration) 안에 넣을 것인가, 체인 잔여 에너지로 따로 판정할 것인가? surfaces.js 는 동결이고 미지 표면은 throw 한다.",
+  "이벤트 페이로드 필드 확장(예: actor:death 에 ragdoll seed나 bone id 추가)이 계약상 허용되는가? 코드에는 확장 관례가 있지만(surface:opacity, ballistic:hit) 문서 근거는 찾지 못했다.",
+  "'래그돌 최종 자세 결정적'을 검사하는 도구와 방식은? 현재 playtest 의 리셋 바이트 동일 창(pristine 대 리셋 후)으로는 2회 실행 동일성이 증명되지 않는다. playtest 확장인지 새 도구인지?",
+  "silhouetteaudit 는 게임 부팅에 하네스 리그 훅을 붙이는 방식인가(albedo/viewmodel 패턴), 빈 페이지에서 모듈을 import 하는 방식인가(audioaudit 패턴)? HANJI 판, 실내 광원, 노출을 게임과 동일하게 재현해야 하므로 전자가 유력해 보이지만 추측이다.",
+  "silhouetteaudit 측정 중 노출 적응을 동결해야 하는가? 그렇다면 debugFreezeExposure(리셋 비복원, 표식 없음)를 그대로 쓸 수 있는가?",
+  "HanjiOccluders 상한 4: 상한을 늘릴지(유니폼 배열, 프로그램 영향), silhouette_dummy 를 액터로 대체할지?",
+  "§5 분리에서 FX 파편 강체와 카메라 킥 rng 공유를 P4B 에서 정리하는가, P5 로 미루는가? 정리하면 baseline 픽셀과 산포 수열이 바뀐다.",
+  "realtime 시뮬 창 Math.random 카운트(simWindowTotal)를 profile 게이트로 승격할지? 지금은 보고만 한다.",
+  "노출 동결 값은 상수 승격으로 끝나는가, 아니면 서버 권위 계산(CPU 재현)까지 요구하는가?"
+ ]
+}

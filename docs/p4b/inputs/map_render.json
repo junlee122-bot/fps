@@ -1,0 +1,550 @@
+{
+ "subsystem": "렌더·머티리얼·팔레트·노출: src/materials/* (index.js, surface-shader.js, synth.js, hanji.js, hanji-occluders.js, fx-look.js, viewmodel-look.js, albedo-manifest.json), src/render/* (exposure.js, pipeline.js, tagmask.js, output.js, grade.js, opacity.js, audit-cards.js), src/core/prewarm.js, tools/paletteaudit.mjs (+ 배선 src/main.js)",
+ "summary": "(1) 재질 15종은 모두 MeshStandardMaterial에 합성 텍스처 세 장(map, normalMap: a채널에 높이, ORM)을 붙인 것이다(index.js:469-492). 'tri'·'local' 모드는 onBeforeCompile로 표면 셰이더를 주입한다(surface-shader.js:276-318). SkinnedMesh에서도 셰이더는 깨지지 않는다. VERT_MAIN이 worldpos_vertex 뒤에 들어가서 스키닝이 끝난 `transformed`·`objectNormal`을 쓰기 때문이다(three meshphysical.glsl.js:33-50). 문제는 매핑이다. TRI는 월드 좌표로 투영해서(surface-shader.js:166-168) 움직이는 액터 위에서 텍스처가 미끄러지고, 오브젝트 원점 해시가 0.25 m 격자 단위라 이동 중 무늬가 튄다(60-64). LOCAL(DANCHEONG)은 박스 로컬 `position`과 aBoxDims를 전제해서(136-150) 하나로 병합한 스킨 메시에는 맞지 않는다. 그래서 캐릭터는 'uv' 모드 복제본에 생성기가 UV를 설계하는 경로가 가장 싸다. 선례는 ROOF_TILE_UV(index.js:494-500)와 VM_* 재질(viewmodel-look.js:56-74)이다. 이 경로 판단은 코드에서 끌어낸 추론이다. (2) 야간 창호지 실루엣은 그림자맵이 아니다. HANJI 프래그먼트에서 점광까지의 선분과 등록 캡슐 축 사이 거리로 가림을 계산한다(index.js:300-332, 399-419). 등록 상한은 4개이고 같은 숫자가 세 곳에 하드코딩돼 있다(index.js:304, 432-433, hanji-occluders.js:12). silhouette_dummy가 1칸을 늘 차지하고(main.js:148), 넘친 등록은 오류 없이 버려진다(hanji-occluders.js:49-50). resetState도 이 목록을 비우지 않는다. 판 불투명도가 1.0이라(hanji.js:34) 판 뒤 메시 자체는 보이지 않는다. 따라서 silhouetteaudit이 재는 야간 실루엣은 사실상 캡슐 프록시의 합집합이다. 주간 태양 역광은 CSM 그림자맵 PCSS로 처리하므로 castShadow만 켜면 모양과 무관하게 자동으로 맺힌다(index.js:386-397). (3) 팔레트 대역은 paletteaudit.allowed()(78-85)와 fx-look.paletteInBand(112-120)에 같은 내용이 따로 정의돼 있다. 코드에 '단청 5색' 상수는 없다. 단청은 DANCHEONG 레시피의 청·적·황·백 네 색과, 선을 어둡게 하는 흑으로만 표현된다(synth.js:126-129). 공용 재질을 실측하면 LACQUER는 적 대역(4-8°)이다. BRONZE 녹청은 청 대역 하한 175°에서 1-2°밖에 떨어져 있지 않다. 원본 DANCHEONG에는 청과 적이 함께 들어 있다. 그래서 팀색 비겹침은 '팀 악센트 재질'을 따로 정의하고 팀별 변형 레시피를 만들어야 성립한다. 정적 검사는 paletteInBand/fxaudit처럼 노드에서 도는 게이트가 선례다. (4) 실효 노출값은 pipeline.js:51 EXPOSURE_PARAMS다(ec 1.0, evMin 1.0, kneeSlope 0.2, evMax 14, rateUp 3.0, rateDown 1.5, centerWeight 0.35). exposure.js:116의 기본값은 이 값으로 덮인다. 하한은 evMin−3 = −2.0으로 고정이다(exposure.js:85). 실측 근거가 기록된 것은 EC와 무릎뿐이다(CONTRACT-NOTES:707-712). 속도·evMax·centerWeight는 구현값 기록(686)만 있다. this.params는 수정 가능한 객체이고 매 프레임 다시 읽힌다(exposure.js:156-160). (5) 프로그램 예산은 110(최종 상한 120)이고 최근 실측은 44다(P4-LOG.md:62). three는 스키닝을 캐시 키의 비트로 넣는다(WebGLPrograms.js:534). 그래서 같은 재질이라도 SkinnedMesh면 forward·그림자 깊이·GTAO 노멀 오버라이드 프로그램이 따로 생긴다. compileAsync는 forward만 컴파일한다. 그림자와 GTAO 변형은 실제 렌더해야 생기므로, 프리웜 샷 중 하나에 스킨 액터가 보이고 그림자 절두체 안에 있어야 한다. (6) 태그 마스크 규칙은 재질 이름이 FX_FLASH·FX_TRACER이거나, emissive가 0이 아니면서 강도 ≥1.0인 경우다(tagmask.js:28-37). 캐릭터는 자발광만 피하면 태그되지 않는다. 마스크를 그리는 오버라이드 재질에도 스키닝 변형 2개가 생기지만, 캡처 뒤에 컴파일되고 compileLog에 tagMask로 표시된다.",
+ "files": [
+  {
+   "path": "/home/user/fps/src/materials/index.js",
+   "role": "재질 레시피 15종+등롱·수면(RECIPES 38-191). CHROMA_SCALE 크로마 축소(201-217). SURFACE_MAT 표면→재질 키(219-223). 창호지 투과 모델 상수와 GLSL(230-421). applyHanjiTransmit(426-465). createSurfaceMaterials: 같은 합성기로 뷰모델 재질도 만든 뒤 dispose(469-510). finalizeSurfaceShaders: 'uv' 모드는 건너뜀(514-523)",
+   "keyExports": [
+    "RECIPES",
+    "CHROMA_SCALE",
+    "SURFACE_MAT",
+    "HANJI_TRANSMIT",
+    "HANJI_AMBIENT",
+    "HANJI_PCSS",
+    "HANJI_TORN",
+    "HANJI_POINT",
+    "applyHanjiTransmit",
+    "LANTERN_EMISSIVE",
+    "createSurfaceMaterials",
+    "finalizeSurfaceShaders"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/materials/surface-shader.js",
+   "role": "MeshStandardMaterial용 onBeforeCompile 패치. 정의는 SURF_TRI·SURF_LOCAL·SURF_POM·SURF_WEAR. 캐시 키는 'surf3' 상수(315). CSM 패치 뒤에 적용해야 한다(19-20)",
+   "keyExports": [
+    "applySurfaceShader"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/materials/synth.js",
+   "role": "GPU 절차 텍스처 합성기(레시피 유니폼 + 레이어 프로그램 1개). PAT 패턴 9종(DANCHEONG=1: u 0-0.5는 끝단 머리초, 0.5-1은 금문 반복, 121-148). generate()가 albedoLum을 판독해 돌려준다(292-324)",
+   "keyExports": [
+    "ProceduralSynth",
+    "PAT",
+    "V4"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/materials/hanji.js",
+   "role": "창호지 판별 구멍 목록·찢어짐 상태. 바뀌면 surface:opacity를 발행한다. HANJI_BASE_OPACITY = 1.0(34; 주석은 .95라고 적혀 있어 값과 다름)",
+   "keyExports": [
+    "HanjiState",
+    "HANJI_BASE_OPACITY",
+    "HANJI_HOLE_RADIUS",
+    "HANJI_TEAR_THRESHOLD",
+    "HANJI_MAX_HOLES"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/materials/hanji-occluders.js",
+   "role": "점광 투과용 해석적 캡슐 차폐 등록부. 월드 좌표로 저장하고 프레임마다 뷰 공간 유니폼으로 바꾼다. 상한 4개, B.w는 쓰지 않음(52)",
+   "keyExports": [
+    "HanjiOccluders",
+    "HANJI_OCC_MAX"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/materials/fx-look.js",
+   "role": "FX·데칼 룩 표. 색을 정의하는 시점에 팔레트 대역을 자기검사하는 paletteInBand(112-120)가 있다(fxaudit가 호출). 2축 구별 규칙(visualAxesDiff)",
+   "keyExports": [
+    "FX_LOOK",
+    "paletteInBand",
+    "hsvToRgb",
+    "visualAxesDiff",
+    "checkVisualDistinctness",
+    "DECAL_LOOK",
+    "PEEL_LOOK",
+    "FLASH_LOOK",
+    "TRACER_LOOK"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/materials/viewmodel-look.js",
+   "role": "표면 15종과 분리된 '장비 룩' 레시피의 선례. 같은 합성기, mode 'uv', 매니페스트 등록. 기하 소유자의 회색 카드를 main.js가 이름표(VIEWMODEL_MATERIAL_MAP)로 교체한다. 캐릭터 룩 모듈의 직접 선례",
+   "keyExports": [
+    "VIEWMODEL_RECIPES",
+    "VIEWMODEL_MATERIAL_MAP",
+    "createViewmodelMaterials"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/materials/albedo-manifest.json",
+   "role": "재질 이름별 의도 알베도 선언. albedoaudit이 미선언·사문 항목·편차 >10%를 실패시킨다"
+  },
+  {
+   "path": "/home/user/fps/src/render/exposure.js",
+   "role": "EV100 자동 노출(미터 64² → 축소 8² 중앙가중 → 적응 1×1 핑퐁). 무릎 하한·하드 하한 evMin−3·비대칭 적응 속도(69-94). reset() 시 스냅",
+   "keyExports": [
+    "ExposureMeter",
+    "exposureOf"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/render/pipeline.js",
+   "role": "HDR 체인 소유(CSM 3캐스케이드·GTAO·안개·TAA·MB·노출·블룸·출력). EXPOSURE_PARAMS·BLOOM_PARAMS·OUTPUT_PARAMS 상수(51-53, export 안 됨). patchMaterial/patchScene(CSM, 304-317). beforeRender 훅(287, 391). reset(365-377)",
+   "keyExports": [
+    "RenderPipeline"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/render/tagmask.js",
+   "role": "자발광·일시광 태그 마스크(검정 오버라이드로 깊이 → 태그만 흰색). 태그 규칙의 유일한 정의처(28-37)",
+   "keyExports": [
+    "createTagMask",
+    "isTaggedMaterial",
+    "TAG_MATERIAL_NAMES",
+    "TAG_EMISSIVE_MIN"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/render/output.js",
+   "role": "출력 패스: 노출 → 블룸 → AgX → sRGB → LUT. 목재·흙 대역 채도 연성 상한을 여기서 해석적으로 건다(77-82)",
+   "keyExports": [
+    "createOutputMaterial",
+    "OUTPUT_DEFAULT"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/render/grade.js",
+   "role": "32³ 그레이드 LUT를 CPU에서 생성. 대역 창 band [12,18,40,46], cap 0.28, slope 0.08(37). 색상 회전 없음",
+   "keyExports": [
+    "GRADE_DEFAULT",
+    "gradeColor",
+    "buildGradeLUT"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/render/opacity.js",
+   "role": "판마다 HANJI@id 클론을 만들고 surface:opacity를 유니폼에 반영. assertSynced가 기본값 0이 남아 있으면 throw한다",
+   "keyExports": [
+    "OpacityApplier"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/render/audit-cards.js",
+   "role": "albedoaudit 리그. 재질 이름은 '@' 앞부분으로 정규화한다(75-87). 씬 밖 재질은 extraMaterials로 넘긴다",
+   "keyExports": [
+    "setupAlbedoAudit"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/core/prewarm.js",
+   "role": "부팅 프리웜: 첫 샷 적용 → sceneRT 바인딩 상태로 compileAsync → 첫 샷 실렌더(그림자·후처리) → 나머지 샷 순회 → 기본 뷰 복원. 단계별 프로그램 분해 계측",
+   "keyExports": [
+    "prewarmShaders"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/main.js",
+   "role": "배선 순서: 재질 합성(84) → 월드(86) → 뷰모델 재질 교체(116-129) → 캡슐 등록(147-149) → 낙하 기와 클론과 CSM 패치(156-162) → patchScene(321) → finalizeSurfaceShaders(323) → 창호지 패치(325-336) → fx.prewarmSpawn(339) → 프리웜(348-366)"
+  },
+  {
+   "path": "/home/user/fps/tools/paletteaudit.mjs",
+   "role": "캡처 PNG 전 픽셀을 HSV로 판정. 샷당 위반 ≤1.5%, 크로마 d≤2 제외, 태그 픽셀에는 15-55° 추가 허용, 태그 비율 ≤8%, PATCH-008-D 트립와이어. 음성 훅 --inject-*"
+  },
+  {
+   "path": "/home/user/fps/tools/fxaudit.mjs",
+   "role": "브라우저 없이 도는 정적 색 게이트 선례: 룩 정의마다 paletteInBand 검사(103, 143)"
+  },
+  {
+   "path": "/home/user/fps/tools/_progcount.mjs",
+   "role": "프로그램 수 델타 프로브(378×246, 브라우저 필요). 절대값은 profile 소유"
+  },
+  {
+   "path": "/home/user/fps/tools/profile.mjs",
+   "role": "programs 예산 p3 110 / final 120(58-64). compiledDuringPlayStrict 게이트(336-345)"
+  },
+  {
+   "path": "/home/user/fps/src/core/harness.js",
+   "role": "getExposure(366-368). debugFreezeExposure: exposure.render를 noop으로 바꾸고 resetState로도 되돌리지 않는다(496-504). compileLog 프로그램 생성 훅(591-611)"
+  },
+  {
+   "path": "/home/user/fps/src/world/level.js",
+   "role": "silhouette_dummy: CapsuleGeometry(0.28, 1.1), FABRIC, 판 뒤 2.5 m, castShadow, 정적 물리(356-366). 실내 등롱 lantern_light_na: 더미 뒤 3.5 m, 높이 2.0(597-606). 마당 등롱 2개(569-592)"
+  }
+ ],
+ "apis": [
+  {
+   "name": "createSurfaceMaterials",
+   "signature": "createSurfaceMaterials({ renderer }) → { mats, matOf, viewmodel, synth: { ms, breakdown } }",
+   "where": "src/materials/index.js:469-510",
+   "semantics": "레시피마다 synth.generate → MeshStandardMaterial(color 0xffffff, roughness 1, metalness 1, map/normalMap/roughnessMap=metalnessMap=aoMap=ORM). userData.albedoLum과 userData.surfaceOpts(=레시피 shader)를 남긴다. 셰이더 패치는 하지 않는다. 합성기 dispose는 뷰모델 재질 생성 직후(508)이므로, 새 레시피(캐릭터 룩)는 그 전에 같은 합성기로 만들어야 한다"
+  },
+  {
+   "name": "finalizeSurfaceShaders",
+   "signature": "finalizeSurfaceShaders(mats, { groundAo }) → n",
+   "where": "src/materials/index.js:514-523",
+   "semantics": "넘겨받은 맵의 재질 중 surfaceOpts.mode가 'uv'가 아닌 것에만 applySurfaceShader를 건다. 씬 순회가 아니다. 새 재질은 맵에 명시적으로 넣어야 한다(main.js:323 FX_DEBRIS_TILE 선례)"
+  },
+  {
+   "name": "applySurfaceShader",
+   "signature": "applySurfaceShader(mat, { mode:'tri'|'local', pom, wear, scale, pomScale, wearColor, wearWidth, wearAmount, localScale, macro, under, underColor, groundAo, groundAoMap })",
+   "where": "src/materials/surface-shader.js:276-318",
+   "semantics": "defines에 SURF_TRI 또는 SURF_LOCAL, 선택으로 SURF_POM(tri 전용)·SURF_WEAR를 넣는다. 유니폼은 userData.surfUniforms에 둔다. 기존 onBeforeCompile을 체인한다. customProgramCacheKey='surf3'라 정의 집합이 같으면 재질이 달라도 프로그램을 공유한다. TRI는 월드 좌표 vSurfWPos 투영, LOCAL은 오브젝트 position+aBoxDims, WEAR는 aBoxDims가 없으면 0"
+  },
+  {
+   "name": "applyHanjiTransmit",
+   "signature": "applyHanjiTransmit(mat, lightDirRef, sunColorRef, occluders=null) → uniforms",
+   "where": "src/materials/index.js:426-465",
+   "semantics": "창호지 투과 셰이더. 주간: 태양 배면광 × CSM PCSS 그림자. 야간: pointLights[] 중 판 뒤 광원만 × 해석적 캡슐 가림 V. 캡슐 유니폼 uHanjiOccA/B/Count는 HanjiOccluders 객체를 공유 참조한다(없으면 길이 4 폴백). 캐시 키 '|hanji_holes_r4'"
+  },
+  {
+   "name": "HanjiOccluders",
+   "signature": "new HanjiOccluders(max=4); set(id,{a,b,r}); setFromMesh(id, capsuleMesh); delete(id); update(viewMatrix); uA/uB/uCount",
+   "where": "src/materials/hanji-occluders.js:16-57",
+   "semantics": "id→월드 캡슐(a, b 축 끝점, 반지름 r). update는 Map 삽입 순서대로 앞의 max개만 뷰 공간으로 옮겨 쓰고 나머지는 조용히 버린다. setFromMesh는 CapsuleGeometry parameters와 scale.x/z로 r을 정한다. main.js:149가 pipeline.beforeRender에서 프레임당 1회 update한다"
+  },
+  {
+   "name": "ProceduralSynth.generate",
+   "signature": "synth.generate(recipe) → { map, normalMap, ormMap, albedoLum, _rts }",
+   "where": "src/materials/synth.js:292-324",
+   "semantics": "레시피 유니폼으로 알베도·ORM(MRT) 1패스, Sobel로 노멀 1패스. 결정적 정수 해시. 소요 시간은 breakdown에 쌓인다(부팅 계측 대상)"
+  },
+  {
+   "name": "RenderPipeline.patchMaterial / patchScene",
+   "signature": "pipeline.patchMaterial(mat); pipeline.patchScene()",
+   "where": "src/render/pipeline.js:304-317",
+   "semantics": "MeshStandard/Lambert/Phong 재질에만 CSM.setupMaterial을 건다. defines에 USE_CSM·CSM_CASCADES·CSM_FADE를 넣고 onBeforeCompile을 '덮어쓴다'(three CSM.js:426-457). 패치하지 않은 재질은 캐스케이드 광 3개를 중복으로 받는다"
+  },
+  {
+   "name": "RenderPipeline.beforeRender",
+   "signature": "pipeline.beforeRender.push((camera) => void)",
+   "where": "src/render/pipeline.js:287, 391",
+   "semantics": "카메라 행렬이 확정된 뒤 실행되는 프레임 훅. 캡슐 뷰 공간 유니폼을 여기서 갱신한다"
+  },
+  {
+   "name": "ExposureMeter",
+   "signature": "new ExposureMeter({ renderer, blit, params }); render(src, w, h, dt); reset(); read() → { ev100, evTarget, avgLum, ec, exposure, valid }; get texture; get ec",
+   "where": "src/render/exposure.js:107-185",
+   "semantics": "params = { ...기본값, ...인자 }로 만든 수정 가능한 객체이고 매 프레임 유니폼에 다시 반영한다. ev = prev + (target−prev)·(1−exp(−dt·rate)). rate는 target>prev면 rateUp, 아니면 rateDown. reset()은 다음 프레임에서 목표값으로 스냅. read()는 동기 판독이라 계측에만 쓴다"
+  },
+  {
+   "name": "exposureOf",
+   "signature": "exposureOf(ev100, ec) → 1/(1.2·2^(ev100−ec))",
+   "where": "src/render/exposure.js:103-105",
+   "semantics": "CPU 쪽 노출 계수. output.js:71과 같은 식"
+  },
+  {
+   "name": "isTaggedMaterial / createTagMask",
+   "signature": "isTaggedMaterial(m) → bool; createTagMask({renderer, scene, camera, pipeline}).render() → { width, height, taggedPixels, ratioPct, taggedMaterials, bits }",
+   "where": "src/render/tagmask.js:32-37, 44-138",
+   "semantics": "태그 조건: 재질 이름이 FX_FLASH/FX_TRACER이거나, emissive가 0이 아니고 emissiveIntensity ≥ 1.0. 2패스 오버라이드(검정 MeshBasic → 태그 레이어만 흰색)로 '보이는 발광 표면' 픽셀만 1로 만든다. 캡처·getStats 뒤에 호출된다"
+  },
+  {
+   "name": "paletteaudit CLI",
+   "signature": "node tools/paletteaudit.mjs [dir=baseline] [--inject-patch|--inject-orange|--inject-orange-tagged|--inject-mask-ratio R]",
+   "where": "tools/paletteaudit.mjs:33-226",
+   "semantics": "채도 ≥0.10인 픽셀은 대역 안이어야 한다(청 175-240, 적 355-15, 황 40-60, 목재·흙 20-40 s≤0.35). 크로마 ≤2/255는 제외. 태그 픽셀에는 15-55° 추가 허용. 샷당 위반 >1.5% 또는 태그 >8%면 exit 1"
+  },
+  {
+   "name": "paletteInBand",
+   "signature": "paletteInBand({ hue, sat }) → bool",
+   "where": "src/materials/fx-look.js:112-120",
+   "semantics": "paletteaudit.allowed()와 같은 대역 표를 색 정의 시점에 적용한다. 팀색 정적 검사가 재사용할 후보"
+  },
+  {
+   "name": "prewarmShaders",
+   "signature": "prewarmShaders({ renderer, scene, camera, shots, applyShot, restoreDefault, renderFrame, compileTarget }) → { programsBefore, programsAfter, compiled, breakdown, ms }",
+   "where": "src/core/prewarm.js:21-98",
+   "semantics": "compileAsync는 scene.traverse로 보이지 않는 메시까지 forward 프로그램을 만든다(three WebGLRenderer.js:1354). 그림자 깊이·GTAO 노멀 같은 오버라이드 변형은 실제로 그린 샷에서만 생긴다(머리주석 7-13, 57-62)"
+  },
+  {
+   "name": "harness.debugFreezeExposure / getExposure / getCompileLog",
+   "signature": "__harness.debugFreezeExposure() → exposure.read(); __harness.getExposure(); __harness.getCompileLog()",
+   "where": "src/core/harness.js:366-368, 496-504, 591-611",
+   "semantics": "동결은 exposure.render를 noop으로 갈아끼우는 방식이다. resetState(236-261)는 이를 복원하지 않으므로 페이지를 다시 열기 전까지 유지된다. compileLog는 programs.push를 감싸 생성 시점의 이름·프레임·스택을 남긴다"
+  },
+  {
+   "name": "buildGradeLUT / GRADE_DEFAULT",
+   "signature": "buildGradeLUT(params) → { texture, size, params }",
+   "where": "src/render/grade.js:16-38, 91-112",
+   "semantics": "표시 공간 LUT(대비 1.16, 채도 0.94, 암부 0.80, 스플릿톤 0.015). 대역 채도 상한 cap 0.28/slope 0.08은 LUT가 아니라 출력 셰이더 유니폼이 건다"
+  }
+ ],
+ "invariants": [
+  {
+   "rule": "CSM 패치를 먼저 하고 표면 셰이더·창호지 패치는 그 뒤에 한다. CSM.setupMaterial은 onBeforeCompile을 체인하지 않고 덮어쓴다",
+   "evidence": "three examples/jsm/csm/CSM.js:442; surface-shader.js:19-20; index.js:448-450(prev 체인); main.js:321-336 순서"
+  },
+  {
+   "rule": "재질을 clone()하면 CSM·SURF defines와 onBeforeCompile이 사라진다. 그래서 클론마다 patchMaterial을 다시 하고, 'uv'가 아니면 applySurfaceShader도 다시 건다. userData는 JSON으로 깊은 복사되어 THREE.Color가 평범한 객체가 된다",
+   "evidence": "three MeshStandardMaterial.js:370 (defines = {STANDARD:''}); Material.js copy()가 복사하는 목록(onBeforeCompile 없음, userData = JSON.parse(JSON.stringify) ~974); main.js:156-162 낙하 기와 선례(surfaceOpts 재할당 포함)"
+  },
+  {
+   "rule": "CSM 패치를 안 한 MeshStandard 재질은 캐스케이드 광 3개를 중복 수광해 과노출된다. 런타임에 만든 재질은 patchScene 순회 밖이라 반드시 따로 patchMaterial해야 한다",
+   "evidence": "pipeline.js:26-28; main.js:160-162 주석('플레이 중 컴파일과 3중 직사광 과노출')"
+  },
+  {
+   "rule": "상태 변화는 유니폼으로만 표현한다. 프로그램 순열은 늘리지 않는다(구멍·캡슐·uGroundAo·uMacro·등롱 발광 강도)",
+   "evidence": "index.js:270-272, 431-438; surface-shader.js:73-76, 202; hanji-occluders.js:5-6; main.js:236-237"
+  },
+  {
+   "rule": "표면 셰이더 재질은 customProgramCacheKey 'surf3'을 공유한다. 정의 집합(TRI/LOCAL·POM·WEAR + CSM)이 같으면 재질이 달라도 같은 프로그램이다",
+   "evidence": "surface-shader.js:315; index.js:11-12"
+  },
+  {
+   "rule": "점광 개수(NUM_POINT_LIGHTS)는 프로그램 키의 일부다. 점광은 상주 풀로 두고 강도만 바꾼다. 현재 등롱 3 + 트랜지언트 2 = 5개",
+   "evidence": "three WebGLPrograms.js:420부 getProgramCacheKeyParameters; muzzleflash.js:21, 72-80('개수 불변 (프로그램 순열 고정)'); CONTRACT-NOTES.md:1155('점광 4→5 는 define 변경')"
+  },
+  {
+   "rule": "플레이 중 컴파일은 0이어야 한다. 프리웜이 ready보다 먼저 끝나야 하고, profile은 compiledDuringPlayStrict를 프로그램 수 차분과 생성 로그 건수 중 큰 값으로 판정한다",
+   "evidence": "main.js:10-12, 348-379; profile.mjs:336-345; P3-BRIEF.md:227-229"
+  },
+  {
+   "rule": "프로그램 예산은 ≤110(p3), 최종 상한 120. 최근 실측은 44",
+   "evidence": "tools/profile.mjs:58-64; P3-BRIEF.md:227; P4-LOG.md:62; P3-REPORT.md:254"
+  },
+  {
+   "rule": "팔레트 대역(채도 ≥0.10 대상): 청 175-240, 적 355-15, 황 40-60, 목재·흙 20-40(s≤0.35). 중성은 s<0.10. 크로마 d≤2는 제외한다. 샷당 위반 ≤1.5%이고 한도는 올리지 않는다",
+   "evidence": "tools/paletteaudit.mjs:8-11, 47, 78-85, 173; fx-look.js:112-120 같은 표"
+  },
+  {
+   "rule": "자발광 밴드 15-55°는 태그 픽셀에만 적용한다. 태그 비율은 ≤8%이고 올리지 않는다. 태그되지 않은 픽셀(발광체가 비춘 면, 블룸 헤일로)에는 어떤 완화도 없다",
+   "evidence": "paletteaudit.mjs:13-17, 48-49, 174; tagmask.js:9-11"
+  },
+  {
+   "rule": "씬에 있는 모든 재질 이름('@' 앞부분)은 albedo-manifest.json에 선언되어야 한다. 미선언·사문 항목·편차 >10%는 실패다",
+   "evidence": "tools/albedoaudit.mjs:87-99; render/audit-cards.js:75-87; albedo-manifest.json _doc"
+  },
+  {
+   "rule": "three 객체(Object3D·Material·Texture·Skeleton·BufferGeometry) 생성자는 generateUUID를 통해 Math.random을 부른다. 시뮬 창에서 호출되면 하네스 오류다. 런타임에 쓸 메시·뼈대는 부팅 때 미리 할당한다",
+   "evidence": "three Object3D.js:96, Skeleton.js:47, Texture.js:75, Material.js:49, BufferGeometry.js:81; determinism.js:1-21, 46-58; main.js:163-170(DEBRIS_POOL)"
+  },
+  {
+   "rule": "노출 적응 상태는 GPU 상태다. 입력은 프레임 텍스처·clock.dt·상수뿐이다. reset()은 스냅을 걸고 pipeline.reset()(resetState 경로)에서 호출된다",
+   "evidence": "exposure.js:11-16, 149-150; pipeline.js:370, 488; harness.js:249"
+  },
+  {
+   "rule": "창호지 판은 불투명(1.0)이다. 판 뒤 물체는 구멍·찢어짐으로만 직접 보이고, 야간 실루엣은 등록 캡슐만 만든다. 등록되지 않은 물체는 점광을 가리지 않는다. 점광 castShadow는 false로 유지한다",
+   "evidence": "hanji.js:34; index.js:247-253, 485; hanji-occluders.js:4-7; CONTRACT-NOTES.md:1150-1152"
+  },
+  {
+   "rule": "판별 창호지 유니폼은 '불가능한 0'을 기본값으로 둔다. applyHanjiTransmit 뒤에 syncPaneUniforms가 채우고, assertSynced가 부팅 때 전수 검사한다",
+   "evidence": "index.js:439-445; main.js:333-335; opacity.js:43-60"
+  },
+  {
+   "rule": "태그 규칙은 tagmask.js 한 곳에서만 정의한다. 감사 도구는 마스크만 본다",
+   "evidence": "tagmask.js:12-21, 28-37"
+  },
+  {
+   "rule": "재질 색 상수(레시피)가 팔레트 규율의 근거다. 목재·흙 원색은 크로마 축소(선형, 휘도 보존)로 sRGB 채도 ≈0.17-0.25를 유지한다",
+   "evidence": "index.js:5-6, 194-217"
+  }
+ ],
+ "extensionPoints": [
+  {
+   "point": "캐릭터 룩 레시피 모듈(viewmodel-look.js와 같은 형태)",
+   "where": "src/materials/index.js:505-508 (synth.dispose() 직전), src/materials/viewmodel-look.js:56-74",
+   "howP4BUsesIt": "actor-look 계열 모듈에 팀 변형 레시피를 둔다(예: 이세계용 청·황·백 DANCHEONG, 인간계용 적·황·백 DANCHEONG, 필요하면 청 옻칠). 같은 합성기로 생성하고 mode 'uv', 매니페스트에 등록, 캐릭터 데이터는 재질 키만 참조한다. 추정: 레시피 1개마다 합성 시간이 boot_cpu에 더해진다"
+  },
+  {
+   "point": "'uv' 모드 복제본(셰이더 무패치, CSM만)",
+   "where": "src/materials/index.js:494-500 (ROOF_TILE_UV), 514-519 ('uv'는 finalize에서 건너뜀)",
+   "howP4BUsesIt": "FABRIC·WOOD_COLUMN·BRONZE·LACQUER를 텍스처를 공유하는 'uv' 클론으로 만들어 생성기가 설계한 UV로 매핑한다. 스키닝 시 미끄러짐이 없다. 클론은 patchScene 이전에 씬에 넣거나 따로 patchMaterial한다. 이름은 매니페스트 규칙(새 키, 또는 'BASE@x'로 정규화)에 맞춘다"
+  },
+  {
+   "point": "새 표면 셰이더 정의(예: 바인드 포즈 오브젝트 공간 트라이플래너)",
+   "where": "src/materials/surface-shader.js:276-281 (defines), 29-52 (VERT_MAIN: vSurfLPos=position은 바인드 포즈)",
+   "howP4BUsesIt": "UV 설계 없이 TRI 질감을 피부에 고정하고 싶을 때 쓴다. 정의 조합마다 프로그램이 +1이다(스키닝 변형까지 고려). vSurfLNrm은 스키닝된 objectNormal이므로 원본 normal 속성 varying이 따로 필요하다"
+  },
+  {
+   "point": "캡슐 차폐 등록 API와 상한",
+   "where": "src/materials/hanji-occluders.js:12, 29-44, 47-56; index.js:304, 321-332, 432-434",
+   "howP4BUsesIt": "캐릭터 데이터에 '창호지 차폐 캡슐 리그'(뼈 id·반지름 목록)를 선언하고, 매 프레임 뼈와 래그돌 위치로 set()한다. resetState와 사망·디스폰 때 delete()한다. HJ_OCC_MAX를 올릴 때는 세 곳을 같이 바꾼다(프로그램 수는 같고 소스만 바뀌므로 부팅 때 재컴파일). uHanjiOccB.w는 지금 쓰이지 않으니 끝점 B 반지름(테이퍼, 콩쥐 치마)에 쓸 수 있다"
+  },
+  {
+   "point": "프레임 훅 beforeRender",
+   "where": "src/render/pipeline.js:287, 391; main.js:149",
+   "howP4BUsesIt": "캡슐 뷰 공간 변환은 이미 걸려 있다. 액터가 월드 캡슐을 갱신하는 시점(시뮬 뒤, 렌더 전)을 이 훅 앞에 맞춘다"
+  },
+  {
+   "point": "노출 파라미터 동결 지점",
+   "where": "src/render/pipeline.js:51 (EXPOSURE_PARAMS), src/render/exposure.js:112-118, 156-160",
+   "howP4BUsesIt": "§5-1 ⓐ: 계약 상수로 export하거나 별도 계약 모듈로 승격한다. this.params를 Object.freeze하거나 변경 시 throw하게 한다. 플레이테스트 근거를 기록한다. 감사용 고정은 rateUp=rateDown=0이면 적응이 멈춘다(ADAPT_FRAG 88-91). 이 경우 testOverride로 표기해야 한다"
+  },
+  {
+   "point": "정적 팔레트·팀색 게이트 패턴",
+   "where": "src/materials/fx-look.js:112-120 (paletteInBand), tools/fxaudit.mjs:103, 143",
+   "howP4BUsesIt": "재질 쪽에 TEAM_BANDS(이세계 청 구간, 인간계 적 구간)와 팀 악센트 재질 목록을 정의한다. 브라우저 없는 검사로 ① 각 구간 ⊂ paletteInBand, ② 두 구간이 서로 겹치지 않음, ③ 각 팀 액터에 배정된 악센트 레시피 색(gain·크로마 반영 후 HSV)이 자기 팀 구간 안, ④ 상대 팀 구간 밖임을 확인한다. silhouetteaudit(브리프 요구)과 npm test 양쪽에 넣을 수 있다"
+  },
+  {
+   "point": "태그 마스크 2패스 오버라이드 기법",
+   "where": "src/render/tagmask.js:94-100",
+   "howP4BUsesIt": "팀별 레이어 마스크를 같은 방식으로 그려 픽셀 단위 팀색 분리(조명·AgX 뒤 실제 색상 분포)를 잴 수 있다. 오버라이드 재질의 스키닝 변형은 캡처 뒤에 컴파일된다(harness tagMask 표식 관례)"
+  },
+  {
+   "point": "프리웜 커버리지",
+   "where": "src/core/prewarm.js:45-80; main.js:339 (fx.prewarmSpawn), fx/index.js:109-116; tools/shots.js (SHOTS)",
+   "howP4BUsesIt": "액터 풀을 씬에 넣어 두면(visible=false여도) compileAsync가 forward 스키닝 프로그램을 만든다. 그림자 깊이와 GTAO 노멀 스키닝 변형은, 프리웜에서 그리는 샷 하나에 보이는 스킨 액터가 카메라와 CSM 절두체 안에 있어야 생긴다(예: hanji_silhouette 샷에 액터 배치, 또는 prewarmSpawn 같은 단계)"
+  },
+  {
+   "point": "알베도 매니페스트",
+   "where": "src/materials/albedo-manifest.json; render/audit-cards.js:75-87",
+   "howP4BUsesIt": "캐릭터 재질 이름(새 레시피, 'uv' 클론)마다 의도 알베도를 추가한다. 씬 밖 풀 재질은 extraMaterials로 넘긴다(main.js:315 선례)"
+  },
+  {
+   "point": "노출 고정 테스트 훅",
+   "where": "src/core/harness.js:496-504",
+   "howP4BUsesIt": "silhouetteaudit의 액터별 비교에서 노출이 움직여 대비가 오염되는 것을 막는다(PATCH-015-E). 다만 되돌릴 수 없으므로, 케이스마다 새 페이지를 쓰거나 복원 가능한 고정 훅을 새로 만든다"
+  }
+ ],
+ "p4bConstraints": [
+  {
+   "constraint": "임포트 텍스처를 쓰지 않는다. 캐릭터 메시는 src/materials 프로파일로 셰이딩하고, paletteaudit 1.5%를 캐릭터를 포함한 상태에서 유지한다",
+   "source": "docs/contracts/patches/CONTRACT-PATCH-010.md:36-55 (PATCH-010-B)"
+  },
+  {
+   "constraint": "표면 분절은 머티리얼이 담당한다. 자라 등껍질=LACQUER 또는 BRONZE, 도깨비 뿔·방망이=WOOD_COLUMN+BRONZE, 의복=FABRIC, 장식=DANCHEONG 머리초·금문. 캐릭터 1종 ≤25k 삼각형",
+   "source": "docs/contracts/briefs/P4-BRIEF.md:393-403; CONTRACT-PATCH-010.md:72-80"
+  },
+  {
+   "constraint": "팀색은 이세계=청, 인간계=적이고 단청 팔레트 안에서만 쓴다. 두 팀 색상 대역이 겹치지 않음을 정적 검사로 확인하고, silhouetteaudit에도 팀 색 분리 검사를 넣는다",
+   "source": "P4-BRIEF.md:405-414"
+  },
+  {
+   "constraint": "silhouetteaudit: HANJI 판 뒤 2.5 m, 실내 광원 역광, 6쌍이 윤곽 폭 분포·높이·상하 질량비·돌출부 위치 중 2축 미만에서만 다르면 exit 1. 배경 대비 ≥0.15. 케이스 22(인위 동일화 → exit 1). 2.5 m에서 판독되지 않으면 조명 구성을 고치고 더미를 가까이 옮기지 않는다",
+   "source": "P4-BRIEF.md:339-356"
+  },
+  {
+   "constraint": "노출 적응 범위와 속도를 계약값으로 동결한다. 값은 플레이테스트로 정하고 근거를 보고(§8-5 '노출 적응 범위')한다. 측정 프로브 구간에서는 노출을 고정하고 그 사실을 명시한다",
+   "source": "P4-BRIEF.md:802-805, 875; CONTRACT-PATCH-015.md:118-129 (PATCH-015-E); CONTRACT-NOTES.md:2087"
+  },
+  {
+   "constraint": "프로그램 ≤110, 플레이 중 셰이더 컴파일 0",
+   "source": "P3-BRIEF.md:227-229; tools/profile.mjs:58-61, 336-345"
+  },
+  {
+   "constraint": "에셋·메시는 boot_cpu ≤3 s 안에 넣는다. 넘치면 메시를 줄이고 프리웜은 줄이지 않는다",
+   "source": "CONTRACT-PATCH-010.md:82-84 (부팅)"
+  },
+  {
+   "constraint": "스키닝·클립 시간은 core/clock만 쓴다. resetState는 액터·래그돌 상태를 완전 복원한다(캡슐 등록 포함)",
+   "source": "CONTRACT-PATCH-010.md:61-70 (determinismaudit 행); P4-BRIEF.md:372-376, 815"
+  },
+  {
+   "constraint": "점광 castShadow=false를 유지한다(그림자맵·순열·비용 고정). 등록되지 않은 물체는 점광을 가리지 않는다",
+   "source": "src/materials/index.js:251-252; CONTRACT-NOTES.md:1151-1152"
+  },
+  {
+   "constraint": "팔레트 한도 1.5%와 태그 비율 8%를 올리지 않는다. 위반이 나오면 색을 고친다",
+   "source": "tools/paletteaudit.mjs:11, 16"
+  },
+  {
+   "constraint": "surfaceaudit: 캐릭터 메시에도 표면 타입 기본값을 쓰지 않는다(PATCH-001-D)",
+   "source": "CONTRACT-PATCH-010.md:61-70 (surfaceaudit 행)"
+  },
+  {
+   "constraint": "v0 4종도 v1과 같은 데이터 형식으로 만든다. 재질 배정·팀 악센트·차폐 캡슐 리그도 데이터여야 P4D 코드 증가가 0이다",
+   "source": "P4-BRIEF.md:336-337, 865"
+  },
+  {
+   "constraint": "게이트 목록의 원본은 tools/gates.sh다. silhouetteaudit은 주석 처리된 자리(61행)에 편입한다",
+   "source": "P4-BRIEF.md:832-836; tools/gates.sh:61"
+  }
+ ],
+ "risks": [
+  {
+   "risk": "TRI 모드 재질(FABRIC·WOOD_COLUMN·BRONZE·LACQUER 원본)을 스킨 액터에 그대로 쓰면 텍스처가 미끄러지고 무늬가 튄다",
+   "why": "TRI는 월드 좌표 vSurfWPos로 투영한다(surface-shader.js:166-168, 191-195). 원점 해시 오프셋은 floor(o*4+0.5), 즉 0.25 m 격자라 이동 중 패턴이 불연속적으로 바뀐다(60-64, 168)",
+   "mitigation": "'uv' 클론에 생성기 UV를 쓰거나, 바인드 포즈 오브젝트 공간 정의를 새로 만든다(+프로그램)"
+  },
+  {
+   "risk": "DANCHEONG(LOCAL)을 병합 스킨 메시에 쓰면 매핑이 틀어진다",
+   "why": "LOCAL은 박스 로컬 중심 `position`과 aBoxDims를 전제한다. aBoxDims가 없으면 lp.x/lp.y 평면에 halfLen 0.45 m 고정으로 매핑되고, |x|>0.45인 영역은 u=0으로 번진다(surface-shader.js:141-150). WEAR도 aBoxDims가 없으면 0이다(233-241)",
+   "mitigation": "DANCHEONG 텍스처의 u 배치(0-0.5 끝단, 0.5-1 금문; synth.js:121-123)를 알고 UV를 설계한 'uv' 클론을 쓴다"
+  },
+  {
+   "risk": "캡슐 상한 4개를 더미가 상시 1칸 쓰고, 초과분은 조용히 버려지며, resetState가 비우지 않는다",
+   "why": "hanji-occluders.js:12, 49-50(Map 순서대로 앞 4개). main.js:148 더미 등록. harness.js:236-261 resetState에 hanjiOccluders 없음. PATCH-001-D의 '조용한 무시 금지' 정신과 충돌한다",
+   "mitigation": "상한 상향 또는 판·거리 기반 선택, 초과 시 throw하거나 기록, 액터 reset 경로에서 delete·재등록, silhouetteaudit에서는 더미 delete"
+  },
+  {
+   "risk": "silhouetteaudit이 실제로 재는 것은 메시가 아니라 캡슐 프록시의 그림자다. 메시와 프록시가 어긋나도 게이트는 통과한다",
+   "why": "판 불투명도 1.0(hanji.js:34)이라 메시는 판 너머로 보이지 않는다. 야간 실루엣 V는 등록 캡슐로만 계산된다(index.js:321-332, 412)",
+   "mitigation": "캡슐 리그를 캐릭터 데이터에 두고 뼈에서 유도한다. 프록시-메시 일치 검사(예: 프록시 투영과 메시 실루엣의 IoU)를 별도 축으로 둔다. 설계 결정 사항"
+  },
+  {
+   "risk": "아래로 퍼지는 윤곽(콩쥐 치마)과 비대칭 돌출은 반지름이 일정한 캡슐 몇 개로 표현하기 어렵다",
+   "why": "캡슐 반지름은 A.w 하나뿐이다(index.js:326). B.w는 0이고 쓰이지 않는다(hanji-occluders.js:52)",
+   "mitigation": "B.w를 끝점 반지름으로 써서 테이퍼 캡슐을 만든다(셰이더 1줄 수준 변경, 프로그램 수는 그대로). 아니면 캡슐 수를 늘린다"
+  },
+  {
+   "risk": "HJ_OCC_MAX를 크게 올리면 프래그먼트 유니폼 벡터와 픽셀당 비용이 늘어난다",
+   "why": "캡슐 1개 = vec4 2개. HANJI 프로그램에는 이미 구멍 24×vec3, 점광 5개, CSM 방향광·그림자 3개, lightProbe 등이 있다. WebGL2 최소 보장은 MAX_FRAGMENT_UNIFORM_VECTORS 224다. 루프는 점광 5개(언롤) × 캡슐 수. 추정: 16개(+24 벡터)는 여유가 있을 가능성이 높고 32개 이상은 경계(미측정)",
+   "mitigation": "renderer.capabilities.maxFragmentUniforms를 부팅 때 단언한다. 판에서 가까운 N개만 넣는다. 실 GPU에서 측정한다"
+  },
+  {
+   "risk": "BRONZE 녹청을 큰 면적(자라 등껍질 등)에 쓰면 paletteaudit을 위반할 수 있다",
+   "why": "녹청 colB/colD는 sRGB 색상 176-177.5°로 청 하한 175°에서 1-2° 떨어져 있다(node 계산). 온색광을 곱하면(톤매핑 전 추정) 등롱 0xfff6e8 아래 164.5°/159°, 태양 SUN_COLOR 아래 172.6°로 60-175° 금지대에 들어가고 채도는 0.21-0.30이다. 반구 하늘색 아래서는 183°. 현재 종(bell)은 면적이 작아 통과한 것으로 보인다(추정)",
+   "mitigation": "캐릭터용 BRONZE 변형의 녹청 색상을 185-200°로 옮기고, 캐릭터를 넣은 캡처로 실측한다"
+  },
+  {
+   "risk": "LACQUER를 이세계(청 팀) 자라에 쓰면 팀 대역이 겹친다",
+   "why": "LACQUER 원색은 4.3-5.5°, 채도 0.63-0.68로 적 대역이다(node 계산). 조명 아래서도 3.4-7.7°. 브리프는 자라 등껍질 후보로 LACQUER를 들었다(P4-BRIEF.md:397)",
+   "mitigation": "청 옻칠 변형 레시피를 만들거나 BRONZE 변형을 쓴다. 팀색 정의를 '악센트 재질'로 한정할지 결정한다(열린 질문)"
+  },
+  {
+   "risk": "원본 DANCHEONG에는 청(205°)과 적(6.3°)이 함께 있다. 양 팀 캐릭터에 그대로 쓰면 팀색이 섞인다",
+   "why": "index.js:76 colA 청, colB 적, colC 황, colD 백. 머리초 띠가 청·적·황 3색이다(synth.js:126-128)",
+   "mitigation": "팀별 변형 레시피를 만든다(새 텍스처와 매니페스트 키, 프로그램은 그대로). 다만 합성 시간이 boot_cpu에 더해진다"
+  },
+  {
+   "risk": "스키닝 변형 프로그램이 프리웜에서 빠져 플레이 중에 컴파일된다",
+   "why": "스키닝은 캐시 키 비트다(three WebGLPrograms.js:534). compileAsync는 forward만 만든다. 그림자 깊이(MeshDepthMaterial+스키닝)와 GTAO 노멀(MeshNormalMaterial 오버라이드, GTAOPass.js:161, 505, 641)은 실제로 보이게 그려야 생긴다(prewarm.js:7-13). 추정 증분: forward +1(재질 구성 1종일 때), 그림자 +1, GTAO +1, 태그마스크 +2(캡처 뒤). 래그돌을 비스킨 강체 메시로 따로 만들면 +1 이상",
+   "mitigation": "프리웜 샷에 보이는 스킨 액터를 둔다. _progcount로 델타를 측정한다. 캐릭터 재질은 맵 구성을 하나로 통일한다"
+  },
+  {
+   "risk": "액터나 래그돌을 런타임에 생성하면 Math.random을 소비해 결정성 창 오류가 난다",
+   "why": "Object3D·Skeleton·Texture(뼈 텍스처)·Material·BufferGeometry 생성자가 generateUUID를 부른다(three 각 파일). 시뮬 창 호출은 하네스 오류다(determinism.js:13-17)",
+   "mitigation": "부팅 때 풀을 미리 할당한다(DEBRIS_POOL 선례). 스폰은 add/visible 전환만 한다"
+  },
+  {
+   "risk": "노출 적응이 silhouetteaudit 대비와 액터 간 비교를 오염시킨다",
+   "why": "액터마다 L_avg가 달라 EV가 바뀌고, AgX가 비선형이라 대비가 노출에 의존한다(PATCH-015-E). R4에서 실제로 오염된 적이 있다(R4-LOG.md:209). debugFreezeExposure는 resetState로 풀리지 않는다(harness.js:501-503)",
+   "mitigation": "액터 없는 기준 프레임에서 EV를 확정해 고정하고, 케이스마다 새 페이지를 쓴다. 고정 사실을 보고에 적는다"
+  },
+  {
+   "risk": "compileLog의 'SKINNING' 태그가 절대 일치하지 않아 플레이 중 스키닝 컴파일 범인을 특정하기 어렵다",
+   "why": "harness.js:598-600은 cacheKey 문자열에서 'SKINNING'을 찾지만, three는 스키닝을 숫자 비트마스크로 넣는다(WebGLPrograms.js:534, 521)",
+   "mitigation": "stack과 재질 이름으로 특정하거나, 태그 판정을 program.name이나 오브젝트 정보로 보강한다(도구 수정은 P4B 범위에서 결정)"
+  },
+  {
+   "risk": "작은 고휘도 광원(도깨비불)에 대한 노출 반응이 화면 위치에 따라 달라진다",
+   "why": "미터는 64²셀×16탭, 즉 프레임을 약 256²점으로 희소 샘플링하고 텍셀 중심으로 스냅한다(exposure.js:30-46). 중앙 가중은 모서리 0.35(48-66). 결정적이지만 작은 광원은 놓칠 수 있다(추정)",
+   "mitigation": "동결할 범위·속도 값을 정하는 플레이테스트에 도깨비불 크기·위치 시나리오를 포함한다"
+  },
+  {
+   "risk": "FABRIC(42°, 황 대역 하한 근처)이 등롱 아래 39.8°로 목재 대역에 들어가 채도 상한 0.35 여유가 작다",
+   "why": "node 계산(톤매핑 전): 등롱 아래 채도 0.26-0.30. 출력 셰이더 대역 상한(cap 0.28, output.js:77-82)이 보정하지만 캐릭터 의복 면적이 넓다(추정)",
+   "mitigation": "캐릭터를 넣은 lantern_night·hanji_silhouette 샷을 실측하고, 필요하면 의복 변형의 채도를 낮춘다"
+  },
+  {
+   "risk": "캐릭터 자발광(emissive ≥1.0)은 태그되어 8% 상한을 소비하고 블룸 임계(노출 후 0.8)를 넘을 수 있다",
+   "why": "tagmask.js:32-37; pipeline.js:52 BLOOM threshold 0.8",
+   "mitigation": "팀색·장식에는 emissive를 쓰지 않는다. 발광 부위는 FX 경로로 처리한다"
+  }
+ ],
+ "openQuestions": [
+  "silhouetteaudit의 '판 앞에서 렌더한 실루엣'은 야간 점광 캡슐 프록시 그림자(현행 모델)로 정의되는가, 아니면 메시 자체(구멍·찢어짐·주간 CSM PCSS)도 축에 넣는가? 프록시만이라면 메시-프록시 일치 검사를 둘지 결정해야 한다.",
+  "'팀에 배정된 색상 대역'의 단위는 무엇인가? 액터의 모든 유채색 픽셀인가, 지정한 팀 악센트 재질만인가? 공용 재질 LACQUER(적)·BRONZE 녹청(청 경계)·WOOD·FABRIC(황·목재)을 어떻게 다룰지 정해야 한다. 검사를 레시피 정의값(정적)으로 할지, 조명·AgX 뒤 픽셀(팀 마스크)로 할지도 정해야 한다.",
+  "자라 등껍질 재질: 브리프 후보 LACQUER는 적 대역이라 이세계=청 규칙과 충돌한다. 청 옻칠 변형, BRONZE 변형(녹청 색상 이동), 또는 팀 규칙 예외 중 무엇으로 갈지 발주자 판단이 필요하다.",
+  "노출 동결 대상의 범위: evMin·evMax·kneeSlope·하드 하한 오프셋 −3·rateUp·rateDown만인가, ec·centerWeight도 포함인가? 현재 근거가 있는 것은 EC·무릎뿐이고(CONTRACT-NOTES.md:707-712) 속도·evMax·centerWeight는 실측 근거 기록이 없다.",
+  "PATCH-015-G가 '.15 임계 폐기'라고 적었는데, 이는 구멍 판독 맥락(CONTRACT-PATCH-015.md:145-158)이다. P4-BRIEF §3-2의 '대비 ≥0.15'와는 다른 지표로 보이지만 같은 숫자라 혼동 소지가 있다. 대비의 정의(실루엣 내부 대 판 배경, 선형/표시 공간)를 확정해야 한다.",
+  "캡슐 상한 정책: 상한 상향(셰이더 상수 3곳)과 판·거리 기반 선택(4개 유지) 중 무엇인가? 실루엣 감사는 한 번에 1종만 배치하는가? silhouette_dummy를 감사 중에 등록 해제할지도 정해야 한다.",
+  "스키닝 추가에 따른 실제 프로그램 증분은 브라우저 프로브(tools/_progcount.mjs)가 필요하다. 이번 작업 규칙상 실행하지 않았으므로 위의 +3~+6은 코드 기반 추정이다.",
+  "HANJI 불투명도 주석(index.js:234, hanji.js:30-33의 '.95')과 실제 값 1.0(hanji.js:34)이 다르다. CONTRACT-NOTES 008-B 실측표(1158-1164)도 .95 조건이다. 현행 1.0 조건의 실루엣 대비 기준선은 R4 이후 재측정이 필요한가?",
+  "BRONZE와 FABRIC의 조명 하 색상 이탈 계산은 톤매핑·LUT 전 단순 곱 추정이다. 실제 캡처에서 재측정해야 한다(캐릭터 포함 상태, PATCH-010-B)."
+ ]
+}

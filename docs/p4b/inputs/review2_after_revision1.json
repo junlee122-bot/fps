@@ -1,0 +1,124 @@
+{
+ "issues": [
+  {
+   "severity": "치명",
+   "section": "§8-1 (s3) · §8-3 누설 검사 영역 · §8-6 비공허 · §4-8 순서 1 · §8-10 케이스 22 · R3 · §11 #2",
+   "issue": "개정한 누설 검사 영역(셰이더 경계구 조기 탈출 술어, 화소 네 모서리)은 현행 조명 L0에서 키 2 m급 정체에 대해 공집합이다. 그런데 (s3)는 '예측 영역 0인 정체가 있으면 exit 1'이고 §8-6은 영역 ≥ 1을 비공허 조건으로 둔다. 그래서 (1) 단계 11의 L0 1차 실측이 정적 단계에서 멈추고, (2) 단계 11에서 L0로 구현하는 케이스 22(tokki)가 쌍 측정 전에 exit 1로 끝나 'axes.length===0 기록' 조건을 충족하지 못하며, (3) R3 대안(발주자가 조명 이동을 반려)에서는 게이트가 영원히 통과할 수 없다. (4) 그 결과 결정 2가 실제로는 12b도 막는다.",
+   "evidence": "셰이더 술어 `db > R + 0.5·softB`(sp = min(sb + R/len, 1))를 판 na_w_-3(x −32, y 1.45–3.50, z −12.85..−10.15)에서 1 cm 격자로 계산했다. 경계구 중심은 (−29.5, 2.0, −11.5)에 두었다. L0(등롱 −26, 2.0)에서 R 0.95면 0.45%, R ≥ 1.00이면 0%다. B(−22.8)에서는 R 1.0이 14.1%, 1.1이 6.8%다. 토끼는 귀 끝이 2.00 m라 R ≥ 1.00이고, 도깨비는 뿔 끝이 2.05 m라 R ≥ 1.025다(§2-6). §4-8 1·3은 L0 실측과 9b를 L0에서 하라고 하고, R3는 'L0에 묶여도 나머지 3축으로 통과'라고 한다. §8-3이 B 조명에서만 영역을 검산했다(≈1.47 m 문장).",
+   "fix": "누설 영역을 원시 단위 보수 술어로 다시 정의한다. 지터를 반영한 네 모서리 모두에서, 레코드의 모든 원시가 occlusion-math 미러로 `(d − rad) ≥ soft(s)/2`를 만족하는 화소다. rc는 segseg 거리, el은 1차 SDF(볼록 r의 하한이라 보수적)로 잰다. 이 조건이면 셰이더의 smoothstep이 정확히 1.0이므로 A==B가 성립한다. 경계구 조기 탈출 영역과의 합집합으로 둔다. 비공허는 '영역 ∩ 유효(비창살) 화소 ≥ 1'로 걸어, 창살 화소만으로 공허하게 통과하지 않게 한다. (s3)는 같은 정의로 예측한다. 보고 전용 실행(단계 11, `--stage-candidates`)에서 영역이 0이면 exit 1 대신 '판정 불가'로 기록한다. readSceneRect는 판독한 프레임의 lastJitter를 함께 돌려준다(setup 시점의 지터는 직전 상태의 값이다)."
+  },
+  {
+   "severity": "중대",
+   "section": "§3-8 (b) · §7-7 프리웜 · §10-2 9 · §10-4 · 부록 R #6·A4",
+   "issue": "(b) prewarmSpawn을 'fx.prewarmSpawn 옆'(main.js:341)에 두면, 그 시점의 scene.environment는 null이고 렌더러는 풀해상도다. 그러면 (b)의 pipeline.render()가 환경광 없는 스킨 forward 변형을 컴파일한다. 실제 플레이 변형(PMREM 환경광 있음)은 첫 스폰 때 컴파일된다. 단계 9a의 '(b) 하나만으로 플레이 중 컴파일 0'과 p4b_actor_no_play_compile이 설계대로 구현해도 실패한다.",
+   "evidence": "main.js:341의 fx.prewarmSpawn이 :345의 renderer.setSize(192,120)보다 앞에 있다. 환경광은 sky.apply(renderer.js:61, applySunConfig)가 처음 설정하는데, applySunConfig는 applyShot과 applyDefaultView에서만 불린다(첫 호출은 prewarmShaders 안 applyShot(shots[0])와 :360). sky/index.js:149가 _envRT=null이고 :290이 첫 설정이다. prewarm.js:44-49 주석은 '환경광 없음 상태의 컴파일은 사장 프로그램 10개(35 = 25 + 10)'라고 적었다. fx.prewarmSpawn은 스폰만 하고 렌더는 프리웜 샷 순회가 한다(fx/index.js:109-116). 풀해상도 렌더 1회는 부팅 비용이 크다(main.js:342 주석: 11회 7.1 s).",
+   "fix": "풀 24(v1이면 48)개를 이미 있는 풀해상도 웜 렌더(main.js:364, applyDefaultView :360 뒤라 환경광 확정)에 frustumCulled=false로 넣어 그림자·GTAO 패스까지 그리고, pipeline.reset(:365) 전에 뗀다. 그러면 추가 렌더 비용이 0이다. 또는 prewarmShaders에 'applyShot(shots[0]) 뒤' 훅을 두어 같은 일을 한다. _progcount로 (a)(b)를 분리 실측하는 것은 유지한다."
+  },
+  {
+   "severity": "중대",
+   "section": "§12 R15 · §10-7 케이스 30·33·22·35 · §10-5 playtest P4B 절",
+   "issue": "harnesstest CI 잡(상한 360분)이 넘친다. 새 playtest 음성 4회(30, 33 × 3)는 각각 playtest 전체를 돈다. 여기에 P4B 절(stepFrames(360) × 2, 전 캐릭터 스폰 렌더)이 모든 playtest 실행에 붙고, 케이스 22(20–60분)와 35(DPR2 라인업 1–2 상태)가 더해진다. R15의 완화책은 silhouette·statics 잡만 다루고 harnesstest는 다루지 않는다.",
+   "evidence": "P4-LOG:54에서 CI harnesstest는 2 h 42 m(28 케이스, playtest 음성 2회 포함)다. HARNESS.md:270과 harnesstest.mjs:63에 따르면 playtest 단독 완주는 ≈38분(컨테이너)이고, CI는 컨테이너의 ≈1.5배다(P4-LOG profile 줄). 증분 추정은 playtest 4회 × 40–60분 + 기존 26·28의 P4B 절 증가 + 22·35 ≈ +4–5.5 h다. 합계 6.5–8 h로 360분을 넘는다.",
+   "fix": "playtest에 `--section <이름>`을 둔다. `--inject-*`와 함께일 때만 허용하고 없으면 exit 2로 한다(PATCH-001-C, silhouetteaudit `--only` 규칙과 같다). 음성은 해당 절만 돌린다. 또는 harnesstest에 `--state`·exit 75 조각(환경변수 트리거)을 두고 CI 잡을 둘로 나눈다. 단계 10·11에서 단독 실측을 기록하고 상한은 실측 × 2.5로 한다."
+  },
+  {
+   "severity": "중대",
+   "section": "§8-12 소요 시간 · §8-2 `--state` · §4-8 2 `--stage-candidates` · §10-9 체크포인트",
+   "issue": "silhouetteaudit 소요 추정(상태당 4–12분, 1–2.8 h)은 같은 절차의 실측과 2–5배 어긋난다. 그래서 단일 silhouette 잡은 360분에서 취소된다. 단계 11의 L0·B·C·D 후보 실행(후보마다 Z·B·A×8 등)과 `--reference-dummy`는 아예 추정이 없다(≈44+ 상태). 시간 조각 exit 75의 트리거도 정의되지 않았다.",
+   "evidence": "baseline 샷 하나는 resetState → setShot → stepFrames(90) → capturePng → captureMask(baseline.mjs:97-124)로, 감사 상태와 같은 절차다. CI baseline1 5 h 39 m, baseline2 3 h 54 m / 12샷이므로 샷당 19.5–28분이다(P4-LOG:56-57). 14 상태면 4.6–6.6 h이고 HANJI 원시 루프 비용이 더해진다. 후보 실행은 ≈15–20 h인데 컨테이너 생존 창은 2–4.5 h다(P4-LOG:41). gates.sh 머리주석 규칙은 '75는 FPS_MAX_NEW_* 환경변수가 있을 때만 낸다'인데 설계는 `--state` 조각 끝만 말한다. diag 45°를 게이트 실행에서 재는지에 따라 상태 수도 달라진다(+4).",
+   "fix": "추정을 baseline 실측 기반(상태당 20–28분)으로 고친다. silhouette 잡을 처음부터 a/b(/c)로 나누고, 라인업 디렉터리를 artifact로 넘겨 paletteaudit_actors가 읽게 한다. `FPS_MAX_NEW_STATES=N`일 때만 75를 내고 없으면 끝까지 돈다. 단계 11 후보 실행의 상태 수와 시간을 표로 적고 조각 계획을 세운다. diag의 측정 여부를 명시한다. 체크포인트 ①–④b의 12샷 측정 도구와 시간(각 ≈4–5.6 h)도 적는다."
+  },
+  {
+   "severity": "중대",
+   "section": "§7-1 placeForAudit · §7-7 simSubstep · §8-1 브라우저 가드 · 부록 R A5",
+   "issue": "'컨트롤러를 거치지 않는 정적 배치'라고 했지만, 위치 정본은 컨트롤러 position이다(§7-1). actors.update·separate·postPhysics가 stepFrames(90) 동안 감사 슬롯을 건너뛴다는 규정도 없다. 그러면 90프레임 동안 감사 액터의 루트가 다음 경로로 바뀔 수 있다: 주차 위치 덮어쓰기, 단계 9b 전 더미 FABRIC 콜라이더(앵커 자리)에 대한 depenetrate, 중력·스냅, idle 호흡. 브라우저 가드는 앵커 객체와 카메라만 재고 실제 액터 루트는 재지 않으므로 2.5 m 고정(PATCH-008-B)이 검증되지 않는다. 선언쌍 바이트 동일도 진짜 캡슐 반경에 따라 루트가 달라지면 깨진다.",
+   "evidence": "§7-1: '위치의 정본은 컨트롤러 position이다(character.js:44-47)', update = '컨트롤러 → 이동 → 분리 → 포즈'. character.js:146 move()는 depenetrate(4)·probeGround를 수행한다. level.js:355-365는 더미 캡슐을 (−29.5, 1.83, −11.5)에 정적 콜라이더로 등록한다. §8-1 브라우저 가드는 '앵커 거리와 카메라 = 샷 정의'만 본다.",
+   "fix": "슬롯 모드 `auditStatic`을 둔다. 이 슬롯은 update의 컨트롤러·이동·분리, postPhysics, 포즈 시간 진행에서 빠지고 포즈를 고정한다. readSceneRect 직후 공개 뷰의 루트 pos가 앵커와 비트 동일한지 단언하고 JSON에 기록한다. 단언은 앵커 객체가 아니라 액터 실제 위치에 건다."
+  },
+  {
+   "severity": "중대",
+   "section": "§1-1 의존 규칙 · §7-6 determinismaudit 검사 3 · test/sim-purity · 케이스 32",
+   "issue": "기계 검사 규칙 'import 대상 ⊂ {자기 최상위 디렉터리, src/core}'로는 같은 최상위 디렉터리 src/actors 안의 sim → present import를 잡지 못한다. present/actor-view.js·meshbuild.js는 three를 import하므로, 직접 import만 보는 'three 금지'로는 sim이 three에 전이 의존하는 경로가 공허하게 통과한다. 그런데 설계는 '시뮬은 three에 의존하지 않는다(검사 3)'를 강제 수단으로 명시한다(P4-BRIEF §5 시뮬/표현 분리).",
+   "evidence": "§1-1 첫 줄은 'src/actors/sim은 src/actors/present를 import하지 않는다'고 하지만, 검사 정의는 '{자기 최상위 디렉터리, src/core}'다. §1-2에서 meshbuild·actor-view는 three 의존 표현 모듈이다. 케이스 32 `--inject-sim-impurity`는 직접 위반만 주입한다.",
+   "fix": "src/actors는 하위 디렉터리 단위로 허용 집합을 둔다. sim은 {src/actors/data, src/actors/sim, src/core}, present는 그 위에 sim 순수 함수를 읽기 전용으로 쓴다. 시뮬 진입 파일 전부에서 import 전이 폐포를 계산해 three·present·render·materials·fx·audio가 없음을 단언한다. 음성 주입에 'sim → present 간선'을 추가한다."
+  },
+  {
+   "severity": "경미",
+   "section": "§7-3 분리 · §1-2 character.js `slideHorizontal` · 부록 R #21",
+   "issue": "'slideHorizontal은 `_slide(dx,0,dz)`만 실행하고 grounded 계열을 갱신하지 않는다'는 코드와 다르다. `_slide`가 접촉마다 `_classifyContact`를 불러 grounded·groundNormal·groundSurface·groundObject·onSteepSlope·touchingWall/Ceiling·wallNormal을 바꾼다. 그래서 테스트 '분리 전후 grounded 계열 불변'이 실패한다.",
+   "evidence": "character.js:224 `this._classifyContact(nx, ny, nz, hit)`(_slide 루프 안), :288-295 `if (ny >= this.cosSlope) { this.grounded = true; this.groundNormal…; this.groundObject = hit.object; …}`",
+   "fix": "slideHorizontal은 접촉 상태 필드를 스냅샷했다가 복원한다. 또는 `_slide(dx, 0, dz, {classify: false})` 경로를 둔다. 부록 R #21의 조치 문구를 정정한다."
+  },
+  {
+   "severity": "경미",
+   "section": "§11 '막는/막지 않는 단계' 열 · §13 선행·막는 결정 열",
+   "issue": "전이 의존을 반영하지 않아 막는 단계 표가 틀렸다. #1의 '막지 않는 단계'에 6(§13에서 '2 다음 순차')과 10('9a 후', 9a는 #1이 막음)이 있다. #14의 '막지 않는 단계'에 2(새 파일 src/actors/sim/occlusion-math.js)와 6(team-color 'v0 실데이터 4종 양성'은 3a 데이터가 필요)이 있다. §13 단계 6에는 선행 3a가 없다. 단계 8의 '막는 결정'이 §13은 1, §11 #14는 8로 서로 다르다. 단계 13 측정은 '9a 후'라고 했지만 E1·E3에 필요한 silhouetteAuditSetup·readSceneRect·S 추출은 단계 11 산출물이다.",
+   "evidence": "§13 표 단계 2·6·8·10·13 행, §11 #1·#14 행, §9-6 E1 '감사 리그(토끼, 앵커)… C·실루엣 화소 수', §8-9 'v0 실데이터 양성 케이스'",
+   "fix": "단계 의존 그래프에서 전이 폐포로 '막는 단계'를 다시 계산한다. 단계 6 선행에 3a를, 단계 13 측정 선행에 11을 넣는다. 단계 8의 막는 결정을 {1, 14}로 맞춘다. 치명 항목을 고치기 전까지는 #2가 12b를 막는다고 적는다."
+  },
+  {
+   "severity": "경미",
+   "section": "§10-2 1 재질 합성 배선",
+   "issue": "main.js가 synth.dispose 전에 `createActorMaterials(synth, …)`를 부르는 것은 불가능하다. 합성기는 createSurfaceMaterials 안의 지역 변수이고, 반환 직전에 dispose된다.",
+   "evidence": "materials/index.js:505-509: `const viewmodel = createViewmodelMaterials({ synth }); synth.dispose(); return { mats, matOf, viewmodel, synth: {ms, breakdown} }`. main.js:83은 반환값만 받는다.",
+   "fix": "뷰모델 선례대로 createSurfaceMaterials 안에서 `actor = createActorMaterials({synth, shared})`를 만들어 반환한다. main.js는 patchMaterial과 albedo extraMaterials 등록만 한다."
+  },
+  {
+   "severity": "경미",
+   "section": "§2-2 외견 닫힌 규칙 · §6-1/6-4 래그돌 템플릿 · §3-8 풀 · §7-8 공개 필드",
+   "issue": "시각 리그 경계가 덜 닫혔다. (1) `silhouette.auditPose`가 시각 리그 목록에 없어서, 선언쌍(흥부 disguise ↔ 도깨비)의 auditPose가 다르면 HDR 바이트 동일 면제가 거짓 실패한다. (2) 래그돌 템플릿 키가 외견 리그별이라 질량이 외견 주인의 massKg로 컴파일되어 '총질량은 진짜 값'과 모순된다. (3) rigOf와 lookOf를 독립으로 허용하지만, 풀은 캐릭터당 메시 1개(그 캐릭터의 look slot 그룹)뿐이라 rigOf=A, lookOf=B 조합을 그릴 수 없다. 공개 뷰도 apparentCharacterId 하나라 둘 중 무엇인지 모호하다.",
+   "evidence": "§2-2 '외견 상태는 시각 리그 {skeleton, shape, pose, ragdoll.massScale·limits, look}', §6-1 'registerTemplate… 캐릭터(외견 리그)별', §6-2 '질량은 진짜 massKg × 외견 massScale', §3-8 '캐릭터별 BufferGeometry 1개, SkinnedMesh (슬롯 6 × 캐릭터 4)'",
+   "fix": "auditPose를 rigOf로 해석하거나, identicalTo 쌍은 auditPose가 같아야 한다는 검증 규칙을 둔다. activate가 진짜 massKg를 받아 슬롯 SoA에서 질량을 재배분한다(할당 0). 스키마에 `lookOf ∈ {self, rigOf}`를 두거나 slot 집합 호환 검증을 둔다. 공개 필드를 apparentRigId·apparentLookId로 나눈다."
+  },
+  {
+   "severity": "경미",
+   "section": "§9-3 그리기 시점 기록 · §9-2 frozen 뷰",
+   "issue": "`_drawn`은 adapt·reduce 드로우만 기록한다. 계약의 ec는 pipeline의 출력·블룸 패스에서 쓰이므로, ec 표류는 그리기 시점 검사에 걸리지 않는다. 또 'window.__pipeline을 거친 대입이 strict 모듈에서 TypeError'라는 문장은 틀렸다. 대입은 호출자 코드(page.evaluate, 비엄격) 문맥에서 일어나 조용히 무시된다.",
+   "evidence": "pipeline.js:478-479 `this.bloom.render(…, this.exposure.ec)`, :485 `ou.ec.value = this.exposure.ec`, exposure.js:150 `get ec()`",
+   "fix": "출력·블룸 드로우 직전의 ec 유니폼도 `_drawn`에 넣는다. 문장은 '조용히 무시되고 contractCheck가 그리기 값으로 잡는다'로 바꾼다."
+  },
+  {
+   "severity": "경미",
+   "section": "§8-12 gates.sh · gates.yml coverage",
+   "issue": "새 게이트 이름 `paletteaudit_actors`에 밑줄이 있다. coverage 잡의 실패 줄 검사 정규식이 `[a-z0-9]`만 받으므로, 이 단계가 한 잡에서 실패하고 RESUME으로 통과하면 'FAILED STEP PRESENT'가 잡지 못한다.",
+   "evidence": "gates.yml coverage: `grep -qE '^[a-z0-9]+ exit=[1-9]' all-summary.txt`. 기존 게이트 이름은 모두 [a-z0-9]다.",
+   "fix": "이름을 `paletteauditactors`로 바꾸거나 정규식을 `^[a-z0-9_]+ exit=[1-9]`로 넓힌다(두 곳 모두)."
+  },
+  {
+   "severity": "경미",
+   "section": "§6-5 playtest p4b_ragdoll_final_pose",
+   "issue": "'stepFrames(360) → h1(sleeping 확인)'은 공허하다. 360 프레임은 정확히 강제 슬립 한계인 720 서브스텝이라, 래그돌이 안정되지 않아도 sleeping이 참이 된다.",
+   "evidence": "harness.js:18 `PHYS_STEPS_PER_FRAME = Math.round(FIXED_DT / PHYSICS_DT) // = 2`, §6-3 7 '720 서브스텝(6 s)이면 강제 슬립(forced = 1)'",
+   "fix": "슬립 사실을 검사로 내세우지 않는다. forced·steps를 보고해 h1===h2 결정성만 판정한다. 자연 수렴을 보려면 단위 테스트에서 steps < 720과 forced를 보고 전용으로 기록한다(임계 발명 없이)."
+  },
+  {
+   "severity": "경미",
+   "section": "§4-7 그림자 밖 영향 · §10-9 ④b · R16 · §11 #2",
+   "issue": "등롱 B 이동·강도 ×1.96이 lantern_night를 바꾼다는 전제는 틀렸다. lantern_light_na의 distance는 24 m 컷오프인데, lantern_night 카메라와 시야(z ≥ 36)는 48 m 넘게 떨어져 있다. 승인 범위와 '나머지 10샷 불변'이 부정확하다.",
+   "evidence": "level.js:599-601 `new THREE.PointLight(0xfff6e8, 0, 24, 1.5)` 위치 (lx, 2.0, −11.5). shots.js lantern_night cam (1.2, 1.6, 36.5) → (5, 2.2, 40). 거리 ≈ 54 m.",
+   "fix": "④b의 기대를 'hanji_silhouette만 변경, 11샷 불변'으로 고치고 imagediff로 확인한다. 결정 2의 승인 요청 범위도 줄인다."
+  },
+  {
+   "severity": "경미",
+   "section": "§8-9 라인업 · §8-6 비공허",
+   "issue": "라인업 배치 위치와 카메라가 정해지지 않았다. lantern_night 조명에서 마당(등롱 (±5, 2.45, 40), 도달 24 m 밖)에 세우면 액터가 hemi 0.05로 거의 검게 찍혀 's ≥ .10 화소 ≥ 1'이 거짓으로 실패할 수 있다. 노출(자유 적응 vs 잠금)도 명시되지 않았다(PATCH-015-E).",
+   "evidence": "level.js:569-584 등롱 2개 (±5, 2.45, 40), shots.js lantern_night hemi 0.05 · sun 0.02. §8-9는 '4종을 마당에 나란히'만 말한다.",
+   "fix": "라인업 앵커를 이름으로 레벨에 두고(등롱 도달 안, 계약 샷과 무관), 카메라와 노출 모드를 JSON에 기록한다. 노출은 계약 조건(자유 적응)으로 한다. 정적 단계에서 등롱 거리 ≤ distance를 단언한다."
+  },
+  {
+   "severity": "경미",
+   "section": "§4-4 hjOcclusion 조기 탈출 · §10-6 hanji-occluders",
+   "issue": "'광선별 보수적 조기 탈출 → 이 슬롯 기여 정확히 1.0'은 rc에서만 성립하고 el에서는 성립하지 않는다. el의 d = (r−1)/|∇r|는 볼록 노름의 1차 SDF라 참 거리보다 작다(하한). 그래서 db − R > softB/2인데 d_el < soft/2인 광선은 전체 계산이면 V < 1인데 조기 탈출이 1로 자른다. 결과는 결정적이지만 작은 계단(≈1% 이하)이 생기고, '판 마스크·조기 탈출 보수성' 테스트를 el까지 적용하면 실패한다.",
+   "evidence": "§4-4 el 분기 `d = (r - 1.0) / max(length(g), 1e-6)`. 볼록 1-동차 r에 대해 r(y*) ≥ r(x) + ∇r·(y* − x)이므로 (r−1)/|∇r| ≤ dist가 나온다.",
+   "fix": "조기 탈출을 '정의'로 명시하고 보수성 주장과 테스트는 rc로 한정한다. 아니면 el을 경계구에 넣을 때 반경을 (최장 반축/최단 반축) 배율로 키워 보수성을 회복하고 테스트로 고정한다."
+  },
+  {
+   "severity": "경미",
+   "section": "§5-2 굽기 비용 · §5-1 spanClear · §5-3 부팅 paramsHash",
+   "issue": "(1) 지붕이 충돌체이고(기와 30 mm + 보토 80 mm) 경사가 50° 미만이라 지붕 셀 전부가 스팬이 된다. 0.25 m 셀에서 Δy 0.12–0.21 m라 지붕 간선이 모두 Δy 간선이 되어, 클래스별 오라클(+ jumpLadder 최대 6회)이 수백만 회로 늘어난다. 'Δy 간선과 가장자리에서만'이라는 비용 전제가 깨지고, navcheck가 statics(120분)를 압박한다. (2) spanClear를 Uint8 cm로 저장하는데 반올림 방향이 없다. 반올림하면 0.336을 34로 저장해 r 0.34 질의를 잘못 통과시킨다. (3) 부팅의 'paramsHash 재계산'은 v1 fixture(test/)를 브라우저·dist가 읽을 수 없으므로 클래스 출처를 정해야 한다.",
+   "evidence": "kit.js:703 '충돌 2레이어(기와 ROOF_TILE 30mm 위 / 보토 ROOF_SOIL 80mm 아래', :732 `collide: true`, map_physics MASK{CHARACTER:1}·LAYER{STATIC:1}. §5-1 slopeCos cos50°. §5-1 agentClasses = 로스터 ∪ v1 fixture.",
+   "fix": "단계 7 첫 작업으로 Δy 간선 수 × 클래스 수를 건식 집계해 보고한다. 바닥 시드에서 도달할 수 없는 스팬은 오라클 전에 가지친다(규칙은 기하로만). spanClear는 내림 양자화로 고정한다. 부팅은 NAV_CONFIG + 매니페스트 classes로 paramsHash를 재계산하고, 로스터 ⊂ classes를 따로 단언한다. fixture와의 일치는 nav-fresh(node)가 맡는다."
+  }
+ ],
+ "verdict": "조건부 반려. 개정 1은 앞선 23건을 대체로 반영했다. 그러나 개정으로 새로 생긴 치명 1건과, 남아 있거나 새로 생긴 중대 5건이 있다.\n\n**치명**\n- 새 누설 검사 영역(경계구 조기 탈출 술어)이 현행 L0에서 토끼·도깨비(R ≥ 1.0 m)에 대해 공집합이다(계산: L0 R ≥ 1.0 → 0%). (s3)의 'exit 1'과 비공허 조건 때문에 세 가지가 성립하지 않는다.\n  - 단계 11의 L0 1차 실측\n  - L0에서 구현하는 케이스 22\n  - R3 대안(조명 이동 반려 시 L0 유지)\n\n**중대**\n1. 프리웜 (b)를 main.js:341에 두면 환경광이 null이라 사장 변형을 컴파일한다. 그래서 9a의 '플레이 중 컴파일 0'을 설계대로 만들 수 없다.\n2. playtest 음성 4회와 케이스 22·35가 더해져 harnesstest CI 잡이 360분을 넘는다. 완화책이 없다.\n3. silhouetteaudit 시간 추정이 baseline 실측(샷당 19.5–28분)과 2–5배 어긋난다. 단계 11 후보 실행은 추정조차 없고, exit 75 트리거도 정의되지 않았다.\n4. placeForAudit의 '정적 배치'가 컨트롤러 정본·update 경로와 충돌한다. 가드는 앵커 객체만 재고 실제 액터 위치는 재지 않는다.\n5. 디렉터리 규칙 검사가 같은 최상위 디렉터리 안의 sim → present(three) 전이 의존을 잡지 못한다.\n\n**경미**: 11건이다. slideHorizontal의 `_slide` 부작용(부록 R #21 조치가 틀림), 막는 단계 표의 전이 의존 오류, 재질 합성 배선, 시각 리그 경계(auditPose·래그돌 질량·rigOf/lookOf), ec 그리기 시점, coverage 정규식, 래그돌 슬립 공허 검사, lantern_night 영향 오판, 라인업 배치 미정, el 조기 탈출 보수성, 지붕 스팬 오라클 폭증·양자화·paramsHash 출처다.\n\n치명·중대 6건을 고친 뒤 재검토를 권한다. 근거 산출용 사본은 /tmp/claude-0/-home-user-fps/3c1b06d0-bb19-5041-8521-d899c35118dc/scratchpad/rr1/rev1.md다. 이 파일은 개정자 대화록에서 복원한 개정 1 전문이다. 워크플로가 전달한 본문에는 부록 R 끝부분만 있었다."
+}
