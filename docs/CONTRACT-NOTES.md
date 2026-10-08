@@ -2154,6 +2154,14 @@ R3′ 결함 중 이 수정만으로 사라질 수 있는 것은 원리적으로
 
 **진행 방식**: 단계 1(노출 구조 동결 — 결정 없이 가능)과 노드 트랙(3a 데이터·3b 포즈/리그/히트박스·3c 메시 생성·5 래그돌)을 개발 브랜치 `p4b-dev` 에서 후보안으로 시작한다. 단계 11(silhouetteaudit 1차 실측)은 **보고로 끝나고 멈춘다**(016-B) — 조명·임계·대비 결정은 그 캡처를 보고 받는다.
 
+### P4B 단계 1 — 노출 계약 구조 동결 (2026-10-08, 설계서 §9 · §13 단계 1, 결정 11 의 ①)
+
+- **노출 계약 해시**: `EXPOSURE_CONTRACT v1 provisional 3375c746` — `exposureContractHash()`(키 정렬 JSON 의 UTF-8 바이트 FNV-1a 32). `test/exposure-contract.test.mjs` 가 이 줄과 계약 파일을 대조하고, playtest `p4b_exposure_contract_ok` 가 페이지 해시를 노드에서 다시 계산한 값과 대조한다. 계약 파일이 바뀌면 이 줄도 같은 커밋에서 바뀌어야 한다(단독 수정 금지 — `src/render/exposure-contract.js` 머리주석).
+- **값은 현재값 그대로**(종전 `pipeline.js` `EXPOSURE_PARAMS` 7항 + `exposure.js` 셰이더 상수): range {evMin 1.0 · evMax 14.0 · kneeSlope 0.2 · floorOffset 3.0} · speed {rateUp 3.0 · rateDown 1.5} · metering {ec 1.0 · centerWeight 0.35 · k 8 · meterN 64 · reduceN 8 · tapsPerAxis 4}. status `provisional` — 값 확정은 단계 13(exposureprobe E1–E4 근거를 본 발주자, §9-7 ③). 같으면 `'contract'`, 다르면 v2 + 이 기록 + baseline 재기준 + silhouetteaudit 재실행.
+- **구조**: `EXPOSURE_PARAMS` 삭제 · `ExposureMeter` 의 params 인자 폐지(넘기면 throw) · `params` 는 frozen 평탄 뷰 · 미터 셰이더 리터럴은 계약 템플릿(METER·REDUCE 문자열은 착수 커밋 6bb2e7a 와 **바이트 동일**, ADAPT 는 잠금 유니폼 `lockOn`·`lockEv` 선언과 `if (lockOn > 0.5) ev = lockEv;` 한 줄만 추가 — 잠금 해제 시 ev 불변). 매 프레임 `_applyContract()` 만 유니폼을 쓰고, reduce·adapt 드로우 직전 값과 블룸 밝기 추출·출력 드로우 직전 `ec` 를 `_drawn` 에 기록한다. `contractCheck()` = 그리기 시점 값 + 컴파일 대상 셰이더 문자열 대 계약, testOverride 층 활성이면 ok=false, 잠금은 `measurement` 로만 보고. 하네스 `getExposureContract` · `lockExposure`/`unlockExposure` · `debugExposureOverride`(표식) · `getInvariants().exposure`, `debugFreezeExposure` 는 현재 EV 원값 lock + 표식으로 재구현(종전: render no-op, resetState 로도 안 풀리고 표식 없음). resetState(`pipeline.reset` → `exposure.reset`)가 잠금·층을 푼다.
+- **떠도는 리터럴 검출기**(테스트 안의 정규식 6규칙 + 규칙별 합성 음성): 착수 커밋의 `exposure.js`·`pipeline.js` 에서 26건(키 대입 14 · 키 연산 1 · 목표식 계수 1 · 루프 상한 6 · 격자 나눗셈 2 · 키 대입식 2)을 잡고, 개정 후 0건.
+- **harnesstest 케이스 30** 편입(playtest `--inject-exposure-drift --section p4b-exposure`) — 케이스 총수 28 → 29(번호 1–21 · 23–30; P4B 의 22 편입 시 30).
+
 ## C. 표류 방지 메모 (충돌은 아니지만 오해 소지)
 
 - `WATER`의 "거리 기반 감쇠"는 별도 코드 경로가 아니라 `computePenetration`의
