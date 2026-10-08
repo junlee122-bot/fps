@@ -82,3 +82,10 @@ profile 런 1·2 선행 지표(예산 p3): trisFrame 128,434/128,522(250k) · dr
 삼각형·프로그램은 R4 와 같고 drawCalls +6 · decals +2 는 같은 시나리오의 연사 타이밍 차(실시간 모드) 범위다. cpuFrameMs 2.75 는 러너 CPU 가 컨테이너보다 느린 탓이며(baseline 도 ≈1.5배) 예산 6 의 절반 아래.
 
 **이 체인을 P4A 종료 체인으로 삼은 근거와 가정.** 컨테이너에서는 세션 유휴 회수로 끝을 볼 수 없었다(6회 소실). CI 는 같은 `tools/gates.sh`·같은 스냅샷·같은 브라우저 빌드(chromium-1194, SwiftShader)이고, 픽셀은 러너 둘과 컨테이너가 12/12 비트 동일했다. **체인의 정식 실행 장소를 CI 로 옮기는 것은 발주자 결정 사항으로 남아 있다** — 그 결정 전에 이 결과로 배포 브랜치를 FF 했다(되돌릴 수 있는 조치). 발주자가 컨테이너 실행만 인정하면 FF 를 되돌리고 컨테이너 체인을 다시 돈다.
+
+### 배포 브랜치 FF · 배포물 확인 (2026-10-08)
+`claude/new-session-qfglz6` 를 1ed693f → **8456f0d** 로 FF(9408b49 이후 변경은 HARNESS.md·docs/P4-LOG.md 뿐 — 확인 후 FF). Vercel 프로덕션 `joseon-cqb.vercel.app` 이 06:19 에 배너 `build 8456f0d` 로 갱신, 번들이 참조하는 WAV **8/8 HTTP 200**(carbine 2 · dmr 4 · shotgun 2, 파일명 해시가 CI distaudit 빌드와 같다).
+GitHub Pages 는 리포 설정에서 꺼져 있어(Settings → Pages → Source 미설정) `pages.yml` 이 배포 단계에서 매번 실패한다(빌드 단계는 성공) — 발주자 설정 사항, docs/DEPLOY.md §3.
+
+### 시간 조각 (FF 뒤 r4-wip 에만)
+다음 체인부터 쓸 구조: 단계가 exit 75 로 끝나면 "조각 끝". baseline `FPS_MAX_NEW_SHOTS` · profile `FPS_MAX_NEW_RUNS`, `gates.yml` 잡 10개 순차. 로컬 구동 확인만 했고 **체인 검증은 다음 종료 체인(P4B)에서** 받는다 — 그래서 이 변경은 배포 브랜치에 올리지 않았다.
