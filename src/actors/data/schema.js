@@ -642,7 +642,32 @@ export function validateRoster(defs, ctx) {
     for (const s of res.skipped) skipped.push(`${tag}:${s}`);
     reports[tag] = res.report;
   });
-  return { ok: problems.length === 0, problems, warnings, skipped, reports };
+  const rigPairs = problems.length === 0 ? rigPairReports(defs, characters, reports) : [];
+  return { ok: problems.length === 0, problems, warnings, skipped, reports, rigPairs };
+}
+
+/**
+ * 외견 상태별 시각 리그 대 진짜 캡슐 보고(§2-5 규칙 8, R11·R21 — 판정 아님).
+ * 변장한 흥부는 도깨비 리그(최고점 ≈2.0 m)를 진짜 캡슐(키·반경) 위에 그린다. 그 어긋남을 숫자로 남겨
+ * 히트·차폐·충돌의 차이를 발주자가 볼 수 있게 한다. rigOf 가 자기 자신인 상태는 캐릭터별 보고에 이미 있다.
+ */
+function rigPairReports(defs, characters, reports) {
+  const out = [];
+  for (const d of defs) {
+    for (const state of Object.keys(d.appearance.states)) {
+      const res = resolveRigId(characters, d.id, state);
+      if (res.error || res.rigId === d.id) continue;
+      const rig = reports[res.rigId];
+      const cap = d.body.capsule;
+      out.push({
+        id: d.id, state, rigId: res.rigId,
+        rigTopY: rig.topY, trueHeight: cap.height,
+        rigMaxHorizM: rig.maxHorizM, trueRadius: cap.radius,
+        protrusionM: rig.maxHorizM === null ? null : Math.max(0, rig.maxHorizM - cap.radius),
+      });
+    }
+  }
+  return out;
 }
 
 /**
