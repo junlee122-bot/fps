@@ -68,8 +68,11 @@ const AUDIT_TIMEOUT_MS = 1800000;
  * 음성 판정 실패처럼 보였다 — 케이스 10·13 과 같은 부류의 리그 결함이 재발한 것. 실측의 2.5 배(케이스 10·13 과 같은 여유율)로 둔다.
  * 시간 초과는 케이스 detail 에도 `timedOut=` 으로 박는다 — retries 기록만으로는 요약 줄에서 보이지 않았다. */
 const PLAYTEST_TIMEOUT_MS = 6000000;
-/* playtest `--section` 부분 실행(케이스 30) — 단독 실측 전에는 전체 playtest 상한을 그대로 쓴다(실측 뒤 실측 × 2.5 로 교체). */
-const PLAYTEST_SECTION_TIMEOUT_MS = PLAYTEST_TIMEOUT_MS;
+/* playtest `--section p4b-exposure` 부분 실행(케이스 30)은 부팅 + 몇 프레임이라 유휴 컨테이너에서 단독 30 s(스냅샷 워크트리 생성 포함 첫 실행)·
+ * 26 s(케이스 30 단독 실행), 2026-10-08 실측. 다른 케이스와 같은 여유율 실측 × 2.5 로 둔다. CI 는 ≈ 컨테이너 × 1.5(P4-LOG:59)라 이 안에 든다. */
+const PLAYTEST_SECTION_MEASURED_MS = 30000;
+const TIMEOUT_MARGIN = 2.5;
+const PLAYTEST_SECTION_TIMEOUT_MS = PLAYTEST_SECTION_MEASURED_MS * TIMEOUT_MARGIN;
 const LIMIT_FOR_20 = 1.5; // paletteaudit LIMIT_PCT — 케이스 20(a)의 패치(3%)가 단독으로 넘어야 하는 값
 function run(cmd, args, timeoutMs = AUDIT_TIMEOUT_MS) {
   const r = spawnSync(cmd, args, { cwd: ROOT, encoding: 'utf8', timeout: timeoutMs });
