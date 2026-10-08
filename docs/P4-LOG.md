@@ -28,5 +28,40 @@
 3. 잘린 단계는 부분 산출물(`base1/`·`base2/`)을 지우고 처음부터. 단계는 각각 독립 프로세스이고 스냅샷은 불변 워크트리라 나눠 돈 체인과 한 번에 돈 체인은 같은 것을 잰다. baseline1·2 가 재부팅 양쪽에 걸리면 "다른 컨테이너 인스턴스에서 2회" 가 되어 비트 동일 시험이 오히려 강해진다.
 건식 시험: 같은 스냅샷 → 완료 단계 건너뜀·부분 산출물 제거 확인, 다른 스냅샷 → 거부(exit 2), RESUME 없음 → SUMMARY 초기화. 발주자에게 보고하고 진행(HARNESS.md 규칙 추가).
 
-### 종료 체인 3차 (2026-09-26 → )
-`bash tools/gates.sh /tmp/p4agates3` (재개 기능 커밋 뒤 HEAD 스냅샷). 재부팅 시 `RESUME=1` 로 같은 디렉토리에 이어 돈다.
+### 종료 체인 3차 — 컨테이너에서 완주 불가 (2026-09-26 08:03 → 09-27 ≈09:15, 소실 6회)
+같은 디렉토리 `/tmp/p4agates3`·같은 스냅샷 cd1d814 에서 `RESUME=1` 로 네 번 이어 돌렸다.
+
+| 구간 | 시작 | 진행 | 소실 |
+|---|---|---|---|
+| 3차-a | 09-26 08:03 | harnesstest 28/28 → 정적 감사 7종·npm test·distaudit → playtest 전부 exit 0 → 10:46 baseline1 | ≈10:50 (10:35 예약 웨이크가 처리되지 않음) |
+| 3차-b | 15:55 RESUME | baseline1 샷 4장 | 17:52 이후 (17:57 감시 만료·예약 웨이크 동시 도착, 처리 안 됨) |
+| 3차-c | 20:35 RESUME | **baseline1 exit 0**(00:17, 3 h 42 m, 12샷 ok, 프로그램 44, 오디오 해시 e98b5ee9…) → baseline2 샷 2장 | ≈01:10 (01:07 감시 만료 처리 안 됨, 예약 웨이크 없음) |
+| 3차-d | 09-27 06:41 RESUME | baseline2 샷 7장(08:43) | ≈09:15 (09:13 감시 만료 처리 안 됨) |
+
+**원인(관찰):** 컨테이너는 세션이 깨어 있는 동안 산다. 세션이 30분 감시 재장전으로 2~4.5 h 이어진 뒤 어느 시점에 알림이 세션을 깨우지 못하면(사용자 입력 없음) 수 분~수십 분 안에 컨테이너가 회수되고, 다음 사용자 메시지에 새 컨테이너로 재개된다. 앞서 적은 "≈14 h 간격"·"예약 웨이크가 원인"은 둘 다 틀렸다 — 예약 웨이크 없이도 같은 일이 일어났다. 단계 단위 재개로는 baseline(3.7 h)·profile(≈5 h)이 생존 창보다 길어 끝을 볼 수 없다.
+
+### 구조 조치 2 (9408b49 · f3f8608)
+- `baseline.mjs --resume`(샷별 사이드카 + png 해시 대조) · `profile.mjs --state=<dir>`(런·스윕별 사이드카) — 이어 받은 샷·런은 `resumed` 로 기록.
+- `gates.sh` 구간 모드 `GATES_FROM/GATES_TO` · `--list`. 목록·순서의 원본은 그대로 gates.sh 하나.
+- baseline 오디오 해시 블록이 `freshBrowser()` 안에 들어가 4샷마다 재계산되고 단일 샷 실행에서는 빠지던 것을 실행 끝 1회로 옮김(12샷 실행의 기록 값은 같다 — 아래 해시 일치로 확인).
+- `.github/workflows/gates.yml`: 구간 모드로 잡 6개(각 ≤6 h)를 `needs` 순차 실행, 마지막 잡이 `--list` 전 단계 exit=0 대조.
+
+### CI 시험 실행 1 (run 36301142099, 커밋 9408b49 — 서빙 경로 index.html·src·tools/shots.js 는 cd1d814 와 동일)
+러너 ubuntu-latest 4 vCPU, Playwright 1.56.1 → chromium-1194, ANGLE SwiftShader(Vulkan) — 컨테이너와 같은 브라우저 빌드.
+
+| 잡 | 단계 | 소요 | 결과 |
+|---|---|---|---|
+| harnesstest | harnesstest | 2 h 42 m | 28/28, 재시도 0 |
+| statics | determinismaudit ~ playtest 9단계 | 52 m | 전부 exit 0. distaudit 빌드 610 ms · WAV 8/8 200 · 콘솔 오류 0. playtest 실패 0 |
+| baseline1 | baseline1 | 5 h 39 m | 12샷 ok, 프로그램 44 |
+| baseline2 | baseline2 | 3 h 54 m | 12샷 ok |
+| post | imagediff ~ viewmodelaudit 6단계 | 43 m | **imagediff 25행 비트 동일(tol 0, 오디오 해시 포함)** · 팔레트 위반 최대 1.0251 %(muzzle_interior.png, 상한 1.5) · 자발광 최대 2.9784 %(muzzle_interior.png, 상한 8) · 조도비 0.9899 |
+| profile | profile | 6 h 00 m **취소(잡 상한)** | 런 1·2 측정 완료(각 ≈2 h 09 m, 컨테이너의 ≈1.5배), 런 3 도중 상한 |
+| coverage | — | 건너뜀 | profile 미완 |
+
+profile 런 1·2 선행 지표(예산 p3): trisFrame 128,434/128,522(250k) · drawCalls 477/486(900) · programs 44(110) · cpuSim60 p95 2.45/2.75 ms(6) · overdraw p95 2(3) · 플레이 중 컴파일 0 · 시나리오 유효(ROOF_TILE 130/137).
+
+**기계 간 비트 동일 (새 사실):** CI base1 = CI base2 = 컨테이너 3차 base1(09-26, cd1d814) — 12샷 png 12/12 · 자발광 마스크 12/12 · 오디오 해시 e98b5ee9… 3개 모두 같다. 서로 다른 러너 두 대와 컨테이너 한 대가 같은 픽셀을 냈으므로 이 체인의 픽셀 게이트는 실행 기계에 의존하지 않는다(같은 브라우저 빌드·SwiftShader 조건에서).
+
+### 마무리 실행 (run 37707414352, 브랜치 `chain-finish/trial1`)
+같은 커밋 9408b49 를 체크아웃해 시험 실행 1 의 SUMMARY.txt·profile.state 를 받아 `RESUME=1 GATES_FROM=profile` 로 런 3 + 스윕만 이어 돈다(gates.sh 재개 규칙: pinned 줄 글자 일치). 마지막 잡이 두 실행의 SUMMARY 를 모아 `--list` 전 단계 exit=0 · 실패 줄 0 · pinned sha 단일(=9408b49) 을 대조한다.
