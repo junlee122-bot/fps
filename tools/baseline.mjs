@@ -115,6 +115,12 @@ async function captureShot(name) {
       return { triangles: s.triangles, drawCalls: s.drawCalls, programs: s.programCountPerFrame.at(-1), bootMs: Math.round(s.bootMs),
         exposure: { ev100: e.ev100, evTarget: e.evTarget, avgLum: e.avgLum, exposure: e.exposure } };
     });
+    // P4B §9-3: 이 샷을 그린 노출 계약 version·hash(+ 그리기 시점 일치 여부) — 사이드카 기록(계측, 게이트는 픽셀 동일성).
+    // 계약이 v2 로 바뀌면 같은 샷의 PNG 가 달라지는 이유가 사이드카에서 바로 보이게 한다(재기준 근거).
+    const exposureContract = await g.page.evaluate(() => {
+      const c = window.__harness.getExposureContract();
+      return { version: c.version, status: c.status, hash: c.hash, ok: c.ok, overrideActive: c.overrideActive };
+    });
     const sha = createHash('sha256').update(readFileSync(out)).digest('hex');
     // 하네스 오류([determinism] 트립와이어 포함)와 트랩 상태를 게이트에 편입 —
     // 페이지 이벤트(g.errors)만 보면 시뮬 창 난수 소비가 픽셀 게이트에 도달하지 않는다 (C2 검토)
@@ -122,7 +128,7 @@ async function captureShot(name) {
     const determinism = await g.page.evaluate(() => window.__harness.getDeterminism());
     // PATCH-007-C: 자발광·일시광 태그 마스크 — 캡처·통계·오류 수집 **뒤** (오버라이드 재질 컴파일이 프레임 통계에 섞이지 않게)
     const emissiveMask = await captureMask(g.page, `${OUTDIR}/${name}.emask.png`);
-    return { shot: name, sha256: sha, ...stats, determinism, emissiveMask, errors: [...g.errors, ...harnessErrors] };
+    return { shot: name, sha256: sha, ...stats, exposureContract, determinism, emissiveMask, errors: [...g.errors, ...harnessErrors] };
   } finally {
     await g?.close().catch(() => {});
   }
