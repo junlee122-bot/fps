@@ -1,0 +1,81 @@
+# 일회용: CI 시험 실행 1(run 36301142099, 커밋 9408b49)의 profile 단계를 이어 받아 체인을 끝낸다.
+# 그 실행은 harnesstest ~ viewmodelaudit 18단계 exit=0, profile 은 런 3개 중 2개를 재고(--state 사이드카 업로드됨) 잡 상한 6 h 에 걸려 취소됐다.
+# 이 잡은 **같은 커밋(9408b49)을 체크아웃**하고, 그 실행의 SUMMARY.txt·profile.state 를 받아 `RESUME=1 GATES_FROM=profile` 로 이어 돈다
+# (gates.sh 재개 규칙: SUMMARY 첫 줄 pinned sha·dirty 가 글자까지 같을 때만). 마지막 잡이 두 실행의 SUMMARY 를 모아
+# `gates.sh --list` 전 단계 exit=0 · pinned sha 단일(=9408b49) 을 대조한다.
+name: Gate chain finish (trial1, profile resume)
+
+on:
+  push:
+    branches: ['chain-finish/trial1']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  OUT: ${{ github.workspace }}/gates-out
+  CHAIN_SHA: 9408b4964fbe7f2cb22aff4fae7fef5d59aea839
+
+jobs:
+  profile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: 9408b4964fbe7f2cb22aff4fae7fef5d59aea839 }
+      - uses: ./.github/actions/gate-env
+      - uses: actions/download-artifact@v4
+        with:
+          name: gates-profile
+          path: gates-in/profile
+          run-id: 36301142099
+          github-token: ${{ github.token }}
+      - name: Restore partial profile state from trial1
+        run: |
+          test "$(git rev-parse HEAD)" = "$CHAIN_SHA"
+          mkdir -p "$OUT"
+          cp gates-in/profile/SUMMARY.txt "$OUT/SUMMARY.txt"
+          cp -r gates-in/profile/profile.state "$OUT/profile.state"
+          ls -la "$OUT/profile.state"
+          head -1 "$OUT/SUMMARY.txt"
+      - run: RESUME=1 GATES_FROM=profile bash tools/gates.sh "$OUT"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: gates-profile-finish, path: gates-out, retention-days: 30 }
+
+  coverage:
+    needs: profile
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: 9408b4964fbe7f2cb22aff4fae7fef5d59aea839 }
+      - uses: actions/download-artifact@v4
+        with: { name: gates-harnesstest, path: gates-in/harnesstest, run-id: 36301142099, github-token: '${{ github.token }}' }
+      - uses: actions/download-artifact@v4
+        with: { name: gates-statics, path: gates-in/statics, run-id: 36301142099, github-token: '${{ github.token }}' }
+      - uses: actions/download-artifact@v4
+        with: { name: gates-baseline1, path: gates-in/baseline1, run-id: 36301142099, github-token: '${{ github.token }}' }
+      - uses: actions/download-artifact@v4
+        with: { name: gates-baseline2, path: gates-in/baseline2, run-id: 36301142099, github-token: '${{ github.token }}' }
+      - uses: actions/download-artifact@v4
+        with: { name: gates-post, path: gates-in/post, run-id: 36301142099, github-token: '${{ github.token }}' }
+      - uses: actions/download-artifact@v4
+        with: { name: gates-profile-finish, path: gates-in/profile-finish }
+      - name: Every gate in tools/gates.sh --list passed, single pinned sha
+        run: |
+          for d in harnesstest statics baseline1 baseline2 post profile-finish; do echo "## $d"; cat "gates-in/$d/SUMMARY.txt"; done > all-summary.txt
+          fail=0
+          for n in $(bash tools/gates.sh --list); do
+            grep -qxF "$n exit=0" all-summary.txt && echo "ok   $n" || { echo "MISSING $n"; fail=1; }
+          done
+          if grep -qE '^[a-z0-9]+ exit=[1-9]' all-summary.txt; then echo "FAILED STEP PRESENT"; grep -E '^[a-z0-9]+ exit=[1-9]' all-summary.txt; fail=1; fi
+          shas=$(grep -oE '^pinned sha=[0-9a-f]+ dirty=[a-z]+' all-summary.txt | sort -u)
+          echo "$shas"
+          [ "$(echo "$shas" | wc -l)" = 1 ] && [ "$shas" = "pinned sha=$CHAIN_SHA dirty=false" ] || { echo "PINNED SHA MISMATCH"; fail=1; }
+          [ "$fail" = 0 ] && echo "ALL GREEN (CI, $CHAIN_SHA) $(date -u +%Y-%m-%dT%H:%M:%SZ)" | tee -a all-summary.txt || exit 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: gates-all-summary, path: all-summary.txt, retention-days: 90 }
