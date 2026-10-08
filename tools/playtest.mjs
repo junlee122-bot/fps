@@ -26,6 +26,7 @@
 import { startServer } from './lib/server.mjs';
 import { HANJI_BASE_OPACITY, HANJI_TEAR_THRESHOLD, HANJI_HOLE_RADIUS } from '../src/materials/hanji.js';
 import { launchBrowser, openGamePage, parseArgs } from './lib/browser.mjs';
+import { resolveSections } from './lib/sections.mjs';
 import { EXPOSURE_CONTRACT, exposureContractHash } from '../src/render/exposure-contract.js';
 
 const args = parseArgs();
@@ -56,27 +57,16 @@ const INJECTS = {
   'inject-decal-noclip': { section: 'core', marker: 'inject-decal-noclip(데칼 부재 클립 해제)' },
   'inject-exposure-drift': { section: 'p4b-exposure', marker: `inject-exposure-drift(계약 적용 직후 rateUp=${DRIFT_RATE_UP} — 그리기 값 드리프트)` },
 };
-const activeInjects = Object.keys(INJECTS).filter((k) => args[k] === true);
-const SECTION = args.section;
-if (SECTION !== undefined) {
-  if (typeof SECTION !== 'string' || !SECTION_ORDER.includes(SECTION)) {
-    console.error(`--section 은 ${SECTION_ORDER.join(' | ')} 중 하나여야 한다 (got ${SECTION})`);
-    process.exit(2);
-  }
-  if (activeInjects.length === 0) {
-    console.error('--section 은 --inject-* 와 함께만 쓴다 — 음성 훅 없는 부분 실행은 게이트 통과처럼 보인다 (PATCH-001-C)');
-    process.exit(2);
-  }
-  const off = activeInjects.filter((k) => INJECTS[k].section !== SECTION);
-  if (off.length) {
-    console.error(`--section ${SECTION}: ${off.map((k) => `--${k}(겨냥 절 ${INJECTS[k].section})`).join(', ')} 의 대상 절을 건너뛴다`);
-    process.exit(2);
-  }
+/* 절 규칙(--section 은 --inject-* 와 함께만, 겨냥 절 일치, 표식)은 tools/lib/sections.mjs 한 곳 — test/sections.test.mjs 가 양성·음성을 본다 */
+const plan = resolveSections(args, SECTION_ORDER, INJECTS, 'harnesstest 전용, 계약 판정 무효');
+if (!plan.ok) {
+  console.error(plan.error);
+  process.exit(plan.exitCode);
 }
-const SECTIONS = SECTION === undefined ? SECTION_ORDER : [SECTION];
+const SECTION = plan.section;
+const SECTIONS = plan.sections;
 const runs = (name) => SECTIONS.includes(name);
-const overrideParts = [...activeInjects.map((k) => INJECTS[k].marker), ...(SECTION !== undefined ? [`section=${SECTION}(부분 실행)`] : [])];
-const testOverride = overrideParts.length ? `${overrideParts.join(' · ')} — harnesstest 전용, 계약 판정 무효` : undefined;
+const testOverride = plan.testOverride;
 const failures = [];
 const log = [];
 
