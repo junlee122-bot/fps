@@ -65,3 +65,20 @@ profile 런 1·2 선행 지표(예산 p3): trisFrame 128,434/128,522(250k) · dr
 
 ### 마무리 실행 (run 37707414352, 브랜치 `chain-finish/trial1`)
 같은 커밋 9408b49 를 체크아웃해 시험 실행 1 의 SUMMARY.txt·profile.state 를 받아 `RESUME=1 GATES_FROM=profile` 로 런 3 + 스윕만 이어 돈다(gates.sh 재개 규칙: pinned 줄 글자 일치). 마지막 잡이 두 실행의 SUMMARY 를 모아 `--list` 전 단계 exit=0 · 실패 줄 0 · pinned sha 단일(=9408b49) 을 대조한다.
+
+**결과 — ALL GREEN (CI, 9408b49) 2026-10-08T01:37:50Z.** 재개 검사 통과(00:22:46 RESUME 줄) → 런 3 + 스윕 1 h 15 m → `profile exit=0` → coverage 잡: 19단계 전부 exit=0, 실패 줄 0, pinned sha 단일 = 9408b49·dirty=false.
+
+| profile 선행 지표 (런 3개 최악값) | 값 | 예산 p3 | R4(컨테이너) |
+|---|---|---|---|
+| trisScene | 135,622 | 600,000 | 135,622 |
+| trisFrame p95 | 122,610 | 250,000 | 122,610 |
+| drawCalls | 486 | 900 | 480 |
+| programs | 44 | 110 | 44 |
+| cpuFrameMs p95 (60 fps 등가) | 2.75 | 6 | 2.1 |
+| overdraw p95 | 2.0 | 3.0 | 2.0 |
+| particlesMax / decalsMax | 731 / 137 | 4000 / 512 | 731 / 135 |
+
+플레이 중 셰이더 컴파일 0 · 하네스 오류 0 · 결정성 창 위반 0 · 시나리오 유효(ROOF_TILE ≥130 · 파편 ≥130). 런별 cpuSim60 p95 2.45(런 1, 09-27 러너 A) · 2.75(런 2, 러너 A) · 1.78(런 3, 10-08 러너 B) — 런 1·2 는 `resumed`. boot_cpu 296 ms. gpuDependent 는 GPU-INVALID(소프트웨어 렌더러) 그대로.
+삼각형·프로그램은 R4 와 같고 drawCalls +6 · decals +2 는 같은 시나리오의 연사 타이밍 차(실시간 모드) 범위다. cpuFrameMs 2.75 는 러너 CPU 가 컨테이너보다 느린 탓이며(baseline 도 ≈1.5배) 예산 6 의 절반 아래.
+
+**이 체인을 P4A 종료 체인으로 삼은 근거와 가정.** 컨테이너에서는 세션 유휴 회수로 끝을 볼 수 없었다(6회 소실). CI 는 같은 `tools/gates.sh`·같은 스냅샷·같은 브라우저 빌드(chromium-1194, SwiftShader)이고, 픽셀은 러너 둘과 컨테이너가 12/12 비트 동일했다. **체인의 정식 실행 장소를 CI 로 옮기는 것은 발주자 결정 사항으로 남아 있다** — 그 결정 전에 이 결과로 배포 브랜치를 FF 했다(되돌릴 수 있는 조치). 발주자가 컨테이너 실행만 인정하면 FF 를 되돌리고 컨테이너 체인을 다시 돈다.
