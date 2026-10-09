@@ -3,12 +3,14 @@
  *
  * 정적 BVH 월드 + 임펄스 강체 월드 + 캐릭터 컨트롤러 팩토리.
  * P2에서 다층 관통(core/surfaces.js computePenetration 배선)이 추가된다.
+ * P4B: PBD 래그돌(`ragdoll.js`)을 소유한다 — `initRagdoll(opts)` 뒤 `step = rigid → ragdoll`(설계서 §1-2·§6).
  */
 
 import * as THREE from 'three';
 import { StaticWorld } from './bvh.js';
 import { RigidBody, RigidBodyWorld } from './rigidbody.js';
 import { CharacterController } from './character.js';
+import { RagdollWorld } from './ragdoll.js';
 import { makeHitRecord } from './math.js';
 import { MASK, LAYER, surfaceName, surfaceIndex, surfaceDef } from './surface-registry.js';
 
@@ -19,6 +21,20 @@ export class PhysicsWorld {
     this.static = new StaticWorld();
     this.rigid = new RigidBodyWorld(this.static);
     this._hit = makeHitRecord();
+    /** PBD 래그돌 — initRagdoll 전에는 null (부팅 배선은 P4B 단계 9a) */
+    this.ragdoll = null;
+  }
+
+  /** 중력 가속도(m/s², y) — 강체·래그돌·액터 이동이 같은 값을 쓴다 */
+  get gravity() {
+    return this.rigid.gravity;
+  }
+
+  /** 래그돌 월드 생성(부팅 1회). opts: { slots, mask } — 중력은 강체와 같은 값 */
+  initRagdoll(opts = {}) {
+    if (this.ragdoll) throw new Error('initRagdoll: already initialised');
+    this.ragdoll = new RagdollWorld(this.static, { ...opts, gravity: this.rigid.gravity });
+    return this.ragdoll;
   }
 
   /**
@@ -80,6 +96,7 @@ export class PhysicsWorld {
   /** 고정 스텝. 강체 적분 + 접촉 해석 + 표시 오브젝트 동기화 */
   step(dt) {
     this.rigid.step(dt);
+    if (this.ragdoll) this.ragdoll.step(dt);
     const bodies = this.rigid.bodies;
     for (let i = 0; i < bodies.length; i++) {
       const b = bodies[i];
