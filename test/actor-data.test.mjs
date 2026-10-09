@@ -237,6 +237,8 @@ test('3a: 로스터 데이터가 깨져 있으면 actors/data/index.js 를 impor
   const dir = mkdtempSync(join(tmpdir(), 'actordata-import-'));
   try {
     for (const sub of ['actors/data', 'core']) cpSync(join(SRC, ...sub.split('/')), join(dir, 'src', ...sub.split('/')), { recursive: true });
+    // 저장소와 같은 ESM 판정(Node 의 모듈 자동 판별에 기대지 않는다)
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ type: 'module' }));
     const entry = pathToFileURL(join(dir, 'src', 'actors', 'data', 'index.js')).href;
     const run = () => spawnSync(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(entry)});`], { encoding: 'utf8' });
     const ok = run();
@@ -370,9 +372,12 @@ function walk(dir, out = []) {
  */
 function idLiterals(source, ids) {
   const hits = [];
-  for (const s of tokenize(source).strings) {
+  const { code, strings } = tokenize(source);
+  for (const s of strings) {
     for (const w of s.split(/[^a-z0-9_]+/)) if (ids.has(w)) hits.push(w);
   }
+  // 코드 자리 식별자(따옴표 없는 객체 키 `{ jara: … }`·변수 이름)도 캐릭터 분기 우회로다(검증자 X07)
+  for (const m of code.matchAll(/(?<![\w$])[A-Za-z_$][\w$]*/g)) if (ids.has(m[0])) hits.push(m[0]);
   return hits;
 }
 
@@ -386,7 +391,8 @@ test('3a: src/** 에 로스터 id 문자열 리터럴 0 (캐릭터 데이터 파
   assert.deepEqual(idLiterals(`const t = \`\n  ${a}\n\`;`, ids), [a], '여러 줄 템플릿');
   assert.deepEqual(idLiterals(`const l = '${a},${b}'.split(',');`, ids), [a, b], '묶음 문자열');
   assert.deepEqual(idLiterals(`const t = \`x\${'${a}'}y\`;`, ids), [a], '템플릿 안 식의 문자열');
-  assert.deepEqual(idLiterals(`// '${a}'\n/* "${a}" */\nconst y = "${b}x";`, ids), [], '주석·다른 낱말은 무시');
+  assert.deepEqual(idLiterals(`const m = { ${a}: 1 };`, ids), [a], '따옴표 없는 객체 키');
+  assert.deepEqual(idLiterals(`// '${a}'\n/* "${a}" */\nconst y = "${b}x"; const ${b}x = 1;`, ids), [], '주석·다른 낱말은 무시');
 
   const files = walk(SRC).filter((p) => !p.startsWith(CHAR_DIR + sep) && p !== join(DATA_DIR, 'roster.js'));
   assert.ok(files.length >= 1, '검사 파일 ≥ 1');
@@ -432,8 +438,9 @@ function dataFileProblems(source) {
     out.push(`값 자리 식별자 '${t[0]}'(참조·호출·선언 금지)`);
   }
   if (/[^\s\w$.,:{}\[\]'\-+]/.test(inner.replace(/''/g, ''))) out.push('허용되지 않은 기호(연산·호출)');
-  // 숫자(또는 닫는 괄호) 뒤의 이항 산술 — 음수 리터럴(`[-0.11`, `, -0.5`)은 걸리지 않는다
-  if (/[0-9)\]]\s*[-+]\s*[0-9(.]/.test(inner.replace(/\d[eE][-+]?\d/g, '0'))) out.push('계산식 금지');
+  if (/\.\.\./.test(inner)) out.push('펼침 금지');
+  // 이항 연산자는 값(숫자 끝·닫는 괄호·문자열) 바로 뒤에만 온다 — 단항 음수(`[-0.11`, `, -0.5`)는 걸리지 않는다
+  if (/[0-9)\]']\s*[-+]/.test(inner.replace(/\d[eE][-+]?\d/g, '0'))) out.push('계산식 금지');
   return out;
 }
 
@@ -450,6 +457,9 @@ test('3a: 데이터 파일 린트 검출기가 반응한다(검증자 지적 X03
     '호출': "export default Object.freeze({ a: Math.max(1, 2) });\n",
     'import': "import x from './x.js';\nexport default Object.freeze({ a: 1 });\n",
     '템플릿': 'export default Object.freeze({ a: `x` });\n',
+    '단항 뒤 이항(X10)': "export default Object.freeze({ a: 81 - -0 });\n",
+    '문자열 연결(X11)': "export default Object.freeze({ a: 'heavy_' + 'shell' });\n",
+    '펼침(X12)': "export default Object.freeze({ ...Math, a: 1 });\n",
   };
   for (const [why, src] of Object.entries(bad)) assert.ok(dataFileProblems(src).length >= 1, why);
 });
