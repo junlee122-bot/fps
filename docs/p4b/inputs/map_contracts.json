@@ -1,0 +1,516 @@
+{
+ "subsystem": "계약·기록 — P4B(액터 4종 · 청크 내비메시 · PBD 래그돌 · silhouetteaudit · 케이스 22 · 노출 동결)의 요구사항 원문·판정 기준·모순 지도",
+ "summary": "P4B의 계약 원문은 P4-BRIEF §3(316-414행), §5·§5-1(786-815행), §7(828-866행)이고, 그 근거는 PATCH-010-A/B/C(캐릭터 에셋·재질·예산), PATCH-008-B(더미를 2.5 m에서 옮기지 말고 조명 구성을 고쳐라), CONTRACT-NOTES 006-D/008-B 실측 표(1019-1180행)다. 코드 대조 결과 P4B가 '사용한다'고 적힌 기반이 대부분 없다. PBD 래그돌은 src/physics 7개 파일 어디에도 없고(math.js:228 주석 한 줄뿐), src/ai 디렉터리와 내비메시 코드도 없으며, 액터용 물리 레이어나 표면 유형도 없다(surface-registry.js:67-80, surfaces.js). 가장 큰 구조 위험은 창호지 야간 실루엣이 액터 메시가 아니라 등록된 해석적 캡슐(hanji-occluders.js, 최대 4개)로 계산된다는 점이다. 그래서 '실내 광원 역광' 조건에서는 등껍질·귀·뿔·치마선이 판에 맺히지 않는다(추정: 4종 실루엣이 캡슐 하나로 수렴한다). 이것은 '조명 구성을 고쳐라'로 해결되지 않고, 차폐 모델(materials, 단일 오너 결합 시스템)을 바꿔야 한다. silhouetteaudit 판정에서 4축 각각의 '다르다' 임계, 대비 공식, 측정 해상도, 기준선이 계약에 숫자로 정해져 있지 않다. 기준선 후보는 006-D 주간 ≤1 m(.24–.33)와 008-B 야간 2.5 m(.315) 둘이다. CONTRACT-NOTES:1993에는 판독 임계를 발명했다가 철회한 오류 기록이 있다. 노출 적응은 코드상 적응형이 맞다(exposure.js:69-95, 값은 pipeline.js:51). 다만 런타임에 바꿀 수 있는 params이고 렌더(GPU) 쪽에서 나오는 값이라, '계약값 동결'과 '서버 권위 분리'를 어떻게 함께 만족할지 정의가 필요하다. 캐릭터 데이터 형식은 v1 8종과 스킬 6종을 받아야 한다. 필요한 필드는 윤곽, 진영, 무기 개체(계열+조작감), 스킬 원시 효과 조합, 이동 능력 플래그, 이동속도·체력, 선언된 동일쌍 예외, 겉보기 정체(정보 은닉), 액터 부착 표면이다. 발주자 결정이 필요한 항목이 최소 10건 남아 있다: 캐릭터 기하를 절차로 할지 에셋으로 할지, 차폐 모델 개정, 판정 임계, 노출 값과 시점, FABRIC 스케일, 액터 표면 유형 등.",
+ "files": [
+  {
+   "path": "/home/user/fps/docs/contracts/briefs/P4-BRIEF.md",
+   "role": "P4B 계약 원문. §−1-A 이월 배정(19-71), §0 개정·비목표(98-134), §1 분할(136-150), §3 액터(316-414), §4-1 스킬(420-521), §4-6 무기 개체(591-659), §4-8 무기 에셋(673-702), §4-9 확장성(704-729), §5·§5-1 넷코드 준비(786-815), §6 봇(819-824), §7 종료(828-866), §8 보고(869-882)",
+   "keyExports": [
+    "§3-2 silhouetteaudit",
+    "§3-3 내비메시",
+    "§3-4 래그돌",
+    "§5-1 ⓐ 노출 동결"
+   ]
+  },
+  {
+   "path": "/home/user/fps/docs/contracts/patches/CONTRACT-PATCH-010.md",
+   "role": "010-A 캐릭터 기하·애니메이션 에셋 허용(10-34), 010-B 재질은 우리 것(36-55), 010-C 파급 점검·삼각형 예산·부팅·라이선스(57-90), 적용 시점 'P4B 착수 전'(124-129)"
+  },
+  {
+   "path": "/home/user/fps/docs/contracts/patches/CONTRACT-PATCH-008.md",
+   "role": "008-B hanji_silhouette 재정의, 더미 이동 반려(24-59). 008-C 실루엣은 실내 광원이 있을 때만 성립하는 게임플레이 제약(62-79)"
+  },
+  {
+   "path": "/home/user/fps/docs/contracts/patches/CONTRACT-PATCH-015.md",
+   "role": "015-E 노출 고정 확인. '단정하지 않는다 — 확인해서 보고하라'(118-127)"
+  },
+  {
+   "path": "/home/user/fps/docs/contracts/patches/CONTRACT-PATCH-011.md",
+   "role": "011-C 무기 기하 에셋 허용, 뷰모델 ≤15k·3인칭 ≤3k(112-142)"
+  },
+  {
+   "path": "/home/user/fps/docs/CONTRACT-NOTES.md",
+   "role": "006-D 주간 실측(1019-1037), 008-B 야간 점광 투과·캡슐 차폐 구현과 실측 1~4(1130-1180), 010 기록(1270-1278), 2.5 m 판독 정의(1595·1632·1730·1746), 임계 발명 오류 기록(1991-1998), P4 착수 스캔 16항(2070-2091), 발주자 판정(2110-2119)"
+  },
+  {
+   "path": "/home/user/fps/HARNESS.md",
+   "role": "게이트 툴 추가 시 음성 테스트 동시 추가 규칙(29-32), 결정성 4규칙과 __harness.resetState(89-121), 감사 상한 = 실측×2.5(270), 성능표의 010-C 행(296-297)"
+  },
+  {
+   "path": "/home/user/fps/ARCHITECTURE.md",
+   "role": "010 개정 주석(8-10), 모듈 책임(44 physics의 PBD 래그돌 / 48 ai의 내비메시·지각·엄폐·래그돌 사망), 결합 관심사 단일 오너 규칙(52-61), 기본값 금지(118-122), 이벤트 어휘 폐쇄(129-155), 패스 계획(290-297, 낡음)"
+  },
+  {
+   "path": "/home/user/fps/docs/P3-DEBT.md",
+   "role": "P4B 이월: FABRIC 직조 스케일(181-190). P4B와 관련된 결함 S03 #2(49), S08 #2(42), S02 #4(76), S11 #5(138), 원거리 형체 후보(199-204)"
+  },
+  {
+   "path": "/home/user/fps/docs/CARRYOVER-AUDIT.md",
+   "role": "P3→P4 이월 12행 원문(85-97), 뷰모델 기하 → P4B(61), W1 수신처 확정(101)"
+  },
+  {
+   "path": "/home/user/fps/docs/contracts/briefs/W1-RECEIVING.md",
+   "role": "사람 = 액터는 P4B(21), 원거리 형체는 P4B가 측정하고 W1이 처분(22), 창살은 'P4B 이전 처리 여부 재판단'(30)"
+  },
+  {
+   "path": "/home/user/fps/src/materials/hanji-occluders.js",
+   "role": "창호지 점광 실루엣의 해석적 캡슐 차폐. HANJI_OCC_MAX=4, 등록 안 된 물체는 가리지 않음(1-12)",
+   "keyExports": [
+    "HANJI_OCC_MAX",
+    "HanjiOccluders"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/materials/index.js",
+   "role": "applyHanjiTransmit(425-), HANJI_POINT T_p .6(268), 셰이더 uniform vec4 uHanjiOccA[HJ_OCC_MAX](305)",
+   "keyExports": [
+    "applyHanjiTransmit",
+    "HANJI_POINT"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/render/exposure.js",
+   "role": "적응형 노출. ADAPT_FRAG의 rateUp/rateDown/evMin/evMax/kneeSlope(69-95), params를 매 프레임 반영(155-160), reset()=snap(150)",
+   "keyExports": [
+    "ExposureMeter",
+    "exposureOf"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/render/pipeline.js",
+   "role": "EXPOSURE_PARAMS 현재값 { ec 1.0, evMin 1.0, kneeSlope 0.2, evMax 14.0, rateUp 3.0, rateDown 1.5, centerWeight 0.35 }(51)",
+   "keyExports": [
+    "EXPOSURE_PARAMS"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/core/events.js",
+   "role": "EVENT_VOCABULARY 폐쇄 목록(9-32). 목록 밖 이벤트는 on/emit에서 throw. actor:damage·actor:death는 정의돼 있지만 발행자 없음",
+   "keyExports": [
+    "EVENT_VOCABULARY"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/physics/surface-registry.js",
+   "role": "LAYER는 STATIC·DEBRIS_ONLY 두 개뿐이고 MASK.BULLET에 액터가 없다(67-80)",
+   "keyExports": [
+    "LAYER",
+    "MASK"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/physics/rigidbody.js",
+   "role": "임펄스 강체(RigidBody, RigidBodyWorld). PBD·래그돌은 없음",
+   "keyExports": [
+    "RigidBody",
+    "RigidBodyWorld"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/world/level.js",
+   "role": "silhouette_dummy = CapsuleGeometry(0.28,1.1), 재질 FABRIC, 판 뒤 2.5 m(355-361). 실내 등롱 lantern_light_na는 더미 뒤 3.5 m(596-606)"
+  },
+  {
+   "path": "/home/user/fps/src/main.js",
+   "role": "HanjiOccluders 생성, 더미 1개 등록, beforeRender 갱신(147-149)"
+  },
+  {
+   "path": "/home/user/fps/tools/shots.js",
+   "role": "샷 3 hanji_silhouette 정의, shotaudit 대상 silhouette_dummy(62-76)"
+  },
+  {
+   "path": "/home/user/fps/tools/gates.sh",
+   "role": "게이트 목록의 유일한 원본. silhouetteaudit는 주석 처리돼 있음(60), profile은 --phase=p3(85)"
+  },
+  {
+   "path": "/home/user/fps/tools/profile.mjs",
+   "role": "BUDGETS p15/p2b/p3/final(50-66). p4 단계 없음, 캐릭터별 25k 검사 없음"
+  },
+  {
+   "path": "/home/user/fps/tools/paletteaudit.mjs",
+   "role": "팔레트 대역: 청+하늘 175°–240° / 적 355°–15° / 황 40°–60° / 목재·흙 20°–40°(9)"
+  },
+  {
+   "path": "/home/user/fps/tools/harnesstest.mjs",
+   "role": "'케이스 21·22 는 P4 항목 예약'(552). 21은 audioaudit(464)"
+  },
+  {
+   "path": "/home/user/fps/src/weapons/params.js",
+   "role": "계열 층만 있음(id, k, energy, pellets). 개체 층(조작감)은 weapon.js 계열별 handling(17-55)",
+   "keyExports": [
+    "WEAPONS",
+    "PENETRATE_RATIO"
+   ]
+  }
+ ],
+ "apis": [
+  {
+   "name": "HanjiOccluders.set / setFromMesh / delete / update",
+   "where": "src/materials/hanji-occluders.js:29-58",
+   "signature": "set(id,{a,b,r}); setFromMesh(id, capsuleMesh); update(viewMatrix)",
+   "semantics": "월드 캡슐 등록, 프레임당 뷰 공간 유니폼으로 변환한다. 등록 순서대로 최대 4개만 반영(i>=max면 break). 액터 윤곽을 창호지 야간 실루엣에 넣는 유일한 통로다."
+  },
+  {
+   "name": "applyHanjiTransmit",
+   "where": "src/materials/index.js:425-440",
+   "signature": "applyHanjiTransmit(mat, lightDirRef, sunColorRef, occluders)",
+   "semantics": "HANJI 셰이더에 태양 투과(CSM PCSS)와 점광 투과+캡슐 차폐 유니폼을 단다. 점광은 castShadow=false라 메시 그림자가 없다."
+  },
+  {
+   "name": "EVENT_VOCABULARY / bus.on·emit",
+   "where": "src/core/events.js:9-60",
+   "signature": "actor:death { actorId, impulseWorldPos, impulse } (ARCHITECTURE.md:149)",
+   "semantics": "폐쇄 어휘. 목록 밖 이벤트는 throw. 래그돌 배선은 actor:death 구독으로 한다(직접 import 금지, ARCHITECTURE.md:155)."
+  },
+  {
+   "name": "ExposureMeter / EXPOSURE_PARAMS",
+   "where": "src/render/exposure.js:107-170, src/render/pipeline.js:51",
+   "signature": "params { ec, evMin, evMax, kneeSlope, rateUp, rateDown, centerWeight }; reset()",
+   "semantics": "로그 휘도 평균에 지수 적응(상승 3.0/s, 하강 1.5/s). evMin 아래는 무릎 기울기 0.2. params는 가변이라 조정 프로브가 바꿀 수 있다. §5-1 ⓐ에서 동결할 대상이다."
+  },
+  {
+   "name": "window.__harness.resetState",
+   "where": "HARNESS.md:106-120, src/core/harness.js",
+   "semantics": "계약 문구는 '파티클·데칼·노출 초기화'뿐. 액터·래그돌·내비 런타임 간선은 아직 범위에 없다(§3-4·§7:855가 확장을 요구)."
+  },
+  {
+   "name": "LAYER / MASK",
+   "where": "src/physics/surface-registry.js:67-80",
+   "signature": "LAYER{STATIC, DEBRIS_ONLY}; MASK{CHARACTER, DEBRIS, BULLET, ALL}",
+   "semantics": "액터 히트박스나 래그돌 뼈 레이어가 없다. 탄 레이캐스트(MASK.BULLET)는 액터를 맞히지 못한다."
+  },
+  {
+   "name": "segTriangleClosest",
+   "where": "src/physics/math.js:224-232",
+   "semantics": "주석상 '캡슐 스윕·오버랩·래그돌 뼈 충돌'의 기반 루틴. 래그돌 구현체는 없다."
+  },
+  {
+   "name": "WEAPONS (계열) + weapon handling (개체)",
+   "where": "src/weapons/params.js:16-41, src/weapons/weapon.js:17-55",
+   "semantics": "계열 3종 k·energy·pellets는 동결. 연사·탄창·반동은 계열별 상수라서, 캐릭터별 개체 데이터로 분리하는 층은 아직 없다."
+  },
+  {
+   "name": "profile BUDGETS",
+   "where": "tools/profile.mjs:50-66",
+   "signature": "--phase=p15|p2b|p3|final",
+   "semantics": "p3 = tris 600k / p95 250k / programs 110. 캐릭터 1종 ≤25k(010-C) 검사는 없다."
+  }
+ ],
+ "invariants": [
+  {
+   "rule": "이벤트 어휘는 폐쇄돼 있고 신규 이벤트는 계약 변경이다. 서브시스템 간 직접 import는 금지다.",
+   "evidence": "ARCHITECTURE.md:129·155, src/core/events.js:4-9·40-60(throw)"
+  },
+  {
+   "rule": "시간은 core/clock, 난수는 core/rng만 쓴다. 스키닝·클립 시간도 마찬가지다.",
+   "evidence": "HARNESS.md:94-101, PATCH-010-C 표(determinismaudit 행), P4-BRIEF:790·815"
+  },
+  {
+   "rule": "표면 매핑에 기본값을 두지 않는다(throw). 캐릭터 메시에도 적용된다.",
+   "evidence": "ARCHITECTURE.md:118-122, PATCH-010-C 표(surfaceaudit 행)"
+  },
+  {
+   "rule": "가져오는 것은 기하와 모션뿐이고 재질·텍스처는 src/materials 프로파일로 칠한다. paletteaudit 1.5%를 캐릭터 포함 상태에서 지킨다.",
+   "evidence": "PATCH-010-B(CONTRACT-PATCH-010.md:36-55)"
+  },
+  {
+   "rule": "삼각형 예산은 올리지 않고 감면한다(캐릭터 ≤25k, 4종 100k, tris_scene ≤600k, p95 ≤250k). boot_cpu 3 s를 넘으면 메시를 줄이고 프리웜은 줄이지 않는다.",
+   "evidence": "PATCH-010-C(CONTRACT-PATCH-010.md:70-84), HARNESS.md:296-297"
+  },
+  {
+   "rule": "측정이 불편해도 조건을 바꾸지 않는다. 더미·액터는 판 뒤 2.5 m에 둔다.",
+   "evidence": "PATCH-008-B 조치 1 원문: \"더미를 2.5 m → 1 m로 옮기는 것은 **샷이 통과하도록 플레이 조건을 바꾸는 것**이다. 2.5 m는 한옥 방 깊이에서 현실적인 교전 거리다. 더미는 플레이 거리에 둔다.\" (CONTRACT-PATCH-008.md:41-44)"
+  },
+  {
+   "rule": "게이트 툴을 추가하면 harnesstest 음성 케이스를 동시에 추가한다. '모든 X가 Y' 검사는 X가 1개 이상일 때만 통과한다(비공허).",
+   "evidence": "HARNESS.md:29-32, P4-BRIEF:94-96"
+  },
+  {
+   "rule": "게이트 목록의 유일한 원본은 tools/gates.sh다. 체인은 순차 실행한다.",
+   "evidence": "P4-BRIEF:830-833, tools/gates.sh:2-3"
+  },
+  {
+   "rule": "render/sky/materials/톤매핑 작업은 단일 오너가 순차로 한다.",
+   "evidence": "ARCHITECTURE.md:54-60"
+  },
+  {
+   "rule": "§2-1 30칸 표와 k값(5.6/0.425/9.332)은 불변이다. 캐릭터 정체성은 무기 개체로만 준다.",
+   "evidence": "P4-BRIEF:113-114·601-610, PATCH-011-C(CONTRACT-PATCH-011.md:128-130)"
+  },
+  {
+   "rule": "얼굴·손가락은 비목표로 유지한다. 윤곽으로 읽히게 만든다.",
+   "evidence": "P4-BRIEF:120-129·326"
+  }
+ ],
+ "extensionPoints": [
+  {
+   "point": "캐릭터 데이터 정의(윤곽 · 무기 개체 · 스킬 조합 · 이동 능력)",
+   "where": "P4-BRIEF:336-337 \"캐릭터는 데이터 정의(윤곽 · 무기 개체 · 스킬 조합 · 이동 능력)로 만들고, v0 4종도 같은 데이터 형식으로 만든다. P4D에서 코드가 늘어나면 P4B·C 구조가 틀린 것이다.\"",
+   "howP4BUsesIt": "v0 4종(자라·도깨비·토끼·콩쥐)과 v1 4종(견우·직녀·심청·흥부)을 같은 스키마로 정의한다. 판정은 §4-9(727-729)의 'v1 추가에 든 코드 0'이다."
+  },
+  {
+   "point": "무기 개체 필드",
+   "where": "P4-BRIEF:601-613·631-645, src/weapons/weapon.js:17-55",
+   "howP4BUsesIt": "필드: family ∈ {SHOTGUN, CARBINE, DMR}(k는 계열에서만 옴) + 조작감 오버라이드(연사·반동·탄창·재장전·생김새·소리) + 표시명(총통/천보총, 656-659). 도깨비 v0는 선택지 목록 [CARBINE, DMR]이 필요하므로 단일 값이 아니라 배열로 둔다(648-654)."
+  },
+  {
+   "point": "스킬 조합 = 원시 효과 ID + 파라미터 + 활성 상한",
+   "where": "P4-BRIEF:438-456(닫힌 6종), 462-479(로스터), 504-507(동시 1개)",
+   "howP4BUsesIt": "자라 spawnSurface(GRANITE), 도깨비 spawnLight, 토끼 projectSilhouette, 콩쥐 editHoles(fill), 견우 setMovementMode(vault), 직녀 spawnSurface(EARTH_WALL 재사용 승인, 액터 부착, CONTRACT-NOTES:2115), 심청 setMovementMode(blink), 흥부 applyModifier(연사·반동·재장전만, 윤곽→도깨비). 쿨다운·지속 값은 계약이 정하지 않는다(509). 데이터에 자리만 둔다."
+  },
+  {
+   "point": "이동 능력 플래그(간선) + 액터 능력 마스크",
+   "where": "P4-BRIEF:366-371, §5-1 ⓒ 811-813",
+   "howP4BUsesIt": "간선마다 플래그 비트를 두고 액터 데이터는 능력 마스크를 갖는다. 예: 견우 vault, '담장까지만, 건물 벽 불가'(475). 캐릭터별 메시를 따로 굽지 않는다. blink 목적지는 서버 충돌 검사로 정하므로 내비 밖이다."
+  },
+  {
+   "point": "런타임 간선 추가·삭제",
+   "where": "P4-BRIEF:367 \"이동 간선이 런타임에 생기고 사라진다 (자라 등껍질, 향후 바리케이드 등)\"",
+   "howP4BUsesIt": "청크 그래프에 동적 간선 API를 두고 resetState에서 복원한다. 트리거 경로(이벤트)는 현재 어휘에 없다. surface 생성 이벤트가 없으므로 계약 변경이 필요할 수 있다(추정)."
+  },
+  {
+   "point": "청크 단위 내비메시 + 경계 연결 명시 관리",
+   "where": "P4-BRIEF:358-364",
+   "howP4BUsesIt": "현 경내 = 청크 1~2개. 경계 간선을 별도 목록으로 관리한다. 봇(P5)도 같은 구조를 쓴다(371, §6:824)."
+  },
+  {
+   "point": "선언된 동일쌍 예외",
+   "where": "P4-BRIEF:350-352",
+   "howP4BUsesIt": "캐릭터 데이터에 예외 쌍을 명시한다(예: 흥부[변장] ≡ 도깨비). silhouetteaudit는 선언된 쌍만 면제하고, 선언 없는 동일쌍은 exit 1로 둔다. 케이스 22는 예외를 도입한 뒤에도 통과해야 한다."
+  },
+  {
+   "point": "정보 은닉 표시(겉보기 정체 ≠ 실제 정체)",
+   "where": "P4-BRIEF:792-796",
+   "howP4BUsesIt": "'흥부 변장 중에는 상대 클라이언트에 도깨비로 보낸다', '가짜 실루엣은 가짜 표시 없이 보낸다'. 액터 상태에 apparentIdentity(외부 송신용)와 trueIdentity(서버 전용)를 나누는 필드가 필요하다. 발소리는 흥부 그대로라 오디오 프로파일은 변장 대상에서 뺀다(484)."
+  },
+  {
+   "point": "이동속도·체력",
+   "where": "P4-BRIEF:576-578",
+   "howP4BUsesIt": "'체력은 거의 균일. 차등은 이동속도로(자라: 약간 높은 체력, 확실히 느림)'. 데이터 필드로 두고 값은 P4C에서 정한다."
+  },
+  {
+   "point": "부위별 재질 슬롯과 팀 색",
+   "where": "P4-BRIEF:393-414·678-686",
+   "howP4BUsesIt": "부위별로 LACQUER/BRONZE(등껍질), WOOD_COLUMN+BRONZE(뿔·방망이), FABRIC(의복), DANCHEONG(문양)을 단다. 팀 색은 이세계 청, 인간계 적. 대역 비겹침 정적 검사는 paletteaudit.mjs:9 대역 정의를 쓴다."
+  },
+  {
+   "point": "창호지 차폐 등록(액터 형상 대리체)",
+   "where": "src/materials/hanji-occluders.js, src/main.js:147-149",
+   "howP4BUsesIt": "액터마다 차폐 대리체를 등록해야 야간 실루엣이 맺힌다. 지금은 캡슐 1개, 최대 4개라 윤곽 4축 구별을 담지 못한다(위험 참조)."
+  },
+  {
+   "point": "harnesstest 케이스 22 예약 슬롯",
+   "where": "tools/harnesstest.mjs:552, CONTRACT-NOTES:2076",
+   "howP4BUsesIt": "silhouetteaudit 음성 케이스로 쓴다. 두 캐릭터 윤곽을 인위로 같게 만든 입력에서 반드시 exit 1이 나와야 한다."
+  },
+  {
+   "point": "gates.sh silhouetteaudit 줄",
+   "where": "tools/gates.sh:60",
+   "howP4BUsesIt": "주석을 해제해 체인에 넣는다. profile 단계는 --phase=p3(85)이고 캐릭터 예산 단계는 없다."
+  }
+ ],
+ "p4bConstraints": [
+  {
+   "constraint": "R1 v0 4종: 자라(등껍질, 낮고 넓은 윤곽), 도깨비(뿔·방망이, 크고 각진), 토끼(귀, 좁고 높은), 콩쥐(치마선, 아래가 퍼지는). \"절차적 스킨드 메시. 얼굴 디테일 금지. **윤곽이 전부다.**\" 판정: 4종 정의가 있고 R3을 통과한다.",
+   "source": "P4-BRIEF:318-326"
+  },
+  {
+   "constraint": "R2 데이터 형식: v0도 v1과 같은 데이터 형식으로 만든다(\"v0를 v1 없이 짜지 마라\"). 판정: 캐릭터 ID로 갈라지는 코드 0, P4D에서 v1 추가에 든 코드 목록 0.",
+   "source": "P4-BRIEF:336-337, 727-729, 864"
+  },
+  {
+   "constraint": "R3 silhouetteaudit: HANJI 판 뒤 2.5 m, 실내 광원 역광. 6쌍 × 4축(윤곽 폭 분포 · 높이 · 상하 질량비 · 돌출부 위치)을 재고, 어느 쌍이라도 2축 미만에서만 다르면 exit 1. 판정: 쌍마다 차이 나는 축 ≥2, 비공허 조건(쌍 수 = C(n,2) ≥1).",
+   "source": "P4-BRIEF:339-346, PATCH-010-C 표, P4-BRIEF:94-96"
+  },
+  {
+   "constraint": "R4 대비: \"각 실루엣이 배경 대비 **0.15 이상의 대비**를 가질 것\". 판정: 캐릭터별 대비 ≥0.15. 대비 공식·해상도는 미정의(모순·모호 참조).",
+   "source": "P4-BRIEF:346, 70"
+  },
+  {
+   "constraint": "R5 케이스 22: \"두 캐릭터 윤곽을 인위로 동일화한 입력에서 반드시 exit 1\". 선언 예외를 도입한 뒤에도 통과해야 한다. 판정: harnesstest 22 exit 1 확인.",
+   "source": "P4-BRIEF:348·352, HARNESS.md:29-32"
+  },
+  {
+   "constraint": "R6 실패 시 처분: \"006-D 실측(≤1 m 판독, 대비 .24–.33)이 이 게이트의 기준선이다. 2.5 m에서 판독되지 않으면 캐릭터가 아니라 **조명 구성**을 고쳐라 — `PATCH-008-B`가 규정한 대로, 더미를 가까이 옮겨 통과시키지 마라.\" 근거는 008-B 조치 1(더미 이동 반려)과 조치 2(\"판 뒤에 실내 광원(등롱 등), 그 앞에 더미 — **플레이 거리 유지**\"). 판정: 액터·카메라 거리가 2.5 m로 고정돼 있는지 검사.",
+   "source": "P4-BRIEF:354-356, CONTRACT-PATCH-008.md:41-53"
+  },
+  {
+   "constraint": "R7 '더미가 액터로 바뀐다': \"S03 #2 [materials/P3][C] 실루엣 더미가 사람·기물·그림자 중 무엇인지 식별 불가 | **P4B**(§3-2) | `silhouetteaudit` 의 대비 ≥ .15·4축 구별이 이 항목의 게이트다 — 더미가 액터로 바뀐다\". 판정: 샷 3의 silhouette_dummy(level.js:356, shots.js:72, main.js:148)가 액터로 바뀌고 silhouetteaudit가 통과한다.",
+   "source": "P4-BRIEF:70, docs/P3-DEBT.md:49"
+  },
+  {
+   "constraint": "R8 팀 색: 이세계 = 청, 인간계 = 적, 단청 팔레트 안에서. \"두 팀에 배정된 색상 대역이 **겹치지 않을 것.** 정적 검사로 확인하고, `silhouetteaudit`에 팀 색 분리 검사를 함께 넣어라.\" 판정: 팀별 hue 구간의 교집합이 공집합(참고 대역 청 175–240°, 적 355–15°).",
+   "source": "P4-BRIEF:405-414, tools/paletteaudit.mjs:9"
+  },
+  {
+   "constraint": "R9 표면 분절은 머티리얼이 맡는다(LACQUER/BRONZE/WOOD_COLUMN/FABRIC/DANCHEONG). 임포트 재질은 금지. 판정: 캐릭터 포함 paletteaudit ≤1.5%, 임포트 텍스처 0(또는 대역 재매핑).",
+   "source": "P4-BRIEF:393-403, PATCH-010-B"
+  },
+  {
+   "constraint": "R10 삼각형: 캐릭터 1종 ≤25,000(4종 100k), tris_scene ≤600k, tris_frame_p95 ≤250k. 초과 시 감면하고 상향은 금지. 판정: profile에 캐릭터별 검사를 신설한다(현재 없음).",
+   "source": "PATCH-010-C(CONTRACT-PATCH-010.md:70-80), HARNESS.md:296-297, tools/profile.mjs:50-66"
+  },
+  {
+   "constraint": "R11 부팅·결정성: 에셋 로드는 boot_cpu ≤3 s에 들어가야 한다. baseline ready에 에셋 로드를 포함하고 2회 비트 동일. 스키닝·클립 시간은 core/clock만 쓴다.",
+   "source": "PATCH-010-C 표·부팅(CONTRACT-PATCH-010.md:61-84)"
+  },
+  {
+   "constraint": "R12 surfaceaudit: 캐릭터 메시도 기본값 금지(전수 매핑). 판정: 액터 메시마다 표면 유형이 매핑돼 있고 없으면 throw.",
+   "source": "PATCH-010-C 표, ARCHITECTURE.md:118-122"
+  },
+  {
+   "constraint": "R13 내비메시: \"청크 단위로 생성하고, 청크 경계를 넘는 연결을 명시적으로 관리\". 판정: 청크 2개 이상 + 경계 간선 목록. 청크 하나를 지워도 다른 청크 그래프가 유효한지 단위 테스트(제안).",
+   "source": "P4-BRIEF:358-364"
+  },
+  {
+   "constraint": "R14 런타임 간선과 이동 능력 플래그: 간선이 런타임에 생기고 사라진다. 간선마다 능력 플래그를 두고 캐릭터별로 따로 굽지 않는다. 판정: 동적 add/remove 후 경로 질의가 바뀌는지, 'vault' 간선은 그 능력 마스크를 가진 액터만 통과하는지 음성 테스트(제안). resetState에서 복원.",
+   "source": "P4-BRIEF:366-371, §5-1 ⓓ 815"
+  },
+  {
+   "constraint": "R15 봇 전제: \"`P4B`의 내비메시와 지각 구조는 봇의 전제이므로 **지금 제대로 짜라.**\" 측정 기준은 계약에 없다.",
+   "source": "P4-BRIEF:819-824, ARCHITECTURE.md:48"
+  },
+  {
+   "constraint": "R16 래그돌: \"`physics`의 PBD 래그돌을 사용한다. `actor:death { actorId, impulseWorldPos, impulse }` 배선. 래그돌 최종 자세는 **결정적**이어야 한다 — `resetState()` 범위에 포함.\" 사망 애니메이션은 금지. 판정: 같은 입력 2회 실행의 최종 뼈 자세 해시 동일, resetState 후 잔존 0.",
+   "source": "P4-BRIEF:372-376, 854"
+  },
+  {
+   "constraint": "R17 resetState가 액터 상태를 완전 복원한다(래그돌·간선·노출 포함).",
+   "source": "P4-BRIEF:855, HARNESS.md:120"
+  },
+  {
+   "constraint": "R18 노출 동결: \"적응 **범위와 속도**를 계약값으로 동결하라. 값은 플레이테스트로 정하고 근거를 보고하라.\" 시점은 'P4B 착수 전'. 현재값은 pipeline.js:51. 판정: 계약 문서에 값을 적고, 런타임 값 일치 검사와 그 음성 테스트(제안). S02 #4·S11 #5(명암 극단·순백)를 함께 잰다.",
+   "source": "P4-BRIEF:800-805·69, CONTRACT-NOTES:2087, §8 5항(874)"
+  },
+  {
+   "constraint": "R19 FABRIC 직조 스케일: 현재 셀 약 2.1 cm(PAT.WEAVE 48), 실물 0.5~1 mm. \"P4B(액터) 착수 시 스케일을 정한다.\" 월드 공용 재질이다. 판정: 결정한 스케일 값과 0.6 m·2.5 m 캡처 근거를 기록.",
+   "source": "docs/P3-DEBT.md:181-190, P4-BRIEF:40·57·71"
+  },
+  {
+   "constraint": "R20 원거리 형체(종이 너머 약 10 m 박공)는 관찰만 한다. silhouetteaudit 2.5 m 조건에서 함께 재고, 처분은 W1이 한다.",
+   "source": "P4-BRIEF:58, W1-RECEIVING.md:22, P3-DEBT.md:199-204"
+  },
+  {
+   "constraint": "R21 무기·캐릭터 기하 에셋: 에셋이 도착하면 재질 슬롯 배정, 움직이는 부품을 절차 재장전에 연결, viewmodel/albedo/paletteaudit 재실행, 라이선스(요금제별 상업 조건) 기록. 뷰모델 ≤15k, 3인칭 ≤3k. S08 #2·S11 #10 재질 분리 결함과 다시 만난다.",
+   "source": "P4-BRIEF:52·68·688-702, PATCH-011-C:132-137"
+  },
+  {
+   "constraint": "R22 실 GPU: P4B 종료 전 발주자가 가진 아무 컴퓨터로 배포판을 1회 실측한다. P4 진행 중에는 R4 값(480 / 135,622 / 44 / p95 2.1 ms) 대비 증가분을 보고한다.",
+   "source": "P4-BRIEF:7-12·54·856"
+  },
+  {
+   "constraint": "R23 넷코드 준비: 시뮬레이션과 표현을 분리(서버가 시뮬레이션만 돌릴 수 있게). 클라이언트가 알 필요 없는 상태를 식별할 수 있게 구조화. determinismaudit 초록 유지.",
+   "source": "P4-BRIEF:788-796"
+  },
+  {
+   "constraint": "R24 근접 판독: 표면 분절, 즉각적 팀 구분, 자세 판독(재장전·ADS·스킬 전개). 측정 기준은 계약에 없다.",
+   "source": "P4-BRIEF:378-391"
+  },
+  {
+   "constraint": "R25 보고: silhouetteaudit 6쌍 구별도와 대비 실측, 노출 적응 범위 실측 근거, 정직한 한계, 착수 전 스캔 우선(014-A).",
+   "source": "P4-BRIEF:873-882"
+  },
+  {
+   "constraint": "R26 창살 의존: silhouetteaudit는 현 창살 위에서 잰다. 창살이 바뀌면 다시 돌린다.",
+   "source": "P4-BRIEF:50, W1-RECEIVING.md:30"
+  }
+ ],
+ "risks": [
+  {
+   "risk": "§3-4 \"physics의 PBD 래그돌을 사용한다\"와 코드 부재가 충돌한다.",
+   "why": "src/physics(bvh, character, index, math, raychain, rigidbody, surface-registry)에 래그돌·PBD 구현이 없다. 유일한 언급은 math.js:228 주석이고, ARCHITECTURE.md:44는 계획표일 뿐이다. '사용'이 아니라 신규 구현이라서 P4B 범위가 커진다.",
+   "mitigation": "보고서에 '없음 → 신설'로 명시한다. 결정성(고정 스텝·rng)과 resetState를 설계 첫 조건으로 둔다."
+  },
+  {
+   "risk": "src/ai 디렉터리, 내비메시, 지각 코드가 전부 없다.",
+   "why": "ls src 결과 ai가 없고, grep navmesh/내비 결과 0건이다. ARCHITECTURE.md:48에만 책임이 적혀 있다.",
+   "mitigation": "청크·런타임 간선·플래그를 처음부터 구조에 넣는다(§3-3)."
+  },
+  {
+   "risk": "야간 창호지 실루엣이 액터 메시가 아니라 해석적 캡슐로 계산된다.",
+   "why": "hanji-occluders.js:4-7에 따르면 '등록된 캡슐'만 점광을 가리고 '등록되지 않은 물체는 가리지 않는다', 최대 4개(HANJI_OCC_MAX=4, 셰이더 배열 고정 index.js:305). 실내 광원 역광 조건의 silhouetteaudit에서는 4종이 캡슐 하나로 수렴한다(추정). 돌출부 위치·상하 질량비 축이 같아져 2축 기준을 못 넘을 가능성이 크다. '조명 구성을 고쳐라'로는 고칠 수 없고, materials(단일 오너 결합 시스템) 차폐 모델을 개정해야 한다.",
+   "mitigation": "착수 전 스캔에 올리고 발주자 결정을 받는다. 후보: 액터별 다중 캡슐(상한 상향과 프로그램 소스 변경), 점광 castShadow 큐브맵(비용·순열 변경), 기타."
+  },
+  {
+   "risk": "차폐 상한 4 대 인원 수.",
+   "why": "v0 2:2 = 4명이면 액터당 캡슐 1개로 상한이 꽉 차고, 3:3(P4-BRIEF:104)이면 6 > 4다. 셰이더 배열 길이를 바꾸면 HANJI 셰이더 소스가 바뀐다.",
+   "mitigation": "상한을 액터 수 × 대리체 수로 다시 정하고 프리웜·프로그램 수를 다시 잰다."
+  },
+  {
+   "risk": "기준선 모호: §3-2는 006-D(≤1 m, .24–.33)를 기준선이라 하지만, 006-D는 주간 태양 그림자 실측이고 2 m에서 이미 실패했다(.13).",
+   "why": "CONTRACT-NOTES:1019-1031. 플레이 거리 2.5 m 야간 값은 008-B 실측 4(T_p .6, 등롱 3.5 m 뒤: 대비 .315, 경계 12 px, 960×624, CONTRACT-NOTES:1170-1177)다. 006-D 실측 조건(1280×832)은 게이트 조건(2.5 m·역광)과 다르다.",
+   "mitigation": "기준선을 008-B 구성으로 할지 발주자에게 확인한다."
+  },
+  {
+   "risk": "대비 공식, 측정 해상도, 축별 '다르다' 임계가 정의돼 있지 않다.",
+   "why": "프로브 스크립트(hanjiprobe2·hj3–5)가 레포에 없어 공식이 코드화돼 있지 않다. 해상도 제안은 756×491(CONTRACT-NOTES:1730)과 1512×982(1746, 구멍용)로 갈린다. CONTRACT-NOTES:1993-1998은 판독 임계 .15를 '발명'했다가 철회한 오류 기록이다. 4축 임계를 에이전트가 정하면 같은 오류가 재발한다.",
+   "mitigation": "공식·해상도를 문서로 고정하고, 축별 임계는 실측 분포와 함께 발주자 결정으로 올린다."
+  },
+  {
+   "risk": "캐릭터 기하를 절차로 할지 에셋으로 할지 미결.",
+   "why": "§3-1:326은 '절차적 스킨드 메시', PATCH-010-A는 임포트 스킨드 메시·리그·클립 허용, §−1-A:52 배정은 '캐릭터 절차 메시(§3-1) + … 에셋 제작은 발주자'다. 010-A는 '사망' 클립을 허용하지만 §3-4:376은 사망 애니메이션을 금지한다(브리프가 더 구체적이므로 우선한다고 추정).",
+   "mitigation": "발주자 확인. 어느 쪽이든 데이터 형식은 같게 둔다."
+  },
+  {
+   "risk": "삼각형 예산 표기가 서로 어긋난다.",
+   "why": "HARNESS 성능표에는 tris_scene ≤6 M·p95 ≤2 M 행(최종 목표)과 010-C '≤600k/≤250k 유지' 행이 함께 있다(HARNESS.md:293-297). profile.mjs에는 p4 단계가 없고 gates.sh는 --phase=p3(85)를 쓴다. 3인칭 무기 3k(011-C:137)가 캐릭터 25k에 들어가는지도 명시돼 있지 않다.",
+   "mitigation": "P4B에서 쓸 phase와 캐릭터별 검사 위치를 정한다."
+  },
+  {
+   "risk": "노출 동결과 권위 분리가 긴장 관계다.",
+   "why": "§5-1 ⓐ는 노출을 '게임플레이 변수'라 부르지만, 값은 렌더 HDR 프레임의 GPU 리덕션에서 나온다(exposure.js:1-5·69-95). §5의 '시뮬레이션만 서버'와 양립하는 방식이 정의돼 있지 않다. params는 가변이다(exposure.js:155-156). 015-E 원문은 '단정하지 않는다 — 확인해서 보고하라'인데 브리프는 단정한다. 코드상으로는 적응형이 맞다.",
+   "mitigation": "동결 = 상수화 + 일치 검사로 정의한다. 서버 판정에 노출을 쓰지 않는다는 원칙을 기록한다(제안)."
+  },
+  {
+   "risk": "팀 색 검사가 silhouetteaudit 안에 있는 것의 의미가 모호하다.",
+   "why": "§4-1-C:483은 '창호지 너머에는 색이 없고 윤곽만 있다'고 한다. 실루엣 렌더로는 팀 색을 잴 수 없으므로 데이터·정적 검사가 될 수밖에 없다.",
+   "mitigation": "정적 hue 대역 검사로 구현하고 음성 케이스(대역 겹침 입력에서 exit 1)를 함께 둔다(제안)."
+  },
+  {
+   "risk": "액터에 물리 레이어와 표면 유형이 없다.",
+   "why": "LAYER에는 STATIC·DEBRIS_ONLY만 있고(surface-registry.js:67-72) MASK.BULLET은 액터를 맞히지 못한다. surfaces.js 15종에 액터용 유형이 없다. surfaceaudit의 기본값 금지 때문에 매핑을 정해야 한다. 새 유형은 동결 절차를 밟아야 하고 audioaudit 쌍도 늘어난다(§4-9:713).",
+   "mitigation": "FABRIC/LACQUER 같은 기존 유형 재사용과 액터 레이어 신설을 착수 전 스캔에 올린다."
+  },
+  {
+   "risk": "폐쇄 이벤트 어휘가 런타임 간선·액터 스폰 배선을 막을 수 있다.",
+   "why": "events.js가 목록 밖 이벤트를 throw한다. 현재 어휘로는 '표면 생성 → 간선 변경'을 알릴 수 없다.",
+   "mitigation": "필요한 이벤트를 계약 변경 제안으로 올린다(ARCHITECTURE.md:129)."
+  },
+  {
+   "risk": "FABRIC 스케일 변경의 파급.",
+   "why": "FABRIC은 월드 공용 재질이다(P3-DEBT.md:189). 더미도 mats.FABRIC을 쓴다(level.js:356). 바꾸면 baseline 픽셀, paletteaudit, 천장 무아레(P3-DEBT R4 작업 5)에 영향이 간다. 0.5~1 mm 직조는 2.5 m에서 화소 이하라 앨리어싱이 생길 수 있다(추정).",
+   "mitigation": "액터 전용 파생 프로파일과 공용 변경을 비교한 측정을 기록한다."
+  },
+  {
+   "risk": "ARCHITECTURE의 낡은 문구.",
+   "why": "ARCHITECTURE.md:10 '무기는 절차 생성 유지'는 PATCH-011-C와 충돌한다. ARCHITECTURE.md:294 'P4 ai + audio — 적 1종'은 브리프 §0의 PvP 개정과 충돌한다.",
+   "mitigation": "P4B 보고의 계약 모호 항목에 넣는다."
+  },
+  {
+   "risk": "창살 재판단이 미결로 남아 있다.",
+   "why": "W1-RECEIVING.md:30은 '창살(1번)만은 R4 종료 시 P4B 이전 처리 여부를 재판단'이라고 하는데, P4-BRIEF:50은 W1로 배정하고 '창살이 바뀌면 재실행'으로 처리했다. 재판단 결과를 적은 기록은 찾지 못했다.",
+   "mitigation": "현 창살 기준으로 측정한다는 사실을 보고에 명시한다."
+  },
+  {
+   "risk": "게이트 체인 비용.",
+   "why": "체인은 이미 17 h를 넘고 컨테이너 재부팅으로 끊긴다(gates.sh:7-8). silhouetteaudit는 렌더 도구라 시간이 더 붙는다.",
+   "mitigation": "상한 = 실측 × 2.5(HARNESS.md:270), --resume 방식을 따른다."
+  }
+ ],
+ "openQuestions": [
+  "캐릭터 기하를 절차 메시(§3-1)로 할지 PATCH-010-A 임포트 에셋으로 할지, 에셋이면 누가 언제 만드는지.",
+  "창호지 야간 차폐 모델을 어떻게 개정할지(다중 캡슐·상한 상향 / 점광 섀도 / 기타). materials 단일 오너 규칙 아래에서 P4B가 손대도 되는지.",
+  "silhouetteaudit 4축 각각의 '다르다' 임계를 누가 정하는지. 계약에 숫자가 없고, 에이전트가 발명하는 것은 014-C 교훈상 금지다.",
+  "대비 공식, 측정 해상도(756×491 / 960×624 / 1512×982), 기준선(006-D 주간 vs 008-B 야간 .315)을 무엇으로 할지.",
+  "노출 적응 범위·속도를 지금 값(pipeline.js:51)으로 동결할지, 액터·스킬 플레이테스트 뒤에 정할지. 'P4B 착수 전'(CONTRACT-NOTES:2087)과 '플레이테스트로'(P4-BRIEF:805)의 순서를 어떻게 할지.",
+  "FABRIC 직조 목표 스케일과, 월드 공용 재질 변경을 허용할지 액터 전용 파생으로 할지.",
+  "액터의 탄도 표면 유형(기존 재사용 vs 신규 = 계약 변경)과 액터 물리 레이어 신설 승인 여부.",
+  "런타임 간선 변경·액터 스폰에 필요한 신규 이벤트의 계약 변경 승인 여부.",
+  "3인칭 무기 3k가 캐릭터 25k 예산에 포함되는지. P4B에서 쓸 profile phase(p3 유지 vs p4 신설).",
+  "v1 윤곽 특징(§3-1-B '제안 — 발주자 확정 전')과 카빈 계열·개체명(§4-6:659) 확정 시점. P4B를 막지는 않지만 데이터 형식 검증에 쓰인다.",
+  "P4 AI가 '적이 실내 광원 뒤에 서는 것을 위험으로 인지'해야 하는지(PATCH-008-C, 'P4에서 판단').",
+  "무기 에셋 도착이 P4B 종료 조건인지. 도착하지 않으면 §4-8 할 일을 이월할지.",
+  "창살 'P4B 이전 처리' 재판단(W1-RECEIVING.md:30)의 결론.",
+  "P4B 종료 전 실 GPU 1회 실측(발주자 실행) 일정."
+ ]
+}

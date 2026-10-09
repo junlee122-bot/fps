@@ -1,0 +1,521 @@
+{
+ "subsystem": "감사 도구 패턴: tools/lib(browser·server·pinned·args), harnesstest, shotaudit, pixelowner, albedo/viewmodel/palette/fx/surface 감사, profile, baseline·shots.js, gates.sh·gates.yml, HARNESS.md. 관점은 P4B silhouetteaudit 템플릿",
+ "summary": "(1) silhouetteaudit 를 그대로 베낄 기존 도구는 없다. 렌더 감사의 뼈대는 viewmodelaudit/albedoaudit 다. 순서는 startServer→launchBrowser→openGamePage(mode=fixed, VIEW)→resetState→페이지 안 설치 훅이 CSS 사각형 반환→stepFrames(90)→capturePng→sRGB→선형 Rec.709 평균 휘도이고, 쌍별 '≥2축 상이' 판정과 복제 음성 훅은 src/materials/fx-look.js 의 visualAxesDiff/checkVisualDistinctness 와 fxaudit 의 --test-look-clone 이 템플릿이다. (2) 야간 창호지 실루엣은 메시 그림자가 아니다. 등록된 캡슐(최대 4개)에 대한 해석적 차폐가 만든다(hanji-occluders.js:12, materials/index.js:304-331). 따라서 캐릭터 메시만 놓으면 판에 실루엣이 생기지 않고, 캐릭터당 캡슐 1개로 등록하면 4종의 윤곽이 모두 캡슐이 된다. 이것이 P4B 설계의 최대 쟁점이다. (3) pixelowner --hide 나 debugSetVisible 로 메시를 숨겨도 hanjiOccluders 등록은 남는다(update 에 가시성 검사가 없다). '보임/숨김 차이' 방식으로 실루엣을 추출하려면 occluders.delete/set 를 직접 불러야 한다. (4) hanji_silhouette 샷은 지금 silhouette_dummy 를 쓴다. 정체는 Capsule 0.28×1.1 FABRIC 메시이고, 위치는 (-29.5, 1.83, -11.5)로 판 x=-32 뒤 2.5 m 다. 등롱 lantern_light_na 는 더미 뒤 3.5 m 에 있고, 더미는 main.js:148 에서 차폐 캡슐로 1회 등록된다. (5) 음성 테스트 관례는 --test-*/--inject-* 플래그, JSON 출력의 testOverride 표식, harnesstest 에서 'exit 1 && 표식 && 구체 증거' 3중 조건이다. 케이스 22 는 비어 있고 헤더 주석(harnesstest.mjs:8-36)과 케이스 23 주석에 'P4 예약'으로 남아 있다. (6) gates.sh:67 에 '# run silhouetteaudit' 자리표가 있다. 그런데 이 자리는 CI 의 harnesstest 잡(GATES_TO=harnesstest)과 statics 잡(GATES_FROM=determinismaudit) 사이라서, 주석만 풀면 coverage 잡이 MISSING 으로 실패한다. (7) 문서가 말하는 PBD 래그돌·내비메시·액터 코드는 src 에 없다. 'ragdoll'은 physics/math.js:228 주석 한 곳에만 나온다. 캐릭터당 25k 삼각형을 검사하는 코드도 어디에도 없다. getSceneTriangles 는 world.group 밖 메시를 'other' 로 묶는다. (8) 대비 0.15 는 계약값이다(P4-BRIEF:346, CONTRACT-NOTES:1632). 그러나 대비 공식과 측정 해상도는 코드·문서 어디에도 고정돼 있지 않다. 008-B 실측은 커밋되지 않은 프로브(hj4·hj5, 960×624)로 쟀고, 구멍 판독 해상도는 1512×982 로 확정됐다(1746).",
+ "files": [
+  {
+   "path": "/home/user/fps/tools/lib/browser.mjs",
+   "role": "Playwright 실행·격리 컨텍스트·CDP 캡처. capturePng 는 드로잉 버퍼 해상도(DPR2이면 3024×1964)로 찍고, captureMask 는 태그 마스크 PNG 를 저장한다.",
+   "keyExports": [
+    "launchBrowser (44)",
+    "openGamePage (53)",
+    "capturePng (119)",
+    "captureMask (138)",
+    "LAUNCH_ARGS/LAUNCH_ARGS_GPU (12/29)",
+    "parseArgs 재수출 (156)"
+   ]
+  },
+  {
+   "path": "/home/user/fps/tools/lib/server.mjs",
+   "role": "정적 http 서버. startServer 가 /tmp/fps-render.lock 을 잡고(52-73) 고정 스냅샷 루트를 서빙하며, {url, sha, pinned, dirty, close} 를 반환한다(75-111).",
+   "keyExports": [
+    "startServer"
+   ]
+  },
+  {
+   "path": "/home/user/fps/tools/lib/pinned.mjs",
+   "role": "git stash create 로 만든 불변 워크트리를 /tmp/fps-pinned/<sha> 에 둔다. 서빙 경로는 index.html·src·tools/shots.js 뿐이고, 추적되지 않은 파일은 스냅샷에서 빠진다(23, 63-64).",
+   "keyExports": [
+    "pinnedRoot"
+   ]
+  },
+  {
+   "path": "/home/user/fps/tools/lib/args.mjs",
+   "role": "CLI 파서. '--k v'와 '--k=v'를 받고 값이 없는 플래그는 true, 위치 인자는 _ 배열에 담는다. 반복 플래그는 마지막 값만 남는다(pixelowner.mjs:44-53 가 우회 구현).",
+   "keyExports": [
+    "parseArgs (12)"
+   ]
+  },
+  {
+   "path": "/home/user/fps/tools/harnesstest.mjs",
+   "role": "하네스 회귀 테스트. 케이스를 블록 단위로 순서 없이 나열하고, record(id,name,pass,detail)로 기록한 뒤 마지막에 JSON {ok,retries,cases} 를 출력하고 종료한다(565-567). 케이스 선택 인자는 없다.",
+   "keyExports": [
+    "run (69)",
+    "runAudit (82, 브라우저 사망 시 1회 재시도)",
+    "record (49)",
+    "AUDIT_TIMEOUT_MS=1800000 (62)",
+    "PLAYTEST_TIMEOUT_MS=6000000 (67)"
+   ]
+  },
+  {
+   "path": "/home/user/fps/tools/shotaudit.mjs",
+   "role": "노드 헤드리스 샷 관측 검사. buildWorld 와 Raycaster 로 절두체·가시성·최소 면적을 보며, 반투과 비대상은 통과시키고 auditOnly 는 제외한다(56). 음성 훅은 --inject-occluder 다.",
+   "keyExports": [
+    "worldBoxes (62)",
+    "matchTargets (68)",
+    "firstHit (82)",
+    "auditShot (93)",
+    "screenRect (116, AABB→NDC 사각형)"
+   ]
+  },
+  {
+   "path": "/home/user/fps/tools/pixelowner.mjs",
+   "role": "진단 도구이고 게이트가 아니다(항상 exit 0). resetState→setShot→--hide(scene.getObjectByName().visible=false)→stepFrames→후보 열거 순으로 돈다(140-155). 숨김 대상은 메시뿐이고 차폐 캡슐은 그대로 남는다.",
+   "keyExports": [
+    "ownersAt (페이지 내부 함수)"
+   ]
+  },
+  {
+   "path": "/home/user/fps/tools/viewmodelaudit.mjs",
+   "role": "휘도 측정 템플릿. viewmodelAuditSetup 이 CSS 사각형을 돌려주면 capturePng 후 lin()으로 sRGB→선형 변환하고 0.2126/0.7152/0.0722 가중 평균을 낸다. 배율은 png.width/VIEW.width 로 구한다(56-77). 음성 훅은 --test-boost 다.",
+   "keyExports": [
+    "meanLum (64)",
+    "lin (56)"
+   ]
+  },
+  {
+   "path": "/home/user/fps/tools/albedoaudit.mjs",
+   "role": "viewmodelaudit 와 같은 측정 경로다(59-67). 페이지 훅 albedoAuditSetup 이 카드를 놓고 NoToneMapping·감사 조명으로 바꾼다. 음성 훅은 --test-scale-albedo 다.",
+   "keyExports": [
+    "meanLum (59)"
+   ]
+  },
+  {
+   "path": "/home/user/fps/tools/paletteaudit.mjs",
+   "role": "캡처 PNG 디렉터리 전 픽셀을 HSV 대역으로 검사한다. 청 175–240, 적 355–15, 황 40–60, 목재 20–40(s≤.35)이고 위반율 상한은 1.5%다. .emask.png 가 있으면 자발광 밴드를 적용한다.",
+   "keyExports": [
+    "rgbToHsv (61)",
+    "allowed (78)",
+    "emissiveAllowed (88)",
+    "LIMIT_PCT=1.5 (48)"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/materials/fx-look.js",
+   "role": "데이터 시점의 쌍별 시각 구별성과 팔레트 자기검사. 팀 색 정적 검사와 실루엣 4축 쌍 판정 구조의 직접 템플릿이다.",
+   "keyExports": [
+    "visualAxesDiff (84)",
+    "checkVisualDistinctness (96)",
+    "paletteInBand (112)",
+    "VISUAL_HUE_MIN_DEG=12 (67)"
+   ]
+  },
+  {
+   "path": "/home/user/fps/tools/fxaudit.mjs",
+   "role": "표 대 실측 대조 정적 감사(노드). --test-clone/--test-look-clone A=B 로 사본을 만들어 오염시키고, 잘못된 키면 exit 2, testOverride 를 표식한다(46-71). 팔레트 이탈은 problems 에 넣는다(103, 143).",
+   "keyExports": []
+  },
+  {
+   "path": "/home/user/fps/tools/surfaceaudit.mjs",
+   "role": "buildWorld 씬그래프를 순회해 userData.surface 가 없거나 SURFACES 에 없으면 exit 1. buildWorld 밖에서 스폰한 캐릭터는 검사 대상이 아니다. 음성 훅은 --inject-unmapped 다.",
+   "keyExports": []
+  },
+  {
+   "path": "/home/user/fps/tools/profile.mjs",
+   "role": "선행지표 게이트. BUDGETS.p3 는 trisScene 600k, trisFrameP95 250k, drawCalls 900, programs 110 이다(59-62). 삼각형 스윕은 SHOTS 전수 × 10프레임, DPR1 로 돈다(376-399). 플레이 중 컴파일이 1건이라도 있으면 실패한다(503).",
+   "keyExports": [
+    "BUDGETS (51)"
+   ]
+  },
+  {
+   "path": "/home/user/fps/tools/shots.js",
+   "role": "계약 샷 12종(node 로 확인). 2행 주석의 '11종'은 낡았다. hanji_silhouette 는 65-78행이고 audit 대상에 silhouette_dummy 가 들어 있다(72).",
+   "keyExports": [
+    "SHOTS",
+    "SHOTS_BY_NAME",
+    "VIEW {1512,982,dpr2}",
+    "FIXED_STEP_FRAMES=90",
+    "DEFAULT_VIEW"
+   ]
+  },
+  {
+   "path": "/home/user/fps/tools/baseline.mjs",
+   "role": "샷마다 새 페이지에서 캡처하고 .emask.png 와 사이드카를 남긴다. 판정은 동일 커밋 2회 실행의 바이트 동일성이며, 골든 이미지 비교가 아니다. 음성 훅은 --test-hanji-unsync 다.",
+   "keyExports": []
+  },
+  {
+   "path": "/home/user/fps/src/core/harness.js",
+   "role": "window.__harness 페이지 API. 감사 도구가 쓰는 장면 구성 훅이 모두 여기 모여 있다.",
+   "keyExports": [
+    "setShot (179)",
+    "stepFrames (191)",
+    "resetState (236)",
+    "getSceneHash (376)",
+    "renderTagMask (401)",
+    "getSceneTriangles (420)",
+    "debugSetVisible (488)",
+    "debugFreezeExposure (501)",
+    "debugCamera (507)",
+    "albedoAuditSetup (557)",
+    "viewmodelAuditSetup (567)",
+    "_internal.hanjiOccluders (581)"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/materials/hanji-occluders.js",
+   "role": "창호지 점광 투과용 해석적 캡슐 차폐 등록부. 월드 좌표로 등록하면 프레임마다 뷰 공간 유니폼으로 바꾸며, 최대 4개이고 가시성은 검사하지 않는다(47-57).",
+   "keyExports": [
+    "HanjiOccluders",
+    "HANJI_OCC_MAX=4"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/world/level.js",
+   "role": "silhouette_dummy 생성(355-365, 정적 물리 콜라이더로도 등록)과 내아 실내 등롱 lantern_light_na 배치(597-607).",
+   "keyExports": [
+    "buildWorld"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/render/tagmask.js",
+   "role": "2패스 오버라이드 마스크 렌더 기법(검정 깊이 패스 → 레이어 흰색 패스 → readRenderTargetPixels). HANJI 판이 깊이를 가리므로 판 뒤 물체의 마스크는 0이 된다(7행).",
+   "keyExports": [
+    "createTagMask (44)",
+    "isTaggedMaterial"
+   ]
+  },
+  {
+   "path": "/home/user/fps/tools/gates.sh",
+   "role": "게이트 목록의 유일한 원본이며 순차 실행한다. run() 은 35행, --list 는 '^run ' 줄을 grep 하고(24), silhouetteaudit 자리표는 67행이다.",
+   "keyExports": []
+  },
+  {
+   "path": "/home/user/fps/.github/workflows/gates.yml",
+   "role": "구간 모드로 잡 10개를 순차 실행한다. 마지막 coverage 잡은 --list 의 모든 이름이 어느 잡에서든 exit=0 이었는지 대조한다(166-176).",
+   "keyExports": []
+  },
+  {
+   "path": "/home/user/fps/HARNESS.md",
+   "role": "도구 표(36-54), 서버 구분 표(65-66), 고정 스냅샷(72-88), 샷 정의(128-156), 종료 게이트·타임아웃 규칙(237-271), 성능 표(279-297).",
+   "keyExports": []
+  }
+ ],
+ "apis": [
+  {
+   "name": "openGamePage",
+   "where": "tools/lib/browser.mjs:53",
+   "signature": "openGamePage(browser,{baseUrl,width,height,dpr,query='',timeout=120000}) → {context,page,errors,close}",
+   "semantics": "격리 컨텍스트를 연다. window.__harness.ready 를 기다리고 pageerror·console.error 를 errors 에 모은다. stepFrames 를 쓰려면 query 'mode=fixed' 가 필수다."
+  },
+  {
+   "name": "capturePng",
+   "where": "tools/lib/browser.mjs:119",
+   "signature": "capturePng(page, path)",
+   "semantics": "페이지 수명 동안 유지되는 CDP 세션으로 드로잉 버퍼 해상도 PNG 를 저장한다. 측정 도구는 배율을 png.width/VIEW.width 로 구한다."
+  },
+  {
+   "name": "captureMask",
+   "where": "tools/lib/browser.mjs:138",
+   "signature": "captureMask(page, path) → {width,height,taggedPixels,ratioPct,...}",
+   "semantics": "__harness.renderTagMask() 의 비트 패킹 결과를 흑백 PNG 로 저장한다. 캡처와 getStats 뒤에 불러야 한다."
+  },
+  {
+   "name": "startServer",
+   "where": "tools/lib/server.mjs:75",
+   "signature": "startServer(rootArg?) → {port,url,root,sha,pinned,dirty,close}",
+   "semantics": "렌더 잠금을 잡고(살아 있는 PID 가 쥐고 있으면 throw) 고정 스냅샷을 서빙한다. close 할 때 잠금을 푼다. FPS_NO_LOCK=1 / FPS_NO_PIN=1 로 끌 수 있다."
+  },
+  {
+   "name": "parseArgs",
+   "where": "tools/lib/args.mjs:12",
+   "signature": "parseArgs(argv=process.argv.slice(2)) → {_:[], [k]:string|true}",
+   "semantics": "'--k v'와 '--k=v'를 받고 값이 없으면 true 다. 반복 플래그는 마지막 값만 남는다."
+  },
+  {
+   "name": "run / runAudit / record",
+   "where": "tools/harnesstest.mjs:69 / 82 / 49",
+   "signature": "run(cmd,args,timeoutMs=AUDIT_TIMEOUT_MS) → {code,signal,timedOut,out,err}; runAudit 동일 + 재시도; record(id,name,pass,detail)",
+   "semantics": "spawnSync 로 자식 도구를 실행한다. runAudit 는 JSON 이 안 나오고 브라우저 사망 서명이 보일 때만 1회 재시도하며, 재시도는 retries 에 전수 기록한다."
+  },
+  {
+   "name": "__harness.setShot / stepFrames / resetState",
+   "where": "src/core/harness.js:179 / 191 / 236",
+   "signature": "setShot(name) (SHOTS_BY_NAME 이름만 받음); stepFrames(n≥1 정수, fixed 전용); resetState()",
+   "semantics": "setShot 은 shots.js 에 있는 이름만 적용하고 임의 샷 객체는 받지 않는다. resetState 는 clock·rng·world·hanji·pipeline 을 복원하지만 hanjiOccluders 는 재등록하지 않는다."
+  },
+  {
+   "name": "__harness.debugFreezeExposure / debugCamera / debugSetVisible",
+   "where": "src/core/harness.js:501 / 507 / 488",
+   "signature": "debugFreezeExposure() → 노출 상태; debugCamera({from,at}); debugSetVisible(namePrefix, visible) → 개수",
+   "semantics": "A/B 비교용 테스트 훅이다. 노출 동결은 exposure.render 를 no-op 으로 덮어쓰는데, pipeline.reset() 이 이를 되돌리는 코드는 보이지 않는다(pipeline.js:365-370). 사실상 페이지를 다시 열어야 풀린다(코드 판독)."
+  },
+  {
+   "name": "__harness.albedoAuditSetup / viewmodelAuditSetup",
+   "where": "src/core/harness.js:557 / 567; 배선 src/main.js:306-317",
+   "signature": "xxxAuditSetup({scaleAlbedo|boost}) → {rects, ..., testOverride?}",
+   "semantics": "'페이지 안 감사 리그 설치 + CSS 사각형 반환' 패턴이다. 훅 본체는 src 모듈(viewmodel.js:86, audit-cards.js:19)에 있고 main.js 의 installHarness 에 주입된다."
+  },
+  {
+   "name": "__harness._internal.hanjiOccluders",
+   "where": "src/core/harness.js:581 → src/materials/hanji-occluders.js:16-57",
+   "signature": "set(id,{a,b,r}) / setFromMesh(id, capsuleMesh) / delete(id) / update(viewMatrix)",
+   "semantics": "창호지 점광 실루엣을 만드는 유일한 경로다. 등록 순서대로 앞의 4개만 쓰이고, 메시를 숨겨도 등록은 유지된다."
+  },
+  {
+   "name": "__harness.getSceneTriangles",
+   "where": "src/core/harness.js:420",
+   "signature": "getSceneTriangles(detail=false) → {total, invisibleColliders, top, byGroup{world,viewmodel,fx,sky,other}}",
+   "semantics": "인스턴스를 펼쳐 씬그래프를 순회하고 auditOnly 조상은 제외한다. world.group 밖의 캐릭터는 'other' 로 들어간다(428-433)."
+  },
+  {
+   "name": "__harness.renderTagMask",
+   "where": "src/core/harness.js:401 → src/render/tagmask.js:44",
+   "signature": "renderTagMask() → {width,height,bits(base64),...}",
+   "semantics": "직전 프레임과 같은 카메라·지터로 태그 오브젝트의 가시 픽셀만 1인 마스크를 만든다. 판 뒤 물체는 HANJI 깊이에 가려 0이 된다."
+  },
+  {
+   "name": "visualAxesDiff / checkVisualDistinctness / paletteInBand",
+   "where": "src/materials/fx-look.js:84 / 96 / 112",
+   "signature": "visualAxesDiff(a,b) → axes[]; checkVisualDistinctness(looks) → {ok,pairs[{a,b,axes,ok}]}; paletteInBand({hue,sat}) → bool",
+   "semantics": "전 쌍 nC2 에서 축 ≥ VISUAL_AXES_MIN 이면 통과하는 구조이고, 팔레트 판정은 paletteaudit.allowed 와 같은 표를 복제해 둔 것이다."
+  },
+  {
+   "name": "shotaudit screenRect / firstHit",
+   "where": "tools/shotaudit.mjs:116 / 82",
+   "signature": "screenRect(objs) → [x0,y0,x1,y1] NDC; firstHit(origin,dir,candidates,targetSet)",
+   "semantics": "노드에서 대상 AABB 를 화면 사각형으로 투영하고(판 측정창 좌표에 쓸 수 있다) 반투과 비대상은 통과시켜 첫 히트를 찾는다."
+  }
+ ],
+ "invariants": [
+  {
+   "rule": "도구 기본값은 계약 조건과 같아야 한다. 인자를 빠뜨린 실행이 '덜 엄격한 통과'가 되면 결함이다.",
+   "evidence": "HARNESS.md:25-27; 예: viewmodelaudit DPR 기본값 VIEW.dpr(viewmodelaudit.mjs:26)"
+  },
+  {
+   "name": "",
+   "rule": "게이트 도구를 추가할 때는 그 도구의 음성 테스트를 같은 때 harnesstest 에 넣는다.",
+   "evidence": "HARNESS.md:29-32"
+  },
+  {
+   "rule": "음성 케이스 통과 조건은 exit===1 이면서 JSON testOverride 표식이 있고, 그 훅 때문에 실패했다는 구체 증거(복제 쌍 0축, problems 기록 등)도 있어야 한다. 다른 이유로 난 exit 1 은 통과로 세지 않는다.",
+   "evidence": "harnesstest.mjs:464-481(케이스 21), 245-255(10), 264-272(11)"
+  },
+  {
+   "rule": "testOverride 문자열에는 훅 이름과 'harnesstest 전용, 계약 판정 무효'를 넣는다. 잘못된 훅 인자는 exit 2 로 끝낸다.",
+   "evidence": "fxaudit.mjs:55-58,67-70; shotaudit.mjs:153; paletteaudit.mjs:57-59"
+  },
+  {
+   "rule": "판정 JSON 은 stdout, 로그는 stderr 로 낸다. gates.sh 는 stdout 을 $OUT/<이름>.json 으로, stderr 를 .log 로 받는다.",
+   "evidence": "gates.sh:44; harnesstest 는 JSON.parse(r.out)로 판정(예: 248)"
+  },
+  {
+   "rule": "exit 코드는 0 통과, 1 실패, 2 인자 오류, 75 시간 조각 끝(baseline·profile 만 해당)이다.",
+   "evidence": "gates.sh:46-48; baseline.mjs:66-70; fxaudit.mjs:55"
+  },
+  {
+   "rule": "케이스 타임아웃은 실측의 2.5배로 잡는다. 시간 초과는 exit 1 + 빈 출력 + 표식 없음으로 보여 음성 판정 실패와 헷갈리므로 detail 에 timedOut= 를 반드시 남긴다.",
+   "evidence": "HARNESS.md:270-271; harnesstest.mjs:55-67, 480"
+  },
+  {
+   "rule": "게이트 체인은 순차로만 돌리고, 렌더 프로브는 한 번에 하나만(/tmp/fps-render.lock) 실행한다.",
+   "evidence": "HARNESS.md:266-269; server.mjs:52-73"
+  },
+  {
+   "rule": "렌더 도구는 고정 스냅샷을 서빙하고, 추적되지 않은 파일은 스냅샷에 들어가지 않는다.",
+   "evidence": "pinned.mjs:10-12,63-64; HARNESS.md:72-82"
+  },
+  {
+   "rule": "비공허 규칙: 검사 대상이 0건이거나 신호가 없으면 통과가 아니라 실패다.",
+   "evidence": "audioaudit.mjs:242('시나리오 렌더가 무음 — 해시가 아무것도 증명하지 않는다'); HARNESS.md:47(playtest every([]) 공허 통과 정정); shotaudit.mjs:18-19(audit 미등록 샷은 실패)"
+  },
+  {
+   "rule": "신규 계약 샷은 금지다. 샷 수 12는 여러 도구에 하드코딩돼 있다.",
+   "evidence": "HARNESS.md:137-138; harnesstest.mjs:558(ja.shots.length === 12)"
+  },
+  {
+   "rule": "게이트 목록의 원본은 gates.sh 하나다. 새 게이트는 gates.sh 에 추가하고, 브리프에는 '신규 게이트'만 적는다.",
+   "evidence": "gates.sh:2-3; HARNESS.md:256"
+  },
+  {
+   "rule": "stepFrames 는 fixed 모드에서 n≥1 정수로만 부른다. 시뮬 창 안의 Math.random 은 오류로 승격된다.",
+   "evidence": "harness.js:191-221"
+  },
+  {
+   "rule": "임계값을 올려 통과시키지 않는다. 팔레트 1.5%, 자발광 8%, 캐릭터 25k 모두 해당한다.",
+   "evidence": "paletteaudit.mjs:11,14-15; CONTRACT-PATCH-010.md:79"
+  }
+ ],
+ "extensionPoints": [
+  {
+   "point": "페이지 감사 훅 패턴(xxxAuditSetup)",
+   "where": "src/core/harness.js:557-580 + src/main.js:295-318(installHarness 주입) + src/weapons/viewmodel.js:86",
+   "howP4BUsesIt": "silhouetteAuditSetup({actor, distance:2.5, clone}) 같은 훅을 만든다. 하는 일은 판 뒤 2.5 m 배치, 차폐 캡슐 재등록, 더미 차폐 delete, 측정창 CSS 사각형 반환이다. 노드 쪽 측정은 viewmodelaudit.mjs:56-77 을 그대로 쓴다."
+  },
+  {
+   "point": "차폐 캡슐 등록부",
+   "where": "src/materials/hanji-occluders.js:31-45; 상한 3곳: hanji-occluders.js:12, materials/index.js:304, materials/index.js:432-433",
+   "howP4BUsesIt": "캐릭터별 윤곽을 판에 맺히게 하는 유일한 수단이다. 다중 캡슐 리그를 쓰거나 HJ_OCC_MAX 를 바꿀 때는 세 곳을 함께 고친다."
+  },
+  {
+   "point": "hanji_silhouette 샷 조명·카메라",
+   "where": "tools/shots.js:65-78 (cam (-36.8,1.9,-10)→(-32,1.9,-10) fov60, sun .02, hemi .05, lantern 9)",
+   "howP4BUsesIt": "setShot('hanji_silhouette') 로 계약 역광 조명을 그대로 재사용한다. 더미 자리(level.js:357-361)가 2.5 m 배치의 기준 좌표다."
+  },
+  {
+   "point": "샷 데이터 필드 해석",
+   "where": "src/main.js:228-256 (applyShot: cam·sun·lantern·viewmodel·actions)",
+   "howP4BUsesIt": "캐릭터를 계약 샷에 넣으려면 새 필드(예: actors)를 applyShot 과 prewarm(main.js:348-355, SHOTS 순회)에 함께 연결해야 한다. 이건 추정한 설계 선택지다."
+  },
+  {
+   "point": "harnesstest 케이스 22 블록",
+   "where": "tools/harnesstest.mjs:8-36(헤더 목록), 464-481(케이스 21 템플릿), 552(예약 주석)",
+   "howP4BUsesIt": "runAudit('node',['tools/silhouetteaudit.mjs','--test-clone','A=B']) 를 실행해 exit 1, 표식, 복제 쌍 n<2, problems 기록을 확인하고 record(22,…) 한다. 브라우저 기반이면 실측 × 2.5 타임아웃 상수를 따로 둔다."
+  },
+  {
+   "point": "gates.sh 자리표 + CI 구간",
+   "where": "tools/gates.sh:67; .github/workflows/gates.yml:34,46",
+   "howP4BUsesIt": "주석을 푼 다음 gates.yml 의 잡 구간(예: statics 를 GATES_FROM=silhouetteaudit 로)이나 잡 배치를 함께 고친다. 위치는 렌더 도구 쪽으로 옮겨도 된다."
+  },
+  {
+   "point": "HARNESS.md 도구 표·서버 표",
+   "where": "HARNESS.md:40-54(도구 행), 65-66(브라우저/노드 구분)",
+   "howP4BUsesIt": "silhouetteaudit 행(재현성·음성 훅·케이스 22·게이트 ✓)을 추가하고, 브라우저 도구 목록에도 넣는다."
+  },
+  {
+   "point": "데이터 시점 팔레트·구별성 검사",
+   "where": "src/materials/fx-look.js:84-120; tools/fxaudit.mjs:103,143",
+   "howP4BUsesIt": "팀 색 대역 표(이세계 청, 인간계 적)를 캐릭터 데이터에 두고, paletteInBand 와 대역 비겹침 검사를 정적으로 돌린다. 브리프 요구에 따라 silhouetteaudit 에도 같은 검사를 넣는다."
+  },
+  {
+   "point": "삼각형 그룹 집계",
+   "where": "src/core/harness.js:427-433 (groupOf)",
+   "howP4BUsesIt": "캐릭터를 별도 그룹(예: actor)으로 분해해 캐릭터당 25k 검사의 근거로 쓴다. 지금은 'other' 로 섞인다."
+  },
+  {
+   "point": "마스크 렌더 기법",
+   "where": "src/render/tagmask.js:74-108",
+   "howP4BUsesIt": "레이어·오버라이드 2패스로 캐릭터 단독 윤곽 마스크를 판 없이 얻는 데 응용할 수 있다. 판 너머 실루엣은 깊이에 가려지므로 보임/숨김 휘도 차분이 필요하다."
+  }
+ ],
+ "p4bConstraints": [
+  {
+   "constraint": "각 캐릭터를 HANJI 판 뒤 플레이 거리 2.5 m 에 두고 실내 광원으로 역광을 준다. 판독되지 않으면 더미나 캐릭터를 가까이 옮기지 말고 조명 구성을 고친다.",
+   "source": "P4-BRIEF.md:342, 354-356; PATCH-008-B"
+  },
+  {
+   "constraint": "6쌍 모두 4축(윤곽 폭 분포, 높이, 상하 질량비, 돌출부 위치) 중 2축 미만에서만 다르면 exit 1이다. 각 실루엣의 배경 대비는 0.15 이상이어야 한다.",
+   "source": "P4-BRIEF.md:344-346"
+  },
+  {
+   "constraint": "케이스 22는 두 캐릭터 윤곽을 인위로 동일화한 입력에서 반드시 exit 1 이어야 한다. P4D 에서는 데이터에 선언된 예외쌍만 면제하고, 케이스 22는 그 뒤에도 통과해야 한다.",
+   "source": "P4-BRIEF.md:348-352, 862"
+  },
+  {
+   "constraint": "팀 색은 이세계=청, 인간계=적이고 두 대역은 겹치면 안 된다. 정적 검사로 확인하고 silhouetteaudit 에도 넣는다. 팔레트 표는 청 175–240°, 적 355–15°다.",
+   "source": "P4-BRIEF.md:405-414; paletteaudit.mjs:78-85"
+  },
+  {
+   "constraint": "삼각형은 캐릭터 1종당 25,000 이하, tris_scene 600k 이하, tris_frame_p95 250k 이하를 유지한다. 넘으면 메시를 줄이고 예산은 올리지 않는다. 현재 실측은 135,622 / 122,610 이다.",
+   "source": "CONTRACT-PATCH-010.md:69-80; HARNESS.md:296-297; docs/P4-LOG.md:73-74"
+  },
+  {
+   "constraint": "programs 110 이하(현재 44)이고 플레이 중 셰이더 컴파일은 0이어야 한다. 프리웜은 SHOTS 를 순회하므로, 캐릭터 재질이 프리웜 경로에 없으면 컴파일이 실패로 잡힌다.",
+   "source": "profile.mjs:59-61,503; main.js:348-355; P4-LOG.md:76"
+  },
+  {
+   "constraint": "PATCH-010-C 파급 요구다. paletteaudit 은 캐릭터를 포함해 다시 재고, determinismaudit 은 애니메이션 시간을 core/clock 에서만 읽는지 보고, baseline 은 ready 에 에셋 로드를 포함하며, surfaceaudit 은 캐릭터에도 기본 표면을 금지한다.",
+   "source": "CONTRACT-PATCH-010.md:61-69"
+  },
+  {
+   "constraint": "'판독 불가'는 대비 < 0.15 로 정의하고, '판독 가능' 기준선은 006-D 실측 .24–.33 을 따른다.",
+   "source": "CONTRACT-NOTES.md:1632; P4-BRIEF.md:354"
+  },
+  {
+   "constraint": "구멍 판독의 측정 해상도는 756×491 제안이 반려되어 1512×982(HARNESS §6 계약 해상도)로 확정됐다. 008-B 실루엣 기준값(대비 .315, 경계 12 px)은 960×624 프로브에서 나왔다.",
+   "source": "CONTRACT-NOTES.md:1730(제안), 1746(확정), 1149(hj4 960×624), 1170-1179"
+  },
+  {
+   "constraint": "노출 적응의 범위와 속도는 계약값으로 동결한다. 현재 값은 ec 1, evMin 1, kneeSlope .2, evMax 14, rateUp 3, rateDown 1.5, centerWeight .35 다.",
+   "source": "P4-BRIEF.md:802-807; src/render/pipeline.js:51"
+  },
+  {
+   "constraint": "신규 계약 샷은 만들지 않는다. 더미는 액터로 바뀐다(S03 #2 이월).",
+   "source": "HARNESS.md:137-138; P4-BRIEF.md:70"
+  },
+  {
+   "constraint": "창살 패턴이 바뀌면 silhouetteaudit 을 다시 돌린다.",
+   "source": "P4-BRIEF.md:51"
+  },
+  {
+   "constraint": "새 게이트는 gates.sh 에 추가하고, 브리프에는 개수를 쓰지 않는다.",
+   "source": "gates.sh:2-5; P4-BRIEF.md:832-836"
+  }
+ ],
+ "risks": [
+  {
+   "risk": "캡슐만으로는 캐릭터별 실루엣이 나오지 않는다",
+   "why": "야간 판 실루엣은 등록 캡슐의 해석적 차폐로만 생기고(최대 4개), 등록되지 않은 메시는 점광을 가리지 않는다. 캐릭터마다 캡슐 1개면 4종 윤곽이 모두 캡슐이라 폭 분포·돌출부 축에서 구별이 실패하기 쉽다.",
+   "mitigation": "캐릭터별 다중 캡슐 리그를 데이터로 정의한다. HJ_OCC_MAX 는 3곳(hanji-occluders.js:12, materials/index.js:304, 432-433)을 같이 바꾸고 programs·비용을 다시 잰다."
+  },
+  {
+   "risk": "메시를 숨겨도 실루엣이 남는다",
+   "why": "HanjiOccluders.update 는 가시성을 보지 않는다(hanji-occluders.js:47-57). 그래서 pixelowner --hide 나 debugSetVisible 로 만든 '숨김' 대조군에도 실루엣이 그대로 남는다.",
+   "mitigation": "A/B 상태를 바꿀 때 _internal.hanjiOccluders.delete/set 를 직접 부른다. 기존 더미('silhouette_dummy' id)도 delete 해야 한다."
+  },
+  {
+   "risk": "resetState 가 차폐 등록을 복원하지 않는다",
+   "why": "resetState 본문(harness.js:236-262)에 hanjiOccluders 가 없다. 더미는 부팅 때 main.js:148 에서 한 번만 등록된다.",
+   "mitigation": "액터 상태 복원(§7 'resetState 완전 복원')에 차폐 재등록을 포함한다."
+  },
+  {
+   "risk": "CI coverage 잡이 MISSING 으로 실패한다",
+   "why": "gates.sh:67 자리는 harnesstest 잡(GATES_TO=harnesstest)과 statics 잡(GATES_FROM=determinismaudit) 사이라 어느 구간에도 들어가지 않는다.",
+   "mitigation": "gates.yml:34/46 의 구간을 함께 고친다. statics 잡의 timeout-minutes 120 안에 끝나는지도 실측한다."
+  },
+  {
+   "risk": "샷을 추가하거나 바꾸면 여러 곳이 연쇄로 깨진다",
+   "why": "케이스 23은 12샷을 하드코딩하고(harnesstest.mjs:558), imagediff 는 SHOTS 전수를 요구하며, profile 스윕과 prewarm 도 SHOTS 를 순회한다. shots.js:72 의 audit 대상은 silhouette_dummy 다.",
+   "mitigation": "신규 샷은 금지이므로 샷 3 의 더미를 교체하는 방식만 검토한다. 교체 시 audit 대상, shotaudit(노드 buildWorld 에 액터가 있어야 함), 케이스 23 을 함께 갱신한다."
+  },
+  {
+   "risk": "새 src 파일이 스냅샷에서 빠진다",
+   "why": "git stash create 는 추적되지 않은 파일을 넣지 않는다. 렌더 도구가 구 코드를 재거나 404 가 날 수 있다.",
+   "mitigation": "렌더 도구를 돌리기 전에 새 파일을 커밋하거나 최소한 git add 한다(add 만으로 충분하다는 것은 추정). pinned 경고 줄을 확인한다."
+  },
+  {
+   "risk": "노출 적응과 TAA 가 A/B 측정을 오염시킨다",
+   "why": "A/B 사이에 노출이 움직이면 화면 전체가 바뀐다(harness.js:495-500 주석). 상태를 바꾼 뒤 4프레임 만에 찍으면 전 화면이 차이로 잡힌 실측이 있다(CONTRACT-NOTES 구멍 계측 리그 결함 #2).",
+   "mitigation": "상태마다 새 페이지(baseline 방식)를 쓰거나 debugFreezeExposure 를 쓴다(페이지 재적재 전에는 안 풀린다). 상태를 바꾼 뒤 30프레임 이상, 계약 기본은 90프레임 진행한다."
+  },
+  {
+   "risk": "측정 리그가 엉뚱한 자리를 잴 수 있다",
+   "why": "카메라를 더미 쪽에 둔 오류, 측정창 위치 불일치, 암부만 잰 오류가 이미 있었다(CONTRACT-NOTES 리그 결함 #3·#4, PATCH-015-D).",
+   "mitigation": "카메라는 샷 카메라 쪽에 둔다. 측정창은 투영한 판 사각형에서 고정하고 대조군 평균 밝기를 함께 낸다(30/255 미만이면 그 자리는 틀린 자리다)."
+  },
+  {
+   "risk": "타임아웃 미상",
+   "why": "브라우저 감사는 SwiftShader DPR2 에서 12분 이상 걸린 실측이 있고(albedo·viewmodel), 4캐릭터 × 2상태 렌더 시간은 아직 재지 않았다.",
+   "mitigation": "단독 실측 후 × 2.5 로 케이스 22 상한 상수를 정한다. detail 에 timedOut 을 남긴다."
+  },
+  {
+   "risk": "출력 셰이더 대역 채도 상한이 적 팀 색을 깎을 수 있다",
+   "why": "grade.js:37 band [12,18,40,46], bandCap .28 이 12–18° 색상 채도를 누른다. 적 팀 색조가 12–15° 근처면 렌더 결과에서 탁해질 수 있다.",
+   "mitigation": "적 팀 색조를 355–10° 쪽에 둔다. 캡처에서 다시 측정한다."
+  },
+  {
+   "risk": "캐릭터별 삼각형 검사가 없다",
+   "why": "25k 를 확인하는 코드가 없고(grep 0건), getSceneTriangles 는 캐릭터를 'other' 로 묶는다.",
+   "mitigation": "그룹 분해와 정적 검사를 새로 만든다. 예산 수치는 바꾸지 않는다."
+  },
+  {
+   "risk": "팔레트 표가 두 곳에 복제돼 있다",
+   "why": "paletteaudit.mjs:78 allowed 와 fx-look.js:112 paletteInBand 가 같은 표를 따로 정의한다. 팀 색 검사가 세 번째 사본을 만들면 표가 서로 어긋날 위험이 커진다.",
+   "mitigation": "팀 색 검사는 fx-look.js 의 paletteInBand 를 import 해서 쓴다."
+  },
+  {
+   "risk": "더미 교체가 물리에도 파급된다(추정)",
+   "why": "silhouette_dummy 는 정적 물리 콜라이더로도 등록돼 있다(level.js:365). 교체하거나 제거하면 레이 체인과 이동 경로가 바뀔 수 있다.",
+   "mitigation": "교체 후 chainaudit·coveraudit·playtest 를 다시 확인한다."
+  }
+ ],
+ "openQuestions": [
+  "'대비' 공식이 코드·문서에 없다. Weber (Lbg−Lsil)/Lbg 인지 Michelson 인지, 8비트 sRGB 인지 선형 휘도인지 모른다. 008-B·006-D 수치를 낸 프로브(hanjiprobe2, hj4, hj5)는 커밋되지 않았다. 006-D 의 실루엣 픽셀 정의('기준 대비 휘도 −8 이상')만 남아 있다.",
+  "silhouetteaudit 의 측정 해상도와 DPR 은 무엇인가? 구멍 판독은 1512×982 로 확정됐지만(1746), 실루엣 기준값은 960×624 에서 나왔고 브리프 §3-2 는 해상도를 정하지 않았다.",
+  "4축 각각의 수치 정의와 '다르다'의 임계(fx-look 의 VISUAL_REL_MIN 같은 상대차)가 브리프에 없다. 누가 정하며 실측을 근거로 보고하면 되는가?",
+  "실루엣을 분석할 대상이 게임 내 해석적 캡슐 실루엣(판 위 휘도 차분)인가, 캐릭터 메시 자체의 투영 윤곽인가? 둘은 캡슐 리그 설계에 따라 갈린다.",
+  "노출 적응을 둔 채로 재는가, 동결하고 재는가? §5-1 ⓐ 에서 동결할 계약값이 확정되기 전에 silhouetteaudit 의 판정이 그 값에 종속된다.",
+  "샷 3 의 더미를 액터로 바꾸는가(이월표 S03 #2 '더미가 액터로 바뀐다'), 아니면 silhouetteaudit 전용 장면만 쓰는가? 바꾼다면 baseline·shotaudit·imagediff·케이스 23 에 파급된다.",
+  "silhouetteaudit 을 gates.sh 어디에 둘 것인가(지금 자리표는 harnesstest 바로 뒤)? CI 에서는 어느 잡에 둘 것인가?",
+  "팀 색 정적 검사를 fxaudit 에 둘 것인가, silhouetteaudit 에 둘 것인가, 별도 도구로 둘 것인가? 브리프는 '정적 검사로 확인하고 silhouetteaudit 에도'라고만 한다.",
+  "주간 태양 그림자 실루엣(CSM·PCSS 경로)도 측정 범위에 들어가는가? 브리프 §3-2 는 실내 광원 역광만 말한다."
+ ]
+}

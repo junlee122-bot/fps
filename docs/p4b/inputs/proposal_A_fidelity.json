@@ -1,0 +1,407 @@
+{
+ "lens": "A — 핵심 메커닉 충실도 우선: 창호지 너머 실루엣 판독. 4종 윤곽이 2.5 m 역광에서 확실히 갈리고, 메시와 판 위 그림자가 어긋나지 않는 것을 최우선으로 둔다. 비용과 복잡도는 예산 안에서 감수하고, 복잡도 예산은 실루엣에 몰아 쓴다(내비는 폴리곤 대신 격자로 단순화).",
+ "overview": "이 설계는 P4B의 모든 결정을 '창호지 너머 윤곽이 무엇을 보여주는가'에 맞춘다. 핵심 결정은 다섯 가지다.\n\n① 형상 단일 원천\n- 캐릭터 데이터의 '형상 원시 리그'에서 메시·창호지 차폐·히트박스·래그돌 충돌체가 모두 나온다.\n  - 원시 종류: 둥근원뿔 rc(A, B, ra, rb), 타원체 el.\n  - 각 원시는 뼈 하나에 강체로 붙고, 액터당 24개까지 쓴다.\n- 메시는 이 원시를 그대로 테셀레이션한다.\n- 모든 정점의 가중치는 '뼈 1개, 1.0'(강체 스키닝)이다. 그래서 어떤 자세에서도 메시는 원시 합집합과 같다.\n  - 오차는 테셀레이션 새그뿐이다. r 0.45, 분할 28에서 2.8 mm.\n- 이렇게 하는 이유:\n  - 지금 야간 실루엣은 등록 캡슐의 해석적 차폐로만 생긴다(hanji-occluders.js:4-7).\n  - HANJI 불투명도가 1.0이라 메시는 판에 비치지 않는다(hanji.js:34).\n  - 따라서 '메시와 판 그림자가 어긋나지 않는다'를 보장할 길은 둘을 같은 원시에서 만드는 것뿐이다.\n\n② 차폐 모델 v2\n- 현재: 캡슐 4개 유니폼 배열(index.js:304-332). 넘치면 조용히 탈락한다(hanji-occluders.js:49-50).\n- 바꾼 뒤: RGBA32F 원시 텍스처 + 액터 슬롯 8 × 원시 24 + 판별 슬롯 마스크 + 액터 단위 합집합 SDF.\n- 같은 몸의 원시는 거리 min으로 합친 뒤 smoothstep을 한 번만 한다. 그래서 관절 겹침이 이중으로 어두워지지 않는다.\n- 점광 castShadow=false와 프로그램 수는 그대로 둔다.\n\n③ 조명 구성 수정(PATCH-008-B 조항: 더미가 아니라 조명을 고친다)\n- 현 등롱(판 뒤 6 m, 높이 2.0)의 문제:\n  - 액터 공간에서 판에 보이는 대역이 0.68–1.875 m다.\n  - 반그림자가 0.116 m다.\n  - 그래서 귀·뿔 끝과 치마 아랫부분이 판에 맺히지 않는다.\n- 등롱을 판 뒤 9.2 m(x −22.8)로 물리면:\n  - 대역 0.60–2.09 m\n  - 반그림자 0.075 m\n  - 확대율 1.71 → 1.37\n- 바꾸는 변수는 깊이 하나뿐이다. 액터는 2.5 m 그대로이고, 감사가 앵커 거리를 검사해 고정한다.\n\n④ silhouetteaudit 3중 대조\n- (a) 계약 해상도 실측으로 4축과 대비를 잰다.\n- (b) 노드가 메시 삼각형을 등롱 시점에서 판 평면에 래스터화한 '참 그림자'를 만들고, 실측 실루엣과 IoU·경계 편차를 비교한다.\n- (c) 셰이더 공식의 JS 미러로 예측한 값과 실측을 비교한다.\n- 이렇게 '어긋남'을 세 층에서 잡는다.\n- 판정 임계는 새로 만들지 않는다. 기존 계약값(상대차 15% 초과·최소 2축, 대비 0.15)을 재사용 후보로 두고 발주자 확정을 기다린다.\n\n⑤ 설계 여유와 사전 시험\n- 4종 6쌍이 정면·측면 모두 '3축 이상' 다르도록 데이터를 설계한다. 게이트 후보는 2축이므로 여유가 생긴다.\n- v1 4종을 test fixture로 지금 만들어, P4D의 '데이터 외 코드 0' 시험을 P4B 안에서 미리 치른다.\n\n나머지 시스템\n- 내비: 층 격자 + 여유거리장, 오프라인 굽기, 2청크(z=0), 런타임 오버레이.\n- PBD 래그돌: 입자 16, 막대·거리 한계·경첩, 접촉 축약, CCD.\n- 노출 동결: 읽기 전용 계약 객체 + 유니폼 일치 검사 + 복원 가능한 잠금.\n- 셋 다 같은 결정성 규칙을 지킨다.\n  - Math.random 0\n  - rngStream은 매번 받는다\n  - 부팅 풀\n  - resetState 복원\n\n예산(설계 추정)\n- 캐릭터: 몸 ≈6.5–9k, 3인칭 무기 포함 ≤25k.\n- 2:2 4인 ≈ +30k → tris_scene 135,622 → ≈166k.\n- programs 44 → ≈47.\n  - 늘어나는 것: 스킨 forward·CSM 깊이·GTAO 노멀.\n  - 태그마스크 스킨 2개는 캡처 뒤에 생기며 표식된다.\n- 플레이 중 컴파일 0: 샷 3의 액터가 프리웜에서 스킨 변형을 전부 그린다.",
+ "modules": [
+  {
+   "path": "src/actors/data/schema.js",
+   "responsibility": "캐릭터·골격 정의 검증. 거부 대상: 미지 키, 함수 값, 범위 위반, 참조 오류(뼈 이름·재질 키·SURFACES 키·능력 어휘·스킬 원시 6종 폐쇄 집합). 제한 검사: 원시 ≤24, 삼각형 합계 ≤25,000(PATCH-010-C), stepHeight 0.42 고정(내비 단일 굽기 전제)",
+   "publicApi": "SCHEMA_VERSION=1; validateCharacter(def) → def | throw; validateSkeleton(def) → def | throw; estimateTris(def) → number",
+   "simOrPresentation": "데이터(시뮬·표현 공통, three 비의존)"
+  },
+  {
+   "path": "src/actors/data/skeletons/biped.js",
+   "responsibility": "공용 이족 골격 템플릿: 뼈 ≤24(root·pelvis·spine·chest·neck·head·shoulder/elbow/wrist_L/R·hip/knee/ankle_L/R·prop·acc_head·acc_back·acc_waist·예약 2), 휴지 오프셋, 비례 키, 래그돌 입자 16·막대·버팀대·거리 한계·경첩·프레임 정의",
+   "publicApi": "export const BIPED (deep frozen) {bones[{name,parent,rest}], proportionKeys, ragdoll{particles,sticks,braces,limits,hinges,frames}}",
+   "simOrPresentation": "데이터"
+  },
+  {
+   "path": "src/actors/data/characters/jara.js · dokkaebi.js · tokki.js · kongjwi.js",
+   "responsibility": "v0 4종 정의. 형상 원시·재질 슬롯·이동·능력·무기 개체·스킬(원시 id+params)·외견 상태·선언 예외·발소리를 담은 순수 데이터",
+   "publicApi": "export default Object.freeze({...}) — 함수 없음",
+   "simOrPresentation": "데이터"
+  },
+  {
+   "path": "src/actors/data/index.js",
+   "responsibility": "캐릭터 레지스트리(import 시 전부 검증). 외견 상태 해석(shapeOf·lookOf·team)",
+   "publicApi": "CHARACTERS (frozen map); characterIds(); getCharacter(id); resolveAppearance(def, state) → {shapeDef, lookDef, team}",
+   "simOrPresentation": "데이터"
+  },
+  {
+   "path": "src/actors/pose.js",
+   "responsibility": "절차 자세 평가(보행 위상·조준 pitch·웅크림·재장전·ADS·자세 style). 래그돌 입자에서 뼈 프레임을 복원한다. 위상은 dt 누적만 쓴다(clock.time 미사용)",
+   "publicApi": "evalPose(skel, def, poseState, outBoneWorld:Float64Array(16×24)); framesFromParticles(skel, particles, outBoneWorld)",
+   "simOrPresentation": "시뮬(순수 함수, 표현이 같은 함수를 공개 포즈로 재호출)"
+  },
+  {
+   "path": "src/actors/rig.js",
+   "responsibility": "뼈 월드 행렬 → 원시 월드 파라미터(rc: A·B·ra·rb, el: C·M 행) 변환과 액터 경계구. 히트박스·차폐·래그돌 충돌체의 공통 입력",
+   "publicApi": "PRIM_STRIDE=16; primsToWorld(shapeDef, boneWorld, out:Float64Array) → n; boundSphere(out, n, outVec4)",
+   "simOrPresentation": "시뮬(순수)"
+  },
+  {
+   "path": "src/actors/hitbox.js",
+   "responsibility": "광선 vs 원시 해석 교차(rc: 원뿔대 이차식 + 반구 2, el: 단위구 변환). 진입·출구 t와 법선을 구하고 액터별 구간을 합집합한다. 서버 권위용으로 진짜 리그를 쓴다",
+   "publicApi": "rayActor(prims, n, ox,oy,oz, dx,dy,dz, maxDist, out[]) → count; 층 형식 {slot, tEnter, tExit, primId, zone, surface, nx,ny,nz}",
+   "simOrPresentation": "시뮬"
+  },
+  {
+   "path": "src/actors/occlusion-math.js",
+   "responsibility": "HANJI 셰이더 차폐 공식의 JS 미러(hjPrimDist·액터 합집합·smoothstep 반그림자)와 단단한 그림자 마스크. 감사 예측·단위 테스트에 쓴다",
+   "publicApi": "primDist(P,L,prim) → {f,s}; actorVis(P,L,prims,n,lightCfg) → vis; hardShadow(P,L,prims,n) → bool",
+   "simOrPresentation": "검증 도구(순수)"
+  },
+  {
+   "path": "src/actors/meshgen.js",
+   "responsibility": "원시 → 스킨 메시 배열 생성. rc 반구+원뿔대 / el 위경도 구, 밴드 고리 삽입, 뼈 로컬 좌표, 강체 가중치, 미터 UV, 재질 그룹, 삼각형 계수. 같은 입력이면 같은 바이트",
+   "publicApi": "generateMesh(shapeDef, skel, lookSlots, opts) → {position, normal, uv, skinIndex, skinWeight, index, groups[{slot,start,count}], triCount, perPrim[]}",
+   "simOrPresentation": "표현 데이터(순수, 노드에서도 실행)"
+  },
+  {
+   "path": "src/actors/meshbuild.js",
+   "responsibility": "meshgen 배열로 THREE.BufferGeometry를 만들고 SkinnedMesh를 조립한다(부팅 전용, UUID 생성 허용 구간)",
+   "publicApi": "buildGeometry(out) → BufferGeometry; makeActorMesh(geometry, materials[], skeleton, name) → SkinnedMesh",
+   "simOrPresentation": "표현"
+  },
+  {
+   "path": "src/actors/silhouette-metrics.js",
+   "responsibility": "판 위 실루엣 마스크 → 액터 공간 4축(높이·폭 분포·상하 질량비·돌출부 위치)과 대비 계산, 쌍 비교. 판정 규칙 상수는 한 곳에만 두고 '발주자 확정 대기'로 표시",
+   "publicApi": "metricsFromMask(mask, valid, mapping, band) → {H, W[12], Q, P{sector,h}, clipped}; compareAxes(a, b, rule) → {axes[], rel{}}; SILHOUETTE_AXIS_RULE {rel: VISUAL_REL_MIN 재사용, minAxes: VISUAL_AXES_MIN 재사용, sectorMin: 2, status:'pending-owner'}",
+   "simOrPresentation": "검증 도구(순수)"
+  },
+  {
+   "path": "src/actors/state.js",
+   "responsibility": "액터 상태 레이아웃과 가시성 표(public/owner/server). 관찰자 팀별 공개 스냅샷을 화이트리스트로 복사한다",
+   "publicApi": "FIELD_VISIBILITY; makeActorState(slot); publicView(state, viewerTeam) → PublicActorView; snapshotFor(state, viewer) (P5용)",
+   "simOrPresentation": "시뮬(넷 경계)"
+  },
+  {
+   "path": "src/actors/world.js",
+   "responsibility": "ActorWorld: 슬롯 8, 스폰·디스폰, 서브스텝 갱신(컨트롤러→이동→분리→포즈→히트박스 원시), 사망 표시, 리셋, 감사 배치, 상태 직렬화",
+   "publicApi": "new ActorWorld({physics, nav, characters}); spawn(spec); despawn(slot); update(dt, player); markDead(slot); raycast(o,d,maxDist,out); publicViews(viewerTeam); placeForAudit({character, yaw, pose, shapeOf}); reset(); getState()",
+   "simOrPresentation": "시뮬"
+  },
+  {
+   "path": "src/actors/movement.js",
+   "responsibility": "데이터 수치(걷기·달리기·웅크림·점프 속도, physics 중력)로 하는 이동 적분과 CharacterController.move 호출. Player와 같은 규칙",
+   "publicApi": "stepLocomotion(actor, intent, params, dt)",
+   "simOrPresentation": "시뮬"
+  },
+  {
+   "path": "src/actors/separation.js",
+   "responsibility": "액터·플레이어 수직 캡슐 쌍 분리(closestPtSegSeg). 수평 성분만 반반으로 나누고, 고정 순서로 controller.move(dx,0,dz)를 부른다",
+   "publicApi": "separate(entries[{controller, radius, active}])",
+   "simOrPresentation": "시뮬"
+  },
+  {
+   "path": "src/actors/controllers/index.js (+ idle.js, script.js, navfollow.js)",
+   "responsibility": "컨트롤러 레지스트리(type 문자열 → 공장). intent 생성. 캐릭터별 분기 없음",
+   "publicApi": "CONTROLLERS[type].create(params); ctrl.update(actor, world, dt) → intent {moveX, moveZ, yaw, pitch, jump, crouch, sprint, ads}",
+   "simOrPresentation": "시뮬"
+  },
+  {
+   "path": "src/actors/view.js",
+   "responsibility": "ActorView 풀: 슬롯 8 × 캐릭터 N SkinnedMesh, 슬롯별 Skeleton(Bone 24, boneInverses 단위, 부팅에 computeBoneTexture 선호출). 매 프레임 공개 포즈 또는 래그돌 프레임으로 본 행렬·boundingSphere·씬 add/remove를 처리하고, 같은 버퍼로 차폐 원시를 공급한다",
+   "publicApi": "new ActorView({scene, materials, characters, occluders, pipeline}); sync(publicViews, ragdollFrames); reset(); meshFor(slot)",
+   "simOrPresentation": "표현"
+  },
+  {
+   "path": "src/materials/actor-look.js",
+   "responsibility": "캐릭터 룩 레시피: ACTOR_FABRIC, ACTOR_ACCENT_ISEGYE/INGAN, ACTOR_BRONZE_ISEGYE/INGAN/PLAIN, ACTOR_DANCHEONG_ISEGYE/INGAN, ACTOR_HIDE, ACTOR_WOOD. viewmodel-look.js와 같은 합성기, 'uv' 모드, 맵 구성 단일화",
+   "publicApi": "ACTOR_RECIPES; createActorMaterials({synth}) → {key: MeshStandardMaterial}",
+   "simOrPresentation": "표현"
+  },
+  {
+   "path": "src/materials/team-bands.js",
+   "responsibility": "팀 색상 대역 표와 정적 팀 색 검사. paletteInBand(fx-look.js:112-120)를 재사용하고 표 사본은 만들지 않는다",
+   "publicApi": "TEAM_BANDS {isegye:[190,235], ingan:[355,10], status:'pending-owner'}; checkTeamColors(characters, recipes, bands=TEAM_BANDS) → {ok, problems[]}",
+   "simOrPresentation": "데이터/정적 검사"
+  },
+  {
+   "path": "src/materials/hanji-occluders.js (v2 재작성)",
+   "responsibility": "창호지 점광 차폐 등록부 v2. 액터 슬롯 원시를 RGBA32F 텍스처에 뷰 공간으로 담고, 액터 경계구와 판별 슬롯 마스크를 만든다. 레거시 set()은 예약 슬롯 6·7을 쓰고, 넘치면 throw",
+   "publicApi": "HJ_ACT_MAX=8, HJ_PRIM_MAX=24; setActor(slot, prims, n, bound); clearActor(slot); set(id,{a,b,r})/delete(id) (레거시); registerPane(id, mesh, uniformRef); update(viewMatrix, pointLights); reset(); stats()",
+   "simOrPresentation": "표현"
+  },
+  {
+   "path": "src/materials/index.js (HANJI_PARS_GLSL·applyHanjiTransmit 개정)",
+   "responsibility": "hjPrimDist(rc/el)와 액터 합집합 hjOcclusion. 유니폼: uHanjiOccTex·Bound[8]·N[8]·판별 uHanjiOccMask. 상한 상수는 hanji-occluders.js에서 템플릿으로 주입한다(3곳 하드코딩 제거)",
+   "publicApi": "applyHanjiTransmit(mat, lightDirRef, sunColorRef, occluders) (시그니처 불변, 유니폼 추가)",
+   "simOrPresentation": "표현"
+  },
+  {
+   "path": "src/physics/ragdoll.js",
+   "responsibility": "PBD 래그돌(슬롯 8 × 입자 16, Verlet, 막대·버팀대·거리 한계·경첩, 정적 BVH 접촉 축약, CCD, 슬립, 해시). 강체 월드와 분리",
+   "publicApi": "new RagdollWorld(staticWorld, {gravity, mask}); spawn(slot, skel, joints, vel, impulseAt, impulse); step(dt); frames(slot, outBoneWorld); state(slot) → {active, sleeping, steps, hash}; reset()",
+   "simOrPresentation": "시뮬"
+  },
+  {
+   "path": "src/physics/index.js (파사드 확장)",
+   "responsibility": "PhysicsWorld가 RagdollWorld를 소유한다. step 안에서 rigid.step 다음에 ragdoll.step을 부른다. 중력 상수를 공개한다",
+   "publicApi": "spawnRagdoll(...); resetRagdolls(); ragdollState(slot); ragdollFrames(slot, out); get gravity",
+   "simOrPresentation": "시뮬"
+  },
+  {
+   "path": "src/ai/death.js",
+   "responsibility": "actor:death 구독(bus.markBoot 전) → actors.markDead → 진짜 리그 관절에서 래그돌 스폰",
+   "publicApi": "installDeathHandler({bus, actors, physics})",
+   "simOrPresentation": "시뮬"
+  },
+  {
+   "path": "src/ai/nav/navbake.js · navprobe.js",
+   "responsibility": "청크 굽기(다중 히트 하향 레이, headroom, 층 연결, 컨트롤러 프로브 기반 WALK/JUMP 분류, EDT 여유거리, 특수 간선, 섹터 입구) — 오프라인·테스트 전용",
+   "publicApi": "bakeChunk(staticWorld, chunkCfg, params, probe) → NavChunkData; classifyStep(physics, from, to, refCapsule) → {type, param}",
+   "simOrPresentation": "굽기 도구(순수 + 노드 컨트롤러)"
+  },
+  {
+   "path": "src/ai/nav/navchunk.js · navgraph.js · navpath.js",
+   "responsibility": "청크 디코드·셀 접근, seam 연결, 런타임 오버레이(블로커·링크), 에이전트 필터 A*와 스트링 풀링, 섹터 캐시",
+   "publicApi": "NavGraph.load(baked, staticWorld) (sourceHash 불일치 throw); findPath(from, to, agent, out) → {ok, n, cost}; nearest(p, agent); addBlocker(obb, flags) → id; removeBlocker(id); addLink(a, b, flags, param) → id; removeLink(id); resetRuntime(); version; snapshot()",
+   "simOrPresentation": "시뮬"
+  },
+  {
+   "path": "src/ai/nav/config/gwana.js · baked/gwana.js · audio-adapter.js",
+   "responsibility": "청크 정의(z=0 2분할)·vaultable 이름 규칙·표면 비용 / 커밋된 굽기 산출물(base64 deflate-raw, sourceHash, paramsHash) / 오디오 우회 어댑터",
+   "publicApi": "GWANA_NAV_CONFIG; GWANA_NAV_BAKED; makeDetourGraph(nav) → {findDetours(src, lis)}",
+   "simOrPresentation": "데이터 / 시뮬"
+  },
+  {
+   "path": "src/render/exposure-contract.js",
+   "responsibility": "노출 적응 계약 상수(범위·속도·계량)의 단일 출처. deep frozen, version·status·해시",
+   "publicApi": "EXPOSURE_CONTRACT; EXPOSURE_CONTRACT_VERSION; exposureContractHash()",
+   "simOrPresentation": "계약 상수(표현 쪽 게임플레이 변수)"
+  },
+  {
+   "path": "src/render/exposure.js (개정)",
+   "responsibility": "params = 계약 frozen 뷰(생성자 인자 폐지). 매 프레임 계약에서 유니폼을 기록한다. 셰이더 상수는 템플릿 주입. 복원 가능한 lock/unlock",
+   "publicApi": "lock(ev); unlock(); reset() (unlock+snap); uniformsMatchContract() → bool; read()",
+   "simOrPresentation": "표현"
+  },
+  {
+   "path": "tools/silhouetteaudit.mjs",
+   "responsibility": "P4B 핵심 게이트. 정적 단계(데이터·팀 색) → 브라우저 단계(샷 3 장면, 기준 R + 캐릭터×방향 캡처) → 노드 분석(4축·대비·메시 투영·예측 대조) → JSON 출력 / exit",
+   "publicApi": "node tools/silhouetteaudit.mjs [--out DIR] [--orient front,side] [--test-clone A=B] [--test-team-overlap] [--only a,b] [--lineup] → stdout JSON, exit 0/1/2",
+   "simOrPresentation": "도구"
+  },
+  {
+   "path": "tools/navbake.mjs · tools/exposureprobe.mjs · tools/silhouettepredict.mjs",
+   "responsibility": "내비 오프라인 굽기 → baked 모듈 쓰기와 리포트(섬·VAULT 0 등) / 노출 플레이테스트 근거 측정(보고 전용) / 노드 해석 실루엣 예측(설계 반복·v1 사전 시험, 비게이트)",
+   "publicApi": "node tools/navbake.mjs [--check]; node tools/exposureprobe.mjs --out DIR; node tools/silhouettepredict.mjs [--lighting A|B|C|D] [--fixtures v1]",
+   "simOrPresentation": "도구"
+  }
+ ],
+ "characterData": "[형식]\n캐릭터 하나는 순수 데이터 모듈이다: src/actors/data/characters/<id>.js, export default Object.freeze({...}).\n- 함수·클래스는 금지다. 스키마가 typeof로 검사한다.\n- JSON이 아니라 .js인 이유: 고정 스냅샷 서빙, vite 번들, node --test 모두 import 한 줄로 동기 적재된다. JSON import 속성 지원 여부에 기대지 않는다.\n- 적재할 때 validateCharacter가 다음을 검사하고, 어기면 throw한다.\n  - 미지 키\n  - 수치 범위\n  - 참조: 뼈 이름 ∈ BIPED, 재질 키 ∈ ACTOR_RECIPES, surface ∈ SURFACES 15종, 능력 어휘, 스킬 원시 ∈ 닫힌 6종(spawnSurface·spawnLight·projectSilhouette·editHoles·setMovementMode·applyModifier)\n  - 원시 ≤24\n  - 추정 삼각형 ≤25,000\n  - stepHeight = 0.42\n\n최상위 필드\n- schema, id, faction('isegye'|'ingan'), displayName\n- skeleton{template, proportions{뼈 길이}, posture{spinePitchDeg, neckPitchDeg, shoulderWidth, hipWidth}}\n- shape{primitives[]}\n- look{slots{슬롯: {material(ACTOR_* 키, '{team}' 치환 허용), tileMeters}}}\n- body{capsule{radius, height, crouchHeight, stepHeight}, massKg, health{max, provisional}}\n- movement{walk, sprint, crouch, jumpSpeed, abilities[], provisional}\n- weapon{family | familyChoices[], instance{id, displayName, handling{}}}\n- skills[{primitive, params, maxActive:1, cooldownS:null, durationS:null}] — 값은 P4C가 정한다(§4-1-D). 여기서는 자리만 둔다.\n- appearance{states{이름: {shapeOf, lookOf, team:'self'|'opponent'}}}\n- silhouette{identicalTo[{state, character, reason}]}\n- audio{footstep}\n- ragdoll{template, massScale}\n- pose{style{strideM, armSwing, bob, idleBreath}, aim{propBone, twoHand}}\n\n원시\n- 공통: {id, bone, kind, slot, surface, zone, occluder=true, hitbox=true, seg?, bands?[{slot, v0, v1, mode:'stripe'|'meoricho'|'geummun'}]}\n  - zone ∈ head|torso|limb|shell|cloth|prop\n- kind 'rc': a[3], b[3], ra, rb (뼈 로컬, m)\n- kind 'el': c[3], r[3], rotDeg[3]\n\n[자라 예시 — 형상 의도: 최고 1.32 m, 최대폭 0.84 m @≈0.9 m, 머리가 앞으로 나온 낮고 넓은 윤곽]\n{\n  \"schema\": 1, \"id\": \"jara\", \"faction\": \"isegye\", \"displayName\": \"자라\",\n  \"skeleton\": { \"template\": \"biped\",\n    \"proportions\": { \"hip\": 0.55, \"spine\": 0.12, \"chest\": 0.18, \"neck\": 0.12, \"upperArm\": 0.24, \"foreArm\": 0.22, \"thigh\": 0.26, \"shin\": 0.24 },\n    \"posture\": { \"spinePitchDeg\": 18, \"neckPitchDeg\": -24, \"shoulderWidth\": 0.36, \"hipWidth\": 0.22 } },\n  \"shape\": { \"primitives\": [\n    { \"id\": \"shell\", \"bone\": \"acc_back\", \"kind\": \"el\", \"c\": [0, 0.05, -0.14], \"r\": [0.42, 0.40, 0.20], \"rotDeg\": [0, 0, 0], \"slot\": \"shell\", \"surface\": \"FABRIC\", \"zone\": \"shell\", \"bands\": [ { \"slot\": \"accent\", \"v0\": 0.46, \"v1\": 0.54, \"mode\": \"stripe\" } ] },\n    { \"id\": \"plastron\", \"bone\": \"chest\", \"kind\": \"el\", \"c\": [0, -0.06, 0.10], \"r\": [0.28, 0.32, 0.11], \"rotDeg\": [0, 0, 0], \"slot\": \"shell\", \"surface\": \"FABRIC\", \"zone\": \"torso\" },\n    { \"id\": \"pelvis\", \"bone\": \"pelvis\", \"kind\": \"rc\", \"a\": [-0.11, 0, 0], \"b\": [0.11, 0, 0], \"ra\": 0.14, \"rb\": 0.14, \"slot\": \"cloth\", \"surface\": \"FABRIC\", \"zone\": \"torso\", \"bands\": [ { \"slot\": \"accent\", \"v0\": 0.40, \"v1\": 0.60, \"mode\": \"stripe\" } ] },\n    { \"id\": \"neck\", \"bone\": \"neck\", \"kind\": \"rc\", \"a\": [0, 0, 0], \"b\": [0, 0.08, 0.08], \"ra\": 0.07, \"rb\": 0.06, \"slot\": \"hide\", \"surface\": \"FABRIC\", \"zone\": \"head\" },\n    { \"id\": \"head\", \"bone\": \"head\", \"kind\": \"el\", \"c\": [0, 0.05, 0.08], \"r\": [0.11, 0.10, 0.15], \"rotDeg\": [0, 0, 0], \"slot\": \"hide\", \"surface\": \"FABRIC\", \"zone\": \"head\" },\n    { \"id\": \"uarm_L\", \"bone\": \"shoulder_L\", \"kind\": \"rc\", \"a\": [0, 0, 0], \"b\": [0, -0.24, 0], \"ra\": 0.075, \"rb\": 0.065, \"slot\": \"cloth\", \"surface\": \"FABRIC\", \"zone\": \"limb\", \"bands\": [ { \"slot\": \"accent\", \"v0\": 0.80, \"v1\": 1.0, \"mode\": \"stripe\" } ] },\n    { \"id\": \"farm_L\", \"bone\": \"elbow_L\", \"kind\": \"rc\", \"a\": [0, 0, 0], \"b\": [0, -0.22, 0.02], \"ra\": 0.06, \"rb\": 0.075, \"slot\": \"hide\", \"surface\": \"FABRIC\", \"zone\": \"limb\" },\n    { \"id\": \"uarm_R\", \"bone\": \"shoulder_R\", \"kind\": \"rc\", \"a\": [0, 0, 0], \"b\": [0, -0.24, 0], \"ra\": 0.075, \"rb\": 0.065, \"slot\": \"cloth\", \"surface\": \"FABRIC\", \"zone\": \"limb\", \"bands\": [ { \"slot\": \"accent\", \"v0\": 0.80, \"v1\": 1.0, \"mode\": \"stripe\" } ] },\n    { \"id\": \"farm_R\", \"bone\": \"elbow_R\", \"kind\": \"rc\", \"a\": [0, 0, 0], \"b\": [0, -0.22, 0.02], \"ra\": 0.06, \"rb\": 0.075, \"slot\": \"hide\", \"surface\": \"FABRIC\", \"zone\": \"limb\" },\n    { \"id\": \"thigh_L\", \"bone\": \"hip_L\", \"kind\": \"rc\", \"a\": [0, 0, 0], \"b\": [0, -0.26, 0], \"ra\": 0.095, \"rb\": 0.085, \"slot\": \"cloth\", \"surface\": \"FABRIC\", \"zone\": \"limb\" },\n    { \"id\": \"shin_L\", \"bone\": \"knee_L\", \"kind\": \"rc\", \"a\": [0, 0, 0], \"b\": [0, -0.24, 0], \"ra\": 0.085, \"rb\": 0.09, \"slot\": \"hide\", \"surface\": \"FABRIC\", \"zone\": \"limb\" },\n    { \"id\": \"foot_L\", \"bone\": \"ankle_L\", \"kind\": \"el\", \"c\": [0, -0.03, 0.05], \"r\": [0.07, 0.04, 0.11], \"rotDeg\": [0, 0, 0], \"slot\": \"hide\", \"surface\": \"FABRIC\", \"zone\": \"limb\" },\n    { \"id\": \"thigh_R\", \"bone\": \"hip_R\", \"kind\": \"rc\", \"a\": [0, 0, 0], \"b\": [0, -0.26, 0], \"ra\": 0.095, \"rb\": 0.085, \"slot\": \"cloth\", \"surface\": \"FABRIC\", \"zone\": \"limb\" },\n    { \"id\": \"shin_R\", \"bone\": \"knee_R\", \"kind\": \"rc\", \"a\": [0, 0, 0], \"b\": [0, -0.24, 0], \"ra\": 0.085, \"rb\": 0.09, \"slot\": \"hide\", \"surface\": \"FABRIC\", \"zone\": \"limb\" },\n    { \"id\": \"foot_R\", \"bone\": \"ankle_R\", \"kind\": \"el\", \"c\": [0, -0.03, 0.05], \"r\": [0.07, 0.04, 0.11], \"rotDeg\": [0, 0, 0], \"slot\": \"hide\", \"surface\": \"FABRIC\", \"zone\": \"limb\" },\n    { \"id\": \"gun_barrel\", \"bone\": \"prop\", \"kind\": \"rc\", \"a\": [0, 0, 0.05], \"b\": [0, 0, 0.62], \"ra\": 0.025, \"rb\": 0.02, \"slot\": \"metal\", \"surface\": \"BRONZE\", \"zone\": \"prop\", \"hitbox\": false },\n    { \"id\": \"gun_stock\", \"bone\": \"prop\", \"kind\": \"rc\", \"a\": [0, -0.02, 0], \"b\": [0, -0.06, -0.25], \"ra\": 0.04, \"rb\": 0.035, \"slot\": \"wood\", \"surface\": \"WOOD_COLUMN\", \"zone\": \"prop\", \"hitbox\": false }\n  ] },\n  \"look\": { \"slots\": {\n    \"shell\": { \"material\": \"ACTOR_BRONZE_{team}\", \"tileMeters\": 0.40 },\n    \"cloth\": { \"material\": \"ACTOR_FABRIC\", \"tileMeters\": 0.25 },\n    \"accent\": { \"material\": \"ACTOR_ACCENT_{team}\", \"tileMeters\": 0.25 },\n    \"hide\": { \"material\": \"ACTOR_HIDE\", \"tileMeters\": 0.30 },\n    \"metal\": { \"material\": \"ACTOR_BRONZE_PLAIN\", \"tileMeters\": 0.30 },\n    \"wood\": { \"material\": \"ACTOR_WOOD\", \"tileMeters\": 0.50 } } },\n  \"body\": { \"capsule\": { \"radius\": 0.40, \"height\": 1.25, \"crouchHeight\": 1.00, \"stepHeight\": 0.42 }, \"massKg\": 80, \"health\": { \"max\": 110, \"provisional\": true } },\n  \"movement\": { \"walk\": 3.4, \"sprint\": 5.0, \"crouch\": 1.8, \"jumpSpeed\": 6.0, \"abilities\": [\"walk\", \"jump\", \"drop\", \"crouch\"], \"provisional\": true },\n  \"weapon\": { \"family\": \"SHOTGUN\", \"instance\": { \"id\": \"jara_shotgun_v0\", \"displayName\": null, \"handling\": {} } },\n  \"skills\": [ { \"primitive\": \"spawnSurface\", \"params\": { \"class\": \"GRANITE\", \"shape\": \"shell_wall_v0\" }, \"maxActive\": 1, \"cooldownS\": null, \"durationS\": null } ],\n  \"appearance\": { \"states\": { \"default\": { \"shapeOf\": \"self\", \"lookOf\": \"self\", \"team\": \"self\" } } },\n  \"silhouette\": { \"identicalTo\": [] },\n  \"audio\": { \"footstep\": \"heavy_shell\" },\n  \"ragdoll\": { \"template\": \"biped\", \"massScale\": { \"chest\": 1.6 } },\n  \"pose\": { \"style\": { \"strideM\": 0.45, \"armSwing\": 0.35, \"bob\": 0.02, \"idleBreath\": 0.01 }, \"aim\": { \"propBone\": \"wrist_R\", \"twoHand\": true } }\n}\n\n예시 읽는 법\n- 원시 17개, 추정 ≈6.8k 삼각형.\n- surface는 탄도 등급이다. 추천(ownerDecisions 9)은 v0 원시 전부 FABRIC이다.\n  - 등껍질은 BRONZE처럼 보이지만(slot shell → ACTOR_BRONZE_ISEGYE 녹청 195°) 탄도는 FABRIC이다.\n  - 무기 원시는 hitbox:false다.\n- health·speed는 provisional이다. 확정은 P4C 몫이다(§4-1-D, §4 이동 차등).\n- weapon family는 §4-6 표와 같다: 자라 산탄 / 도깨비 familyChoices [CARBINE, DMR] / 토끼 카빈 / 콩쥐 DMR.\n\n[나머지 v0 3종 형상 의도] (바닥 위 높이, m)\n- 도깨비: 최고 2.05 — 뿔은 rc ra .05→rb .01, 길이 .22, 바깥으로 25°. 어깨폭 0.80 @1.5(가슴 el .30/.34/.20). 방망이 rc .05→.11, .75 m에 가시 rc 3개. 크고 위가 무거우며 측면이 돌출한다.\n- 토끼: 최고 2.00 — 귀는 rc .045→.035, .40 m, 벌림 8°. 어깨폭 0.40. 좁고 높으며 위로 가는 돌출이 있다.\n- 콩쥐: 최고 1.62 — 쪽머리 el, 저고리 상체는 좁다. 치마는 rc 2단(상 .17→.27, 하 .26→.46, 단 높이 0.05)이고, 고름은 accent 밴드다. 아래가 퍼진다.\n\n[v1 8종·흥부 변장 예외·정보 은닉 필드가 코드 없이 들어가는 이유]\n① 고유성이 전부 데이터 축에 있다.\n- 윤곽 = 원시 조합. 예: 견우 삿갓 = 납작한 el(r .38/.04/.38), 소고삐 = 가는 rc, 직녀 베 두루마리 = 한쪽 손목의 rc(비대칭), 심청 댕기 = acc_back의 가는 rc + 좁은 치마 rc, 흥부 갓 = 챙 el + 대우 rc, 지게 = rc 3개.\n- 무기 = 계열 + 개체.\n- 스킬 = 닫힌 6종 원시 id + params.\n- 이동 능력 = 어휘 비트. 견우는 abilities에 'vault' 한 단어만 넣으면 내비 VAULT 간선이 열린다.\n- 체력·속도 = 수치.\n\n② 코드는 캐릭터를 모른다.\n- 메시·차폐·히트박스·래그돌·내비 통행·감사는 '원시 목록 / 능력 비트 / 스킬 원시 id / 외견 상태 참조' 위에서만 돈다.\n- test/actor-data.test.mjs가 src/ 전체(src/actors/data 제외)에서 캐릭터 id 문자열 리터럴을 찾으면 실패한다. '캐릭터 ID로 갈라지는 코드 0'(P4-BRIEF:337)을 기계로 검사한다.\n\n③ 흥부 변장은 데이터 두 줄이다.\n- appearance.states.disguise = {\"shapeOf\":\"dokkaebi\",\"lookOf\":\"dokkaebi\",\"team\":\"opponent\"}\n- silhouette.identicalTo = [{\"state\":\"disguise\",\"character\":\"dokkaebi\",\"reason\":\"P4-BRIEF §4-1-C\"}]\n- applyModifier(P4C/D)는 actor.appearanceState만 바꾼다.\n- 메시와 창호지 차폐는 resolveAppearance 결과(도깨비 원시)를 쓴다.\n- 히트박스는 진짜 리그를 쓴다. 발소리도 진짜다: audio는 appearance 밖에 있다(§4-1-C '발소리는 흥부 그대로').\n- 감사는 선언된 상태쌍만 면제한다.\n\n④ 정보 은닉은 캐릭터가 아니라 상태 필드 표(state.js FIELD_VISIBILITY)가 정한다.\n- trueCharacterId·trueTeam·modifiers는 server, apparentCharacterId·apparentTeam·pose는 public, hp·cooldown은 owner다.\n- 캐릭터가 늘어도 표는 그대로다.\n- 외견 상태가 있으면 publicView가 상대 팀에게 외견만 복사한다.\n\n⑤ 지금 시험한다.\n- test/fixtures/characters-v1/{gyeonu, jiknyeo, simcheong, heungbu}.js를 P4B의 npm test가 통과시킨다.\n  - 이 파일들은 발주자 확정 전 '제안' 윤곽이고 제품 데이터가 아니다.\n  - 검사 범위: 스키마·meshgen·삼각형·노드 실루엣 예측(28쌍 보고 + 선언 예외 1쌍 면제 확인)·히트박스·내비 능력.\n- 데이터 외 코드가 필요하면 P4B에서 드러나므로, P4D의 §4-9 시험을 미리 치르는 셈이다.",
+ "meshGeneration": "[원시 → 메시 — src/actors/meshgen.js, three 비의존 순수 함수, 2회 실행 바이트 동일]\n\nrc(A, B, ra, rb; 뼈 로컬)\n- 기저: u = (B−A)/L, e1 = normalize(cross(u, |u.y|<0.99 ? Y : X)), e2 = cross(u, e1). 결정적이다.\n- 단면 프로파일(축 좌표 z, 반지름 ρ)을 세 구간으로 만든다.\n  - A쪽 반구: φ = π/2→0, z = −ra·sinφ, ρ = ra·cosφ, 점 nCap+1개.\n  - 원뿔대: z = t·L, ρ = ra + (rb−ra)·t, 내부 점 nSide−1개.\n  - B쪽 반구: z = L + rb·sinφ, ρ = rb·cosφ.\n- 이 곡면은 셰이더·히트박스가 쓰는 집합 {x : dist(x, 선분 AB 클램프) ≤ r(t)}와 정확히 같다.\n  - 반구–원뿔대 이음의 미세 꺾임도 포함한다. 이음 고리는 정점을 중복해 법선을 분리한다.\n  - 법선: 반구는 중심에서 방사, 원뿔대는 normalize(radial + ((ra−rb)/L)·u).\n\nel(c, r[3], rotDeg)\n- 위경도 구(R × Q)를 반축으로 스케일하고 회전한다.\n- 법선 = normalize(MᵀM(x−c))로 해석적으로 구한다.\n\n분할 규칙(결정적)\n- R = clamp(2·ceil(π·r_max/0.035), 12, 28). 현 길이 ≤3.5 cm라 새그 r(1−cos(π/R))는 r .45·R 28에서 2.8 mm, r .07·R 14에서 1.8 mm다.\n- nCap = clamp(ceil(r_max/0.03), 3, 6)\n- nSide = clamp(ceil(L/0.08), 1, 8)\n- el Q = R/2 + 1\n- 실루엣을 결정하는 부위(귀·뿔·치맛단)는 데이터 seg로 원시별로 올린다.\n\n밴드(bands)\n- 프로파일 호 길이 비율 v0·v1 위치에 고리를 정확히 끼우고, 그 구간 삼각형을 밴드 slot 그룹으로 보낸다.\n- 껍질 마디·소매 끝·치맛단·고름을 지오메트리 추가 없이 재질로 분절한다(§3-5 '머티리얼이 표면을 분절').\n\n[스키닝 — 강체]\n- 모든 정점: skinIndex = (bone,0,0,0), skinWeight = (1,0,0,0).\n  - LBS 혼합이 없으므로 어떤 자세에서도 메시 = ∪원시다. 이것이 메시–프록시 일치의 구성적 근거다.\n- 정점 좌표는 '뼈 로컬'로 저장한다.\n  - Skeleton(bones, boneInverses = 단위 행렬 배열)\n  - SkinnedMesh는 원점·단위 행렬에 두고 bind(skeleton, identity)\n  - 그러면 boneMatrices = boneWorld가 곧 월드 정점 변환이다.\n  - 덕분에 같은 biped 위상(뼈 ≤24)을 쓰는 모든 캐릭터가 슬롯의 Skeleton 1개를 공유한다. 캐릭터별 SkinnedMesh는 지오메트리만 다르다.\n- Bone은 씬 그래프 밖에 두고 matrixAutoUpdate = matrixWorldAutoUpdate = false로 둔다. matrixWorld는 sync()가 boneWorld에서 복사한다.\n  - skeleton.update()는 WebGLObjects.js:52에서 매 프레임 matrixWorld를 읽는다.\n- 결정성 함정: 첫 렌더에서 computeBoneTexture가 DataTexture를 지연 생성한다(WebGLRenderer.js:2451). DataTexture는 UUID→Math.random을 부른다. 그래서 부팅에 전 슬롯 skeleton.computeBoneTexture()를 미리 호출한다.\n- 컬링: SkinnedMesh는 object.boundingSphere를 쓴다(Frustum.js:148-152). 매 프레임 원시 경계구를 직접 기록해, computeBoundingSphere의 정점 순회 비용과 낡은 구 문제를 피한다.\n\n[UV — 'uv' 모드 재질]\n- TRI·LOCAL을 쓰지 않는 이유:\n  - TRI는 월드 투영이라 움직이는 액터에서 미끄러지고, 0.25 m 격자 원점 해시로 무늬가 튄다(surface-shader.js:60-64, 166-168).\n  - LOCAL은 aBoxDims를 전제한다(:136-150).\n- 기본 매핑:\n  - u = 방위각/2π × round(둘레/tileMeters). 이음매는 뼈 −z(등) 쪽에 두고 정점을 중복한다.\n  - v = 누적 호 길이/tileMeters. 미터당 텍스처 밀도가 일정하다.\n- 밴드 모드:\n  - 'meoricho': DANCHEONG u 0–0.5 끝단 머리초(synth.js:121-123)를 밴드 높이에 대응시킨다. u_tex = 0.5·(v−v0)/(v1−v0), v_tex = 방위각 반복.\n  - 'geummun': u 0.5–1 반복.\n  - 'stripe': 팀 accent 단색 띠.\n\n[재질 슬롯]\n- look.slots는 슬롯 이름 → ACTOR_* 키다. '{team}'은 외견 상태의 팀으로 치환한다.\n- 지오메트리 그룹을 슬롯 순서로 정렬하고 SkinnedMesh에 재질 배열을 준다. 액터당 draw는 사용 슬롯 수(≤6)다.\n- ACTOR_* 재질 생성 규칙(src/materials/actor-look.js):\n  - synth.dispose() 전에 같은 합성기로 만든다(index.js:505-508).\n  - 전부 map + normalMap + ORM 구성이 같다. 그래서 스키닝 프로그램이 한 벌만 생긴다.\n  - CSM patchMaterial을 개별 호출한다. 풀 메시는 patchScene 순회 밖이기 때문이다(main.js:160-162 선례).\n  - emissive 0: 태그 마스크와 블룸을 피한다.\n  - albedo-manifest에 등록하고, 씬 밖 재질이라 extraMaterials로 넘긴다.\n- 표면 태그:\n  - 메시 userData.surface = 면적이 가장 큰 원시의 표면\n  - userData.surfaces = 그룹별 표면 목록\n  - surfaceaudit가 캐릭터에도 기본값 금지 전수 검사를 한다(PATCH-010-C).\n\n[삼각형 예산 계산]\n- 공식:\n  - T_rc = 2R(P−2), P = 2(nCap+1) + nSide − 1. 극점 부채꼴을 반영했다.\n  - T_el = 2R(Q−2)\n  - 밴드 고리마다 +2R\n- 스키마가 Σ ≤ 25,000이 아니면 throw한다(PATCH-010-C, 3인칭 무기 원시 포함 — ownerDecisions 14). 설계 목표는 몸 ≤12k + 무기 ≤3k다.\n\n캐릭터별 추정(분할 규칙 적용, 형상 의도 데이터 기준)\n\n| 캐릭터 | 추정 삼각형 | 내역 |\n|---|---|---|\n| 자라 | ≈6.8k | 등껍질 el 728, 배갑 el 728, 골반 rc 624, 머리 el 728, 사지 rc 224–396 ×8, 발 el 360×2, 무기 528 |\n| 도깨비 | ≈9k | 가슴·머리 대형 el, 뿔 2, 방망이 + 가시 3 |\n| 토끼 | ≈6.5k | |\n| 콩쥐 | ≈7.5k | 치마 rc 2단 각 ≈1.06k |\n\n- 2:2 4인 ≈30k → tris_scene 135,622 → ≈166k (≤600k).\n- tris_frame_p95 122,610 + 최대 30k (≤250k). 단일 씬 패스 기준이라 그림자 패스는 세지 않는다(stats.js:36, profile.mjs:399-400).\n- 함정: getSceneTriangles는 비가시 메시도 센다(harness.js:447). 그래서 풀 메시는 씬 밖에 두고 스폰 때만 scene.add한다(DEBRIS_POOL 선례). 상주시키면 8 슬롯 × N 캐릭터 전부가 잡혀 600k를 넘는다.\n- groupOf에 'actor_' 접두 그룹과 byActor 분해를 추가한다.",
+ "silhouetteModel": "[대안 비교]\n\n(1) 캡슐 프록시 확장 — 현 셰이더에서 캡슐 수와 상한만 늘린다\n- 장점: 구현량이 가장 적다.\n- 단점:\n  - ① 캡슐마다 smoothstep을 곱한다(index.js:323-330). 같은 몸의 겹친 관절이 이중으로 어두워져 이음매가 생긴다.\n  - ② 반지름이 하나뿐이다(B.w 미사용, hanji-occluders.js:52). 치마 테이퍼, 등껍질의 납작함, 뿔 끝을 그리지 못한다.\n  - ③ 메시를 따로 모델링하면 프록시와 어긋날 원천이 남는다.\n  - ④ 유니폼 배열이라 상한을 올리면 WebGL2 최소 MAX_FRAGMENT_UNIFORM_VECTORS 224에 닿는다.\n\n(2) 원뿔·구·타원체 프록시 — 둥근원뿔 rc + 타원체 el, 액터 단위 합집합 SDF\n- 장점: 테이퍼와 납작함을 표현한다.\n- 단점: 이것만으로는 (1)의 ③이 그대로 남는다.\n\n(3) 점광 큐브 그림자맵 — lantern_light_na에 castShadow\n- 장점: 메시를 그대로 쓰고, 가구·기둥까지 가린다. 설계 한계가 사라진다.\n- 단점:\n  - ① three는 그림자 패스 레이어를 메인 카메라로 판정한다(WebGLShadowMap.js:346). 광원별로 캐스터를 고를 수 없어, 반경 24 m 안의 castShadow 메시 전부를 6면 렌더한다. drawCalls가 480에서 예산 900 쪽으로 밀린다.\n  - ② NUM_POINT_LIGHT_SHADOWS가 모든 조명 프로그램 소스를 바꾼다. 트랜지언트 점광이 그림자를 켜면 순열이 갈린다.\n  - ③ 귀(0.1 m, 6–9 m 거리에서 ≈0.6–1°)를 담으려면 큐브면이 ≥512²여야 한다.\n  - ④ three 점광 PCF는 커널이 고정이라, 판–차폐 거리에 비례하는 반그림자(현 모델의 물리성)를 잃는다.\n  - ⑤ 스킨 MeshDistanceMaterial 변형이 추가된다.\n  - ⑥ P3 결정 '점광 castShadow=false'(CONTRACT-NOTES:1151-1152)를 번복해야 하고, SwiftShader 비용이 크게 늘어난다.\n\n(4) 혼합 — 런타임은 (2), 검증은 메시 그대로의 '참 그림자'를 노드에서 오프라인으로 계산해 대조\n- 런타임 비용 0으로 (3)의 정확성 기준만 가져온다.\n\n→ 채택: (2) + 메시를 같은 원시에서 강체 스키닝으로 생성 + (4)의 노드 대조.\n- '메시 = 프록시'를 측정이 아니라 구성으로 보장한다.\n- 측정은 그 보장이 깨지지 않았는지 감시하는 역할이다.\n\n[메시–프록시 일치 보장 4중]\n- ① 단일 원천: 원시 목록이 meshgen·hanji 차폐·hitbox·래그돌 충돌체의 유일한 입력이다. 별도 프록시 데이터가 없다.\n- ② 강체 스키닝: 혼합 가중치가 없다(meshGeneration 참조).\n- ③ 같은 프레임, 같은 행렬:\n  - ActorView.sync()가 boneWorld(Float64Array)를 1회 계산한다. 입력은 공개 포즈, 사망 후에는 래그돌 프레임이다.\n  - 이 버퍼로 (a) Bone.matrixWorld를 기록하고, (b) rig.primsToWorld → HanjiOccluders.setActor를 한다.\n  - pipeline.beforeRender의 hanjiOccluders.update(main.js:149)는 같은 프레임 값을 뷰 공간으로 옮길 뿐이다. 서로 다른 시점의 포즈를 읽을 경로가 없다.\n- ④ 감시: test/actor-proxy.test.mjs와 silhouetteaudit의 메시 투영·예측 대조.\n\n[셰이더 변경 — materials/index.js HANJI_PARS_GLSL]\n- 상수 HJ_ACT_MAX 8, HJ_PRIM_MAX 24는 hanji-occluders.js export에서 템플릿으로 주입한다. 상한 하드코딩 3곳(index.js:304, 432-433, hanji-occluders.js:12)을 하나로 줄인다.\n\nuniform highp sampler2D uHanjiOccTex;   // RGBA32F 4 × (8·24); 행 = 슬롯·원시\nuniform vec4 uHanjiOccBound[HJ_ACT_MAX]; // 뷰공간 경계구 중심, 반지름(+soft_max/2)\nuniform int  uHanjiOccN[HJ_ACT_MAX];     // 슬롯별 원시 수(0 = 빈 슬롯)\nuniform int  uHanjiOccMask;              // 판별(재질별) 관련 슬롯 비트\nfloat hjPrimDist(vec3 P, vec3 L, int row, out float s) {\n  vec4 t0 = texelFetch(uHanjiOccTex, ivec2(0,row), 0), t1 = texelFetch(uHanjiOccTex, ivec2(1,row), 0), t2 = texelFetch(uHanjiOccTex, ivec2(2,row), 0);\n  if (t2.w < 0.5) { float t; float d = hjSegSeg2(P, L, t0.xyz, t1.xyz, s, t); return d - mix(t0.w, t1.w, t); }   // rc: t0=(A,ra) t1=(B,rb)\n  vec4 t3 = texelFetch(uHanjiOccTex, ivec2(3,row), 0);   // el: t0=(C,·) t1..t3.xyz = M 행(뷰→단위구), t2.w=1\n  vec3 p = P - t0.xyz, q = L - t0.xyz;\n  vec3 pu = vec3(dot(t1.xyz,p), dot(t2.xyz,p), dot(t3.xyz,p)), du = vec3(dot(t1.xyz,q), dot(t2.xyz,q), dot(t3.xyz,q)) - pu;\n  s = clamp(-dot(pu,du) / max(dot(du,du),1e-8), 0.0, 1.0); vec3 cu = pu + du*s; float r = length(cu);\n  vec3 g = (cu.x*t1.xyz + cu.y*t2.xyz + cu.z*t3.xyz) / max(r,1e-6);\n  return (r - 1.0) / max(length(g), 1e-6);               // 1차 SDF(기울기 정규화)\n}\nfloat hjOcclusion(vec3 P, vec3 L) {\n  float vis = 1.0;\n  for (int k = 0; k < HJ_ACT_MAX; k++) {\n    if ((uHanjiOccMask & (1 << k)) == 0 || uHanjiOccN[k] == 0) continue;\n    float sb; if (hjSegPoint(P, L, uHanjiOccBound[k].xyz, sb) > uHanjiOccBound[k].w) continue;\n    float fmin = 1e9, smin = 0.0;\n    for (int j = 0; j < HJ_PRIM_MAX; j++) { if (j >= uHanjiOccN[k]) break;\n      float s; float f = hjPrimDist(P, L, k*HJ_PRIM_MAX + j, s); if (f < fmin) { fmin = f; smin = s; } }\n    float soft = max((uHanjiLightSize*smin/max(1.0-smin,0.05) + uHanjiPaperBlur) * uHanjiScatter, 0.005);\n    vis *= smoothstep(-0.5*soft, 0.5*soft, fmin);       // 액터 내부 = 합집합(min), 액터 간 = 곱\n  }\n  return vis;\n}\n\n- hjSegSeg2: 기존 hjSegSeg(index.js:310-320)가 t도 내도록 한 것. hjSegPoint: 점–선분 거리.\n- 단일 rc(ra=rb)는 smoothstep(r−soft/2, r+soft/2, d)와 항등이고 soft의 s도 같은 원시에서 온다. 그래서 옛 캡슐 결과와 같은 식이다(회귀 기준).\n- texelFetch와 정수 비트 연산은 WebGL2 GLSL 300 es 기본 기능이다.\n- 샘플러가 1개 늘어난다. HANJI가 쓰는 텍스처 유닛은 ≈10/16(추정)이며, 부팅 때 renderer.capabilities로 단언한다.\n- 판별 uHanjiOccMask는 HANJI@id 클론별 hanjiUniforms 객체에 둔다.\n  - registerPane은 opacityApplier.syncPaneUniforms() 뒤(main.js:334)에 해야 한다. applyHanjiTransmit 재호출이 유니폼 객체를 갈아끼우기 때문이다(opacity.js:80-82).\n\n[상한·컬링]\n- 슬롯 8 = 3:3의 6명 + 예약 2(레거시 set()·P4C).\n- 원시 24/액터: 스키마가 데이터 적재 시 throw한다.\n- 슬롯 = ActorWorld 슬롯 번호라 결정적이다.\n- 레거시 set()이 예약 2칸을 넘으면 throw한다. 조용한 탈락(hanji-occluders.js:49-50)을 없앴다(PATCH-001-D). 넘칠 경로가 구조적으로 없다.\n- 판별 마스크(CPU, 프레임당): 판 23장 × 활성 슬롯 × 점광 5개를 본다. 액터 경계구(+soft_max/2)가 AABB(판 네 모서리 ∪ 사거리 안 점광 위치)와 겹치면 비트를 켠다. 미등록 HANJI 재질은 0xFF로 보수적으로 둔다.\n- 프래그먼트: 판 마스크 → 경계구 조기 탈출 → 원시 루프(n에서 break) 순으로 거른다.\n- 사망·래그돌 액터도 등록을 유지한다(시체도 빛을 가린다 — 일관성).\n- 등록되지 않은 물체(가구·기둥)는 여전히 가리지 않는다. 설계 한계로 유지하고 기록한다.\n- 확장점(P4C, 참고): 토끼 가짜 실루엣은 '판에 붙은 원시 집합'(s≈0)으로 예약 슬롯에 넣을 수 있다.\n  - 광원 방향에는 거의 반응하지 않고 점광 밝기에 곱해진다. §4-1-E 조건과 같다.\n  - 판정은 P4C가 한다.\n\n[비용]\n- 유니폼: 17 vec4 상당 + 샘플러 1.\n- 텍스처: 12 KB를 프레임당 업로드한다.\n- 프로그램 수 불변: HANJI 1개 프로그램의 소스만 바뀌고 부팅에 컴파일된다.\n- 프래그먼트: 판 뒤 등롱 1개·액터 1명이면 원시 ≤24 × (texelFetch 3–4 + ≈50 flop)이다. 샷 3에서 판 화소의 25–40%가 경계구를 통과한다고 보면, SwiftShader 프레임당 수십 ms가 늘 것으로 추정한다(미측정). profile과 silhouetteaudit에서 실측해 기록한다. 실 GPU에서는 무시할 수준이다.\n- CPU: 8×24 원시의 뷰 변환과 23×8×5 마스크 계산으로 0.1 ms 미만이다.\n\n[조명 구성 수정 — 기하 계산]\n- 판 na_w_-3: x=−32, 가시 y 1.45–3.5(바닥 1.0 기준 0.45–2.5), z −12.85..−10.15.\n- 액터: 판 뒤 D_a = 2.5(앵커 고정). 등롱: 판 뒤 D_L, 높이 y_L.\n- 식:\n  - m = D_L/(D_L−D_a)\n  - 액터 공간 대역 y_a = y_L + (y_p−y_L)/m, y_p ∈ {1.45, 3.5}\n  - 측면 범위 ±1.35/m\n  - 반그림자(액터 공간) soft = 0.12·s/(1−s) + 0.03, s = D_a/D_L. 판 위에서는 soft·m.\n  - 점광 감쇠 att = d^−1.5·(1−(d/24)^4)² (three getDistanceAttenuation, decay 1.5, distance 24; level.js:601)\n\n| 후보 | 등롱 (x, y) | m | 대역(바닥 위) | 측면 | soft 액터/판 | 판 중심 att | 강도 |\n|---|---|---|---|---|---|---|---|\n| A 현행 | (−26, 2.0) 판 뒤 6 | 1.714 | 0.68–1.875 | ±0.79 | 0.116/0.198 | 0.0672 | 9 |\n| B 추천 | (−22.8, 2.0) 판 뒤 9.2 | 1.373 | 0.60–2.09 | ±0.98 | 0.075/0.103 | 0.0342 | ×1.96 ≈17.7 |\n| C | (−22.8, 1.8) | 1.373 | 0.545–2.04 | ±0.98 | 0.075/0.103 | ≈0.034 | ×≈1.97 |\n| D | (−22.2, 2.0) 판 뒤 9.8 | 1.342 | 0.59–2.12 | ±1.01 | 0.071/0.095 | ≈0.031 | ×≈2.2 |\n\n- 원리:\n  - 점광이 액터 뒤, 바닥 위에 있으면 발은 항상 판 아래로 떨어진다. y_p(0) = y_L(1−m)이고 m>1이기 때문이다. 따라서 전신 투영은 불가능하다.\n  - 대역 높이는 2.05/m라 m→1일수록 넓어진다.\n  - 그래서 '깊이'만이 대역 폭과 선명도를 동시에 개선하는 변수다. 높이는 대역을 위아래로 옮길 뿐이다.\n- B를 고른 이유:\n  - 깊이 한 변수만 바꾼다(R4 '층 분리는 한 변수만').\n  - 강도 ×1.96은 판 밝기를 008-B 보정치(T_p .6, 대비 .315, CONTRACT-NOTES:1170-1177)로 되돌리기 위한 것이다. lantern_light_na.userData.intensityScale로 이 등롱에만 적용하고, applyShot 일괄 강도(main.js:235, 259)에 배율 한 줄을 넣는다.\n  - 등롱→판 광선은 실내 기둥 (−28.67,−10)·(−25.33,−10)에서 ≥0.6 m 떨어진다(계산). 동벽 x=−22에서는 0.8 m 안쪽이다.\n  - 등롱 위치는 더미 상대(level.js:598-599 'dummy.x + 3.5')에서 앵커 상대 상수(+6.7)로 바꾼다.\n- B의 비용:\n  - 008-B가 확대 1.7×를 '사람 비례가 읽힌다'고 채택한 것은 캡슐 더미 기준의 경험치였다.\n  - 확대가 1.37로 줄면 실루엣이 136×194 px에서 ≈109×155 px로 작아진다(960×624 환산).\n  - 판독 여부는 캡처를 본 발주자가 정한다(ownerDecisions 2).\n- 캐릭터 특징은 B 대역 [0.60, 2.09] 안에 둔다: 귀 끝 2.00, 뿔 끝 2.05, 쪽머리 1.62, 등껍질 1.32.\n- 판 밖으로 나가는 특징은 축 판정에 쓰지 않고 clipped로 보고한다.",
+ "navmesh": "[표현 — 층 격자(layered grid) + 여유거리장 + 특수 간선]\n\n셀 구성\n- 셀 크기 0.25 m. 열(column)마다 보행 층 0..k를 둔다: 마당·마루·데크, 그리고 미래의 지붕.\n- 층 셀 레코드:\n  - y(Float32)\n  - headroom(Uint8, 2 cm 단위)\n  - clearance(Uint8, cm)\n  - surface(Uint8)\n  - nbr(Uint8, 8방향 WALK 비트)\n\nRecast식 폴리곤 대신 격자를 고른 이유\n- ① 런타임 편집이 비트 연산이다. 등껍질 차폐 = 셀 차단 카운트 증감이라 재삼각화가 없다.\n- ② 여유거리장 하나로 반경이 다른 4종(자라 0.40 / 토끼 0.30)이 같은 데이터를 쓴다. '캐릭터별 굽기 금지'를 지킨다.\n- ③ 굽기와 질의가 정수 순서라 결정적이다.\n- ④ 이 맵에서 실측한 결함(0.49 m 틈, 0.7 m 난간)을 셀 해상도에서 그대로 보존한다.\n- 대가인 메모리와 경로 품질은 섹터 추상화와 스트링 풀링으로 상쇄한다.\n- 복잡도 예산은 실루엣에 쓴다.\n\n[굽기 — 오프라인 tools/navbake.mjs]\n입력: 헤드리스 buildWorld(scene, physics) + physics.build() (coveraudit 선례 tools/coveraudit.mjs:46-49). 청크마다 다음 7단계를 돈다.\n\n1) 바닥 후보\n- 열 중심에서 위→아래로 다중 히트 raycast를 쏜다.\n  - 마스크는 MASK.CHARACTER다. 창호지 0.3 mm 상자는 막고, 연못 수면 DEBRIS_ONLY는 통과한다.\n- 노멀은 raycast out(입사 반대로 뒤집힘, bvh.js:545-547)만 쓴다.\n  - 삼각형 nrm 부호는 믿지 않는다. 와인딩 반전 셸이 있어 하향 8,320 대 상향 6,360이다.\n- ny ≥ cos50° = 0.643인 히트만 바닥 후보로 둔다.\n\n2) headroom\n- 바닥 +0.05에서 위로 첫 히트까지 잰다.\n- config의 최소 0.9 m 미만이면 버린다.\n\n3) 층 연결\n- |Δy| ≤ 0.42(stepHeight)는 WALK다.\n- 0.42 < Δy ≤ 1.0이면 navprobe.classifyStep이 기준 컨트롤러(physics.createCharacter r 0.34, h 1.78, step 0.42)로 실제 move를 돌려 WALK/JUMP를 판정한다.\n  - 실효 등반 한계(0.6 기단·0.45 문지방·0.7 얇은 난간은 걷기, 0.75·0.85는 점프)를 수치 임계가 아니라 컨트롤러 실측으로 재현한다.\n- 하강 Δy > 0.42는 DROP이다. param에 높이를 넣고, ≤4.0 m이며 착지 셀이 있을 때만 만든다.\n\n4) clearance\n- 층별 보행 마스크에 2D 유클리드 거리 변환(Felzenszwalb, 정수 순서 결정적)을 한다.\n- 장애 셀까지 거리 − 셀 반폭.\n\n5) 특수 간선\n- JUMP{param = 오르는 높이}\n- DROP{param = 낙하 높이}\n- VAULT: config의 vaultable 이름 규칙(wall_g_*, wall_cap_*, wall_ridge_*)에 속한 정적 오브젝트(StaticWorld objects[].name, bvh.js:105-132) 양쪽 1.0 m 안에 착지 셀이 있을 때만 만든다.\n- CROUCH 비트: headroom < 1.78.\n\n6) 섹터 추상\n- 섹터 8 m(32×32 셀)의 입구(경계의 연속 통행 구간 중점)를 런타임에 (반경 등급 ≤0.30/≤0.36/≤0.42) × 능력 마스크별로 지연 생성하고 캐시한다.\n- 굽기 데이터는 공유한다.\n\n7) 산출물 src/ai/nav/baked/gwana.js\n- 필드: {version, params, paramsHash, sourceHash, chunks[{id, aabb, nx, nz, data(base64 deflate-raw)}], seams[]}\n- sourceHash = FNV-1a(CHARACTER 마스크 삼각형의 pos·surface·mask 바이트).\n- 부팅 때 DecompressionStream으로 해제하고, physics.static에서 sourceHash를 재계산한다(≈1.5 MB, 수 ms). 다르면 throw한다. 낡은 내비를 조용히 쓰지 않는다.\n\n런타임 굽기를 택하지 않은 이유\n- 열 ≈130k × 다중 레이 + headroom 레이는 JS에서 수 초로 추정된다. boot_cpu ≤3 s를 넘는다.\n\n[청크·경계 간선]\n- config/gwana.js:\n  - {id:'gwana_N', x −45..45, z −45..0}\n  - {id:'gwana_S', z 0..46.3}\n- z=0은 18 m 렌더 버킷 선(kit.js:385)과 맞고 건물을 자르지 않는다. 그래서 v0에서 경계 연결이 실제로 쓰인다(마당 개활 이음선 ≈87 m).\n- 청크 격자는 로컬이고, 청크를 넘는 연결은 seams[]에만 둔다.\n  - 형식: {a:{chunk, cell, layer}, b:{chunk, cell, layer}, flags, param}\n  - 굽기 뒤 '꿰매기' 단계가 인접 경계 행의 WALK 쌍과 경계를 가로지르는 특수 간선을 seams로 옮긴다. 청크 내부 간선은 청크 밖을 가리키지 않는다.\n- 남문 포털(x −3.2..3.2, z 43.55→44.45)은 S 청크 경계 seam 자리다. 목적지 청크가 없으므로 dangling으로 두고 무시한다.\n- 청크를 언로드하면 그 청크를 가리키는 seam은 무시되고, 남은 청크 그래프는 그대로 유효하다(테스트).\n\n[런타임 간선 추가/제거]\n- NavGraph 오버레이(청크별):\n  - blockCount Uint8Array(셀 수): 겹침 카운트\n  - runtimeLinks[]\n- API:\n  - addBlocker({center, half, yaw, flags}) → id. 셀 사각형을 래스터하고 blockCount++.\n  - removeBlocker(id)\n  - addLink(aPos, bPos, flags, param) → id. 최근접 셀로 해석한다.\n  - removeLink(id)\n  - resetRuntime(): 전부 비우고, id 카운터 0, version++.\n- 정적 BVH 재빌드(49–270 ms)나 재굽기와 무관하다.\n- P4C 자라 spawnSurface는 같은 서브스텝에 파사드 addBlocker를 직접 부른다. 신규 이벤트가 필요 없다.\n- 섹터 캐시는 version으로 무효화한다.\n\n[이동 능력 플래그]\n- 간선 flags: WALK 1, JUMP 2, DROP 4, VAULT 8, CROUCH 16, RUNTIME 128.\n- 에이전트 = {radius, height, crouchHeight, abilities 비트, jumpApex = jumpSpeed²/(2·20.6), maxDrop}. 캐릭터 movement 데이터에서 유도한다.\n- 통행 조건(모두 만족):\n  - (flags & ~abilities) == 0\n  - clearance ≥ radius\n  - headroom ≥ (CROUCH ? crouchHeight : height)\n  - JUMP면 param ≤ jumpApex\n- VAULT는 abilities에 'vault'가 있는 캐릭터(견우)만 통과한다.\n- stepHeight는 전 캐릭터 0.42로 스키마가 강제한다. 다르면 WALK 분류가 캐릭터별이 되어 '한 번 굽기'가 깨진다.\n\n[경로 탐색 — navpath.astar]\n- 그래프: 셀 8방향 + 층 전이 + 특수 간선 + seam.\n- 비용 = 거리 × 표면 비용(config) + 간선 벌점(JUMP 1.5, DROP 1.2, VAULT 3 — 튜닝값, 게이트 아님).\n- 휴리스틱 octile(허용적).\n- 이진 힙 키는 (f, h, cellId) 사전순이라 동률이 결정적이다.\n- maxExpand를 넘으면 {ok:false}를 반환한다. 조용한 부분 경로는 금지다.\n- 후처리: 여유거리를 보존하는 시선 검사(Bresenham supercover, clearance ≥ radius)로 스트링 풀링 → 꺾임점.\n- 섹터 HPA*는 같은 인터페이스 뒤의 캐시다. 셀 A*를 정확성 기준으로 두고, 추상 경로는 비용 비율만 검사한다.\n\n[결정성·resetState]\n- 굽기는 StaticWorld 배열과 params의 순수 함수다(배열 순서 순회, Math.random·시간 없음). 2회 굽기 결과가 바이트 동일해야 한다.\n- 질의는 상태를 바꾸지 않는다.\n- 오버레이 변경은 시뮬 서브스텝 안에서 결정적 순서로만 일어난다.\n- resetState: ⑥ world.resetDynamic 다음에 nav.resetRuntime()을 부른다.\n  - 부팅 오버레이는 빈 상태다. pruneRuntimeBodies와 같은 '부팅 스냅샷 + 런타임 절단' 패턴이다.\n- getActorState().nav = {version, blockers, links}\n\n[현 맵 결함 처리]\n- 객사 서측 출입구:\n  - 기둥 (21,−10)이 0.49 m 틈 2개를 만든다. clearance ≈0.245는 모든 캐릭터 반경보다 작아 객사 실내가 섬이 된다.\n  - navbake 리포트가 '스폰 (0,24) 기준 도달 불가 섬' 목록에 객사를 올린다.\n  - coveraudit 1 m 격자가 같은 자리를 통과로 판정하는 것(가는 레이 2줄, coveraudit.mjs:96-104)과 갈라진다는 점도 함께 적는다.\n- 누각:\n  - 전폭 북측 난간 nu_rail_x_-1(level.js:470-473) 때문에 계단 정상→데크가 navprobe에서 JUMP로 분류된다.\n  - 그대로 기록한다. 점프 능력이 없거나 jumpApex가 모자란 캐릭터는 데크에 못 오른다.\n- 두 건 모두 P1 결함으로 보고하고, 수정 여부는 발주자가 정한다(ownerDecisions 13). 수정되면 sourceHash가 바뀌어 재굽기가 강제된다.\n- 담장 VAULT:\n  - 바깥 착지 여유가 0.015 m(갓 외연 44.645 + r 0.34 vs 지면 끝 45)라 현재 VAULT 간선은 0이다. 리포트에 '0 (착지 셀 없음)'으로 남긴다.\n  - 구조는 합성 월드 테스트로 증명한다.\n\n[오디오 연결]\n- audio-adapter.makeDetourGraph(nav).findDetours(src, lis): 반경 0.1 m 에이전트 A* 경로에서 섹터 경계 통과점 ≤2개를 우회점으로 낸다.\n- 주입(audio.setPropagationGraph, audio/index.js:83-85)은 audioaudit 재측정과 함께 한다. 발주자 청감 판정 대기 상태를 존중해, P4B에서는 어댑터와 단위 테스트까지만 한다.",
+ "ragdoll": "[PBD 표현 — src/physics/ragdoll.js, PhysicsWorld 소유(ARCHITECTURE §1 'physics: PBD 래그돌')]\n\n입자와 메모리\n- 슬롯 8 × 입자 16: 골반·가슴·목·머리끝, 좌우 어깨·팔꿈치·손목·고관절·무릎·발목.\n- 배열: Float64Array x, xPrev, invMass. massScale은 데이터에서 온다.\n\n구속(biped.ragdoll 데이터)\n- ① 막대(뼈 15): |xi−xj| = L. L은 사망 순간 자세에서 잰 길이라 캐릭터 비례를 자동으로 따른다.\n- ② 버팀대(몸통 강성): 어깨–어깨, 고관절–고관절, 교차 4. 강성 0.9.\n- ③ 각도 한계 = 비인접 입자 거리 [min, max].\n  - 무릎: 고관절–발목 ∈ [k_min·(L1+L2), L1+L2]. 팔꿈치·척추 굽힘(머리끝–골반)·목도 같은 방식이다.\n  - 비율 k는 데이터 값이다.\n- ④ 경첩 반공간: 무릎·팔꿈치는 골반 프레임 전방으로만 굽는다. (x_관절 − 양끝 중점)·n ≥ 0으로 투영한다.\n- 각도 제한을 쿼터니언이 아니라 거리·반공간으로 두는 이유: 분기가 적고 반복 순서가 고정이라 결정적이다.\n\n뼈 프레임 복원(표현·차폐 공용, pose.framesFromParticles)\n- 프레임 = (원점 입자, 축 입자, 기준). 기준은 부모 프레임 x축 또는 입자 삼각형이고, 그람–슈미트로 직교화한다.\n- 사지 rc는 축대칭이라 비틀림이 보이지 않는다.\n- 비대칭인 몸통·머리·등껍질·치마 el은 입자 삼각형으로 정한다.\n  - 골반 = 좌우 고관절 + 가슴\n  - 가슴 = 좌우 어깨 + 목\n\n[정적 월드 충돌]\n충돌체\n- 뼈 캡슐을 원시에서 유도한다.\n  - rc: 반지름 (ra+rb)/2\n  - el: 최장 축 선분 + 최단 반축 반지름\n  - 데이터로 override할 수 있다.\n- 래그돌은 바닥 근처라 판 가시 대역(≥0.6 m) 밖이 대부분이다. 그래도 차폐 등록은 유지한다.\n\n서브스텝마다\n- (a) 브로드페이즈: 래그돌 전체 AABB(+0.3 m)로 queryAabb(MASK.CHARACTER)를 1회 부르고, 결과를 래그돌 전용 Int32Array로 즉시 복사한다. 공유 스크래치 _cand가 재진입으로 오염되는 것을 막는다(bvh.js:661-666).\n- (b) 내로페이즈: 뼈마다 후보 삼각형 vs 선분을 segTriangleClosest(math.js:224)로 직접 푼다.\n  - 모듈 _tmp를 공유하므로 순차 호출만 한다.\n  - overlapCapsule을 15번 부르는 것보다 BVH 순회가 15회에서 1회로 준다.\n  - 접촉 = (n, depth, s).\n\n접촉 합산 문제\n- overlapCapsule 계열은 삼각형마다 접촉을 1개 내고, 256개에서 조용히 자른다(bvh.js:781-832).\n- 처리:\n  - 뼈별 접촉을 깊이 내림차순·삼각형 번호 오름차순으로 정렬한다.\n  - character.js:364-378의 'already/extra' 누적을 쓴다: applied 벡터에 대해 extra = depth − dot(applied, n), extra > 0일 때만 applied += n·extra. 같은 면의 테셀레이션 접촉이 중복으로 밀지 않는다.\n  - |applied| ≤ 0.25 m/서브스텝(maxPush 감쇠).\n- 끝 입자 분배: Δx0 = applied·(1−s)·w, Δx1 = applied·s·w, w = 1/((1−s)² + s²). 접촉점 보정이 정확히 applied가 되도록 한다.\n- 노멀은 최근접 방향(삼각형→뼈)이다.\n  - d≈0(관통)이면 면 노멀을 쓰되, 부호는 '이전 서브스텝 뼈 중점이 있던 쪽'(dot(n, xPrevMid − 접점) > 0)으로 정한다.\n  - 와인딩 반전 셸에서 안쪽으로 미는 오류를 막는다.\n\n얇은 콜라이더 터널링(HANJI 0.3 mm 상자, 창살 24 mm)\n- 입자 변위 |x−xPrev| > 0.5·r_입자이면 sweepCapsule(p0=p1=xPrev, r, dir, dist)로 처리한다(bvh.js:672-775, 보존적 전진 참 TOI, 터널링 없음).\n- TOI−1 mm에서 클램프하고, xPrev는 접선 성분만 남긴다(반발 0).\n- 뼈 캡슐이 얇은 판을 걸치는 경우는 (b)의 이전 쪽 부호 규칙이 막는다.\n\n마스크·상호작용 범위\n- 마스크는 MASK.CHARACTER다. 창호지를 뚫지 않고, 연못 물은 통과해 바닥에 눕는다. 액터 이동과 같은 규칙이다.\n- 래그돌 ↔ 강체(상자·파편)와 래그돌끼리는 상호작용하지 않는다. 기존 '강체끼리 충돌 없음' 규칙과 같고, 기록으로 남긴다.\n\n[스텝·반복 순서]\n- PhysicsWorld.step(dt): rigid.step → ragdoll.step → 표시 동기화(index.js:81-91 확장). core simSubstep 순서는 바꾸지 않는다.\n- ragdoll.step(PHYSICS_DT):\n  - 슬롯 0..7 순서로, 깨어 있는 것만 돈다.\n  - ① Verlet: v = (x−xPrev)·(1−0.02), xPrev = x, x += v + g·dt². g = −20.6이고, rigidbody.js:217과 같은 값을 physics.gravity로 공유한다.\n  - ② CCD 클램프(입자 순).\n  - ③ 반복 8회 고정: 막대 → 버팀대 → 한계 → 경첩 → 충돌(뼈 순).\n  - ④ 마찰: 접촉 입자의 접선 변위를 SURFACE_PROPS 마찰계수로 감쇠한다.\n- 모든 순회는 데이터 배열 순서이고, 객체 키 순회는 없다.\n\n[슬립]\n- 서브스텝 최대 변위 < 2e-4 m가 60 서브스텝(0.5 s) 이어지면 sleeping이 된다(위치 동결, 해시 확정).\n- 720 서브스텝(6 s)에서 강제로 슬립한다. 최종 자세가 항상 유한 스텝 안에 확정된다.\n- 타이머는 서브스텝 카운터다. clock.time은 서브스텝 해상도가 아니기 때문이다(clock.js:43-59).\n\n[풀링]\n- 슬롯별 typed array와 구속 테이블은 부팅에 할당한다(DEBRIS_POOL 선례 main.js:163-170). 사망 시 할당은 0이다.\n- RigidBody로 만들지 않는 이유:\n  - rigid.bodies 개수(playtest '상자 3' 단정, playtest.mjs:153-154)에 섞이지 않는다.\n  - maxBodies 256 축출에 걸리지 않는다.\n  - 전역 _nextId(rigidbody.js:23)와 무관하다.\n- 표시는 액터의 같은 SkinnedMesh다(ActorView가 본 출처를 래그돌 프레임으로 바꿀 뿐). 래그돌 전용 메시와 프로그램은 0이다.\n\n[actor:death 배선]\n- src/ai/death.js installDeathHandler가 bus.markBoot() 전에 구독한다(events.js:78-92; 이후 구독은 resetToBoot가 끊는다).\n- payload: {actorId, impulseWorldPos, impulse} (events.js:28, ARCHITECTURE.md:149).\n- actorId = 'a'+slot. 슬롯에서 결정하고, 전역 카운터는 금지다.\n- 처리 순서:\n  - actors.markDead(slot)\n  - 시뮬 진짜 리그 관절 위치(pose.evalPose → 관절 원점)와 액터 속도로 physics.spawnRagdoll(slot, joints, vel, impulseWorldPos, impulse)\n  - xPrev = x − v·dt\n  - 충격은 impulseWorldPos 최근접 입자 2개에 거리 가중 Δv = J·w_i/m_i로 준다.\n- 난수는 없다.\n- 발행은 P4C 데미지가 한다. P4B에서는 테스트 debugKillActor가 한다.\n- 같은 서브스텝 안 동기 처리라 결정적이다.\n\n[최종 자세 해시 검증]\n- state(slot) = {active, sleeping, steps, hash}\n- hash: 슬립 시 입자 좌표를 Float32Array로 양자화한 바이트의 FNV-1a 32 + steps.\n\n① test/ragdoll.test.mjs (노드, 헤드리스 buildWorld)\n- 고정 자세·충격 → 슬립까지 → 해시.\n- 같은 프로세스에서 재실행, reset 후 재실행 모두 동일해야 한다.\n- NaN 0.\n- 판 na_w_-3 쪽으로 강한 충격: 입자 전부가 실내 쪽에 남는다(HANJI 상자 미관통).\n- 창살 미관통.\n- 계단·경사에서 슬립 상한 안에 정지.\n\n② playtest (브라우저)\n- debugSpawnActor → debugKillActor(고정 at·impulse) → stepFrames(360) → hash1\n- resetState → 같은 시나리오 → hash2\n- 판정: hash1 === hash2, steps 동일, resetState 직후 ragdolls 전부 비활성(잔존 0).\n\n판정 기준과 보장 범위\n- 판정은 물리 상태(입자) 기준이다.\n- '잠든 강체 미동기'(index.js:86) 패턴은 복제하지 않는다. 슬립 전이 스텝에도 프레임을 동기화한다.\n- 노드–크롬 해시 일치는 보장 범위 밖이다. 초월함수 마지막 비트가 엔진에 의존하므로, 보장은 동일 엔진 재현성으로 명시한다.",
+ "actorRuntime": "[스폰]\n- ActorWorld 슬롯은 8개다(3:3 + 예약 2). 슬롯이 곧 결정적 식별자다(actorId 'a'+slot).\n- spawn({slot, characterId, team, pos, yaw, controller:{type, params}, appearance:'default'}) 순서:\n  - 데이터를 조회한다.\n  - new CharacterController(physics.createCharacter({id, owner: actor, radius, height, stepHeight:0.42}))로 컨트롤러를 만든다.\n    - character.js는 three에 의존하지 않고(import는 math.js·surface-registry.js뿐, character.js:24-25) Math.random을 쓰지 않는다. 그래서 스폰 시 생성해도 결정성에 문제가 없다.\n  - checkCapsule로 스폰 검사를 한다. 실패하면 throw.\n  - teleport한다.\n- 자라처럼 '낮고 넓은' 윤곽: 충돌 캡슐(r .40, h 1.25 ≥ 2r — character.js:80-86 제약 충족)과 시각·히트박스 원시를 분리한다.\n- 부팅 로스터는 빈 슬롯이다. 테스트와 샷 3이 채우고 resetState가 비운다.\n- 표현은 ActorView가 부팅 풀의 SkinnedMesh를 scene.add만 한다. UUID 생성은 0이다.\n\n[컨트롤러]\n- CONTROLLERS 레지스트리: type 문자열 → 공장.\n  - idle\n  - script: runScript 형식 세그먼트\n  - navFollow: nav.findPath → 꺾임점 추종\n  - remote: P5 자리\n- update(actor, world, dt) → intent {moveX, moveZ, yaw, pitch, jump, crouch, sprint, ads}\n- 캐릭터별 코드는 없다. 속도·점프·능력은 데이터다.\n\n[이동]\n- movement.stepLocomotion은 Player.update(player.js:58-128)와 같은 적분 규칙을 데이터 수치로 돈다.\n  - 수치: walk/sprint/crouch, jumpSpeed, physics.gravity 20.6\n  - 결과 변위로 controller.move(dx,dy,dz)를 부른다.\n- Player 클래스는 P4B에서 바꾸지 않는다. SPAWN·입력·카메라가 결합되어 있어 회귀 위험이 크다.\n\n[액터 간·플레이어와 분리]\n- CharacterController는 정적 BVH만 본다. 헤드리스 실측에서 두 컨트롤러가 서로 통과했다.\n- separation.separate를 모든 이동 뒤에 1회 돈다.\n  - 순서: (player, 슬롯 0..7), 쌍 (i<j) 사전순.\n  - 수직 캡슐 두 개를 closestPtSegSeg(math.js)로 잰다.\n  - 겹침 δ = ri+rj−d > 0이면 수평 성분만 반반 나눈다. y는 0이라 바닥으로 밀지 않는다.\n  - 각자 controller.move(dx,0,dz)를 부른다. 벽을 뚫지 않는 것은 collide-and-slide가 보장한다.\n- 사망·래그돌 슬롯은 제외한다.\n- 플레이어는 harness 배선이 player 컨트롤러를 넘길 때만 참여한다.\n\n[히트박스 — P4B 범위와 P4C 경계]\n- hitbox.rayActor는 진짜 리그(서버 권위)의 원시 월드 좌표에 대한 해석 교차다. 원시 좌표는 rig.primsToWorld가 시뮬 포즈로 만든다.\n  - rc: 원뿔대 이차식 + 두 반구\n  - el: 단위구 변환\n  - 진입·출구 t와 법선을 구하고, 액터별로 구간을 합집합한다.\n- 반환 층은 firecontrol 체인 병합 형식과 맞춘다(firecontrol.js:128-150): {surface, thicknessCm, entryT, exitT, objectId:-1, objectName:'actor:a<slot>', actor, hitZone}.\n- 화면 실루엣(외견) ≠ 맞는 몸(진짜)이 되는 경우는 변장뿐이고, 의도된 기만이다(§4-1-C).\n- P4C로 미루는 것(P4B는 API와 단위 테스트까지):\n  - 체인 통합: main.js:106-109 collectBodyHits 주입 교체\n  - penetrate()와 actor:damage{hitZone, throughSurfaces, residualEnergy} 발행\n  - 아군 관통 §4-4\n- 단위 테스트는 무작위 광선 vs 촘촘한 샘플링 진리값으로 한다.\n\n[시뮬/표현 분리]\n- 시뮬 모듈은 three·src/render·src/materials를 import하지 않는다. test/sim-purity.test.mjs가 import 그래프로 검사한다.\n  - 대상: actors/{world, movement, separation, pose, rig, hitbox, state, controllers}, physics/ragdoll, ai/*\n- 시뮬 출력은 typed array다(boneWorld, prims).\n- 표현 모듈(view, meshbuild, actor-look, hanji-occluders)은 publicViews()만 읽는다.\n- 보간은 없다. 현 강체 동기화(index.js:81-91)와 같다.\n- 서버는 표현 모듈 없이 시뮬만 돌릴 수 있다.\n\n[정보 은닉 경계]\n- state.js FIELD_VISIBILITY:\n  - public: {slot, apparentCharacterId, apparentTeam, pos, yaw, pitch, poseParams, alive, ragdollFrames, footstepProfile}\n  - owner: {hp, ammo, cooldowns, activeSkill}\n  - server: {trueCharacterId, trueTeam, modifiers, controller 내부, rng 커서}\n- publicView(state, viewerTeam)는 viewerTeam === trueTeam이면 진짜 신원을, 아니면 외견을 화이트리스트로 복사한다. 표에 없는 키는 객체에 아예 없다.\n- ActorView와 HanjiOccluders는 이것만 받는다. 그래서 흥부 변장 시 메시·팀 accent·창호지 실루엣이 도깨비로 그려지고, 히트박스와 footstepProfile은 진짜로 남는다. footstepProfile은 audio가 appearance 밖에 있어 진짜 값이 유지되며, 이는 의도된 단서다(§4-1-C).\n- 직렬화 경계 snapshotFor는 P5에서 그대로 패킷이 된다(§5 '패킷 하나로 스킬이 죽는다' 방지).\n- rng가 필요하면 rngStream('actor:a'+slot)을 쓸 때마다 받는다. 'audio:' 접두와 겹치지 않게 하고, 캐시는 금지다.\n\n[simSubstep 통합 — harness.js:108-116]\n1. consumeWeaponSwitch\n2. player.update\n3. actors.update(PHYSICS_DT, player): 컨트롤러 → 이동 → 분리 → 포즈 → 히트박스 원시. 히트박스가 이 서브스텝 위치를 보도록 fire 앞에 둔다.\n4. fire.update\n5. fx.update\n6. physics.step(rigid → ragdoll)\n- realtime 루프(main.js:398)는 같은 함수라 자동으로 공유된다.\n- renderFrame: actorView.sync(actors.publicViews(localTeam), physics.ragdollFrames)를 pipeline.render 앞에 둔다. beforeRender의 hanjiOccluders.update가 같은 프레임 원시를 쓴다.\n\n[resetState 통합 — harness.js:236-262, ⑥ world.resetDynamic 다음]\n- ⑥a nav.resetRuntime()\n- ⑥b physics.resetRagdolls()\n- ⑥c actors.reset(): 슬롯 비움, 컨트롤러 해제\n- ⑥d actorView.reset(): 씬에서 떼기. 본 텍스처는 유지한다.\n- ⑥e hanjiOccluders.reset(): 액터 슬롯을 비우고, 예약 슬롯은 부팅 등록으로 복원한다. 현재 hanjiOccluders는 resetState에 없어 복원되지 않는 결함이 있다.\n- 모두 이벤트를 발행하지 않고, pipeline.reset(⑫)과 bus.resetToBoot(⑭) 앞에 온다.\n- 부팅 마감(main.js:371-379)에도 같은 리셋을 markBootBodies·bus.markBoot 앞에 넣어, 프리웜 잔여(샷 3 액터 배치)를 지운다.",
+ "silhouetteaudit": "[장면 구성]\n- setShot('hanji_silhouette')를 그대로 쓴다: 카메라 (−36.8,1.9,−10)→(−32,1.9,−10) fov 60, 태양 .02, 반구 .05, 등롱 강도(shots.js:65-78).\n- __harness.silhouetteAuditSetup() — fixed·busy 가드, albedoAuditSetup 패턴(harness.js:557-578)\n  - 하는 일: 액터 전부 해제, 차폐 슬롯 초기화, cameraOverride 설정.\n  - 반환:\n    - 판 na_w_-3_hanji 월드 네 모서리·법선\n    - 광원 lantern_light_na 위치·강도·distance·decay\n    - 앵커 silhouette_anchor 위치와 판까지 거리\n    - 카메라 proj/view·뷰포트\n    - 창살 상자 월드 AABB 목록(HANJI_LATTICE 배치)\n    - 바닥 y\n- 배치를 상수로 복제하지 않고 이름으로 읽는다. shots.js:30·67 주석이 낡아 있기 때문이다.\n- 가드:\n  - 앵커→판 평면 거리 = 2.5 m(|오차| ≤ 1 mm)\n  - 카메라 = 샷 정의값\n  - 어긋나면 exit 1. '조명이 아니라 거리를 바꿔 통과하는 것'을 막는다(PATCH-008-B).\n- 더미 처리:\n  - 교체 승인 전: silhouette_dummy 메시를 visible=false로 두고 레거시 차폐도 delete한다. 메시를 숨겨도 차폐는 남는다(update가 가시성을 검사하지 않음, hanji-occluders.js:47-57).\n  - 교체 승인 후: 레벨에 더미가 없다.\n\n[상태 순서 — 한 페이지, 부팅 1회]\n① 기준 R(액터 없음)\n- stepFrames(90): 계약 FIXED_STEP_FRAMES, 노출 적응.\n- lockExposure(): 적응 EV를 고정한다. JSON에 exposure.locked = ev, 근거 PATCH-015-E를 남긴다.\n- resetTemporal(): TAA·prevVP만 초기화하고 노출은 건드리지 않는다.\n- stepFrames(32) → capturePng.\n\n② 상태 (c, o)\n- silhouetteAuditPlace({character:c, yaw:o, pose:'idle'})로 슬롯 0에 앵커 위치·idle 자세로 배치한다. 시뮬 변경은 resetState로 복원된다.\n- resetTemporal() → stepFrames(32) → capturePng.\n- 순서 고정: 캐릭터 id 사전순 × (front = 판을 향함, side = −z를 향함).\n- N=32는 착수 때 1회 정한다: R에서 32프레임과 64프레임의 판 영역 평균 절대차가 8비트 양자화 1단계 이하인지 확인한다.\n\n[실루엣 추출 — 차분 방식]\n- 캡처를 sRGB→선형으로 바꾼다. viewmodelaudit.mjs:56-77의 lin()을 쓰고 Rec.709로 가중한다. 장치 해상도 3024×1964.\n- 판 사각형(모서리 투영) 안 장치 화소마다 판 평면 좌표(u_p, y_p)를 구한다. 판이 평면이라 호모그래피로 정확하다.\n- 등롱 역투영으로 액터 공간 좌표를 구한다.\n  - u_a = u_L + (u_p−u_L)/m\n  - h_a = y_L + (y_p−y_L)/m − y_floor\n  - 확대를 되돌려 축 값이 액터 미터 단위가 된다.\n- 유효 화소 V = 창살 상자 투영 마스크(2 px 팽창)의 여집합. 창살 화소는 R과 c 모두 어두워 차분이 0이 되기 때문에 뺀다.\n- 어둡힘 D = 1 − L_c/L_R (같은 화소, 노출 고정).\n- 실루엣 S = D ≥ 0.5.\n  - 대칭 반그림자의 중점이 기하 그림자 경계다. 판정 임계가 아니라 '경계의 정의'다.\n\n[4축의 수치 정의 — 정의는 설계, 비교 임계는 발주자]\n- 높이 H\n  - S의 액터 공간 최고 행(0.01 m 행, 그 행에서 V로 정규화한 폭 > 0).\n  - S가 대역 상단 행에 닿으면 clipped=true. 그 상태의 높이 축은 '판정 불가'로 표시하고, 다름으로 세지 않는다.\n- 윤곽 폭 분포 W\n  - [h0(대역 하단), H]를 12등분한다.\n  - 각 칸의 평균 폭 w = (Σ_u S·V / Σ_u V) × 판의 액터 공간 폭 [m].\n  - 쌍 차이 = Σ|W_a − W_b| / Σ max(W_a, W_b).\n- 상하 질량비 Q\n  - 자기 중점 h_mid = (h0+H)/2 위/아래의 S 면적비(V 정규화).\n  - 쌍 차이 = |Q_a − Q_b| / max.\n- 돌출부 위치 P\n  - S 무게중심 기준 16섹터(22.5°)마다 최원점 거리 r_k를 잰다. 대역 하단 클립 행의 화소는 제외해, 인공 모서리를 돌출로 오인하지 않는다.\n  - r_k/median(r)이 최대인 섹터 θ*와 그 점의 높이 h*.\n  - 쌍 차이 = 섹터 거리 ≥ 2 또는 |h*_a − h*_b| / max(H_a, H_b).\n- 비교 규칙 후보: 축마다 '상대차 15% 초과', 쌍 통과 = 축 ≥ 2.\n  - 기존 계약값 VISUAL_REL_MIN·VISUAL_AXES_MIN(fx-look.js:65-66; '기존 판정(최소 2축 상대차 15% 초과)', CONTRACT-NOTES:1764, 발주자 지시 2026-09-20)을 재사용한다.\n  - 섹터 거리 2(=45°)는 이 설계의 후보다.\n  - 전부 **발주자 확정 대기**다(014-C 원칙, CONTRACT-NOTES:1991-1998 오류 기록).\n  - 감사는 원값과 상대차를 모두 JSON에 낸다. 규칙 상수는 silhouette-metrics.js의 SILHOUETTE_AXIS_RULE 한 곳(status 'pending-owner')에만 둔다.\n  - 상태별 판 크롭·D 맵·S 오버레이 PNG를 --out에 저장해 발주자 판정 자료로 쓴다.\n\n[쌍 판정]\n- 쌍 = 기본 외견끼리 C(n,2) — n=4이면 6쌍 — × 방향(front, side).\n- 한 방향이라도 축 < 2이면 exit 1. 방향 범위는 ownerDecisions 6.\n- 설계 목표는 6쌍 모두 3축 이상이다(characterData 형상 의도, silhouettepredict로 사전 확인).\n- 비공허 조건(−1-C): n ≥ 2, 쌍 ≥ 1, 각 상태 |S| ≥ 1, |V ∩ 판| ≥ 1. 아니면 exit 1.\n\n[대비 공식·해상도]\n- C = 1 − mean(L_c[core]) / mean(L_R[core])\n  - core = S를 반그림자 반폭(판 위 soft·m/2를 장치 px로 환산)만큼 침식하고 V와 교집합한 것.\n  - 반그림자를 빼고 본영만 재는, 같은 화소 기준의 Weber 대비다(표시 선형).\n- 참고값으로 '같은 프레임 고리 대비'(S 바깥 12–40 px 고리 평균 대비)도 낸다. 008-B 수치 .315와 비교하기 위해서다.\n- 판정: 각 상태 C ≥ 0.15. 계약값이다(P4-BRIEF §3-2; CONTRACT-NOTES:1632 '판독 불가 = 대비 < 0.15').\n- 공식 확정은 ownerDecisions 5.\n- 해상도는 계약 VIEW 1512×982 dpr 2다. 도구 기본값 = 계약 조건(HARNESS.md:25-27). 구멍 판독 해상도 확정(CONTRACT-NOTES:1746)과 같다.\n\n[충실도 대조 — 보고, 기준은 발주자]\n- (a) 메시 투영\n  - 페이지가 돌려준 등롱·판·앵커·boneWorld로, 노드가 meshgen 삼각형을 등롱 시점에서 판 평면에 투영·래스터한다(판 2 mm 격자). 이것이 메시 본영이다.\n  - S와 IoU, 경계 편차 p95(px)를 낸다.\n- (b) 예측–실측\n  - occlusion-math.js(셰이더 JS 미러)로 같은 화소의 V_pred를 구하고 |D − (1−V_pred)|의 평균·p95를 낸다.\n  - 셰이더–JS 발산, 텍스처 패킹 오류, 판 마스크 컬링 버그를 잡는다.\n- 후보 기준: 경계 편차 p95 ≤ 판 위 반그림자 반폭(B 조명에서 ≈0.051 m ≈18 장치 px, 물리량).\n\n[원거리 형체 관찰]\n- 기준 R 캡처의 판 영역에서 저주파 휘도 변동을 보고한다(P4-BRIEF:58, W1 처분). 판정은 하지 않는다.\n\n[팀 색 분리 정적 검사 — 브라우저 전 단계]\n- checkTeamColors(src/materials/team-bands.js):\n  - ① TEAM_BANDS 두 구간이 paletteInBand 대역 안에 있다. fx-look.js:112-120을 import해 쓰고 사본을 만들지 않는다.\n  - ② 두 구간의 원형 교집합이 공집합이다.\n  - ③ 각 캐릭터의 모든 재질 슬롯 레시피 유채색(s ≥ 0.10, CHROMA_SCALE 반영 sRGB HSV)이 상대 팀 구간 밖에 있다.\n  - ④ accent 슬롯은 자기 팀 구간 안에 있다.\n- 실패하면 problems에 넣고 exit 1.\n- --lineup(보고 전용): 마당 주간 라인업 캡처의 팀 화소 색상 분포.\n\n[음성 --test-clone A=B → 케이스 22]\n- 측정할 때 B를 silhouetteAuditPlace({character:B, shapeOf:A})로 배치한다. A의 부팅 메시를 재사용하므로 런타임 지오메트리 생성은 0이다.\n- testOverride 'silhouette clone A=B — harnesstest 전용, 계약 판정 무효'를 남긴다. 잘못된 키는 exit 2.\n- harnesstest는 --only A,B --orient front로 상태 3개(R, A, B≡A)만 돈다.\n- 기대: 쌍 (A,B) axes=[] → problems 기록 → exit 1.\n- 두 번째 음성 --test-team-overlap: TEAM_BANDS 사본의 인간계 구간을 이세계 구간과 겹치게 한다. 정적 단계에서 exit 1이 나고 브라우저는 뜨지 않는다.\n- harnesstest 판정: 둘 다 exit===1 ∧ 표식 ∧ 구체 증거(쌍 axes 길이 0 / team.problems 비공허). 다른 이유로 난 exit 1은 불통과다(harnesstest.mjs:464-481 패턴).\n\n[선언 예외(P4D)]\n- 데이터 silhouette.identicalTo[{state, character, reason}].\n- 감사는 기본 외견 쌍 C(n,2)를 전부 판정한다. 흥부 기본 ↔ 도깨비도 다르게 나와야 한다.\n- 선언된 상태쌍 (흥부@disguise, 도깨비)만 측정·보고하고 면제한다.\n- 선언되지 않은 동일쌍은 exit 1.\n- 케이스 22의 복제쌍은 선언되지 않으므로, 예외를 도입한 뒤에도 exit 1이 유지된다.\n\n[게이트·CI 배치]\n- gates.sh:67의 자리표를 viewmodelaudit 뒤(렌더 도구 묶음)로 옮겨 주석을 푼다: run silhouetteaudit node tools/silhouetteaudit.mjs.\n- 그대로 두면 harnesstest 잡과 statics 잡 사이에 떨어져 coverage가 MISSING이 된다.\n- gates.yml에 새 잡 'silhouette'(GATES_FROM=silhouetteaudit GATES_TO=silhouetteaudit, timeout 360)을 post와 profile 사이에 둔다. post 잡의 180분 상한을 보호하기 위해서다.\n- coverage 잡은 --list로 자동 대조한다.\n\n[소요 시간 추정 — 미측정]\n- baseline 12샷이 3 h 42 m(P4-LOG.md:38) → 샷당 ≈18.5 min(부팅 + 90프레임) → 프레임당 ≈10 s(DPR2) 정도로 본다.\n- 게이트: 90 + 32×9 = 378프레임 + 부팅 ≈65–70 min.\n- 케이스 22: 90 + 32×3 = 186프레임 ≈35 min.\n- HANJI 원시 평가 비용이 더해진다. 단독 실측 후 상한 = 실측 × 2.5(HARNESS.md:270)로 잡고, detail에 timedOut을 남긴다.",
+ "exposureFreeze": "[동결 대상]\n- pipeline.js:51 EXPOSURE_PARAMS 7개: ec 1.0, evMin 1.0, kneeSlope 0.2, evMax 14.0, rateUp 3.0, rateDown 1.5, centerWeight 0.35.\n- 셰이더에 박힌 계량·범위 상수:\n  - 하드 하한 오프셋 3.0 (exposure.js:85 'evMin − 3.0')\n  - 목표식 계수 8 (log2(8·lavg), :83)\n  - 미터 64² / 축소 8² / 탭 16 (METER_N·REDUCE_N)\n- 묶음:\n  - 범위 = {evMin, evMax, kneeSlope, floorOffset}\n  - 속도 = {rateUp, rateDown}\n  - 계량 = {ec, centerWeight, k, meterN, reduceN, taps}\n- 브리프는 범위와 속도만 말한다. 하지만 계량이 바뀌면 같은 범위·속도라도 판정이 달라지므로, 한 계약 객체로 같이 묶는다.\n- 서버 권위 판정에는 노출을 쓰지 않는다. 노출은 클라이언트 표현이지만 게임플레이 변수이므로 계약값으로 고정한다(§5-1 ⓐ).\n\n[방법 1 — 구조적 읽기 전용]\n- src/render/exposure-contract.js:\n  export const EXPOSURE_CONTRACT = deepFreeze({version:1, status:'provisional', range:{evMin:1.0, evMax:14.0, kneeSlope:0.2, floorOffset:3.0}, speed:{rateUp:3.0, rateDown:1.5}, metering:{ec:1.0, centerWeight:0.35, k:8, meterN:64, reduceN:8, taps:16}})\n- ExposureMeter 생성자는 params 인자를 받지 않는다(exposure.js:112-118 폐지). this.params는 평탄화된 frozen 뷰다.\n- ADAPT_FRAG·METER_FRAG의 3.0·8.0·64 등은 템플릿으로 계약에서 주입한다. 중복 리터럴을 없앤다.\n- pipeline.js:51 EXPOSURE_PARAMS는 삭제한다(단일 출처).\n- window.__pipeline(main.js:368) 경유 대입은 strict 모듈에서 TypeError가 난다.\n\n[방법 2 — 런타임 일치 검사]\n- render()는 매 프레임 계약에서 유니폼을 다시 쓴다. exposure.js:156-160의 '조정 프로브가 params를 바꿀 수 있다' 경로는 폐지한다.\n- uniformsMatchContract()를 둔다.\n- harness.getInvariants().exposure = {version, hash(FNV-1a of canonical JSON), ok}\n- playtest 판정: ok === true ∧ hash === node가 계산한 계약 해시.\n\n[방법 3 — 음성]\n- (a) test/exposure-contract.test.mjs:\n  - 대입하면 throw\n  - 셰이더 소스에 계약 값 문자열이 있다\n  - 계약 해시가 CONTRACT-NOTES 기록값과 같다\n  - 변조한 사본으로 검사 함수가 실패한다\n- (b) playtest --inject-exposure-drift:\n  - _internal.pipeline.exposure.render를 감싸, 원본 실행 직후 adaptMat.uniforms.rateUp.value = 9로 바꾼다.\n  - ok=false → exit 1 + testOverride → harnesstest 신규 케이스(번호는 장부 순번).\n\n[측정 고정 훅 개정]\n- debugFreezeExposure(harness.js:501-504)의 문제:\n  - render를 no-op로 바꿔 resetState로도 풀리지 않는다.\n  - 표식이 없다.\n  - 도구 사용처가 0건이다.\n- exposure.lock(ev)/unlock()으로 대체한다.\n  - ADAPT_FRAG에 uniform lockOn·lockEv를 넣는다: ev = lockOn>0.5 ? lockEv : 적응식. 프로그램 수는 그대로다.\n  - exposure.reset()(resetState → pipeline.reset 경로)이 unlock + snap을 한다.\n- 잠근 도구는 JSON에 exposure.locked를 남긴다(PATCH-015-E '노출을 고정하고 그 사실을 명시').\n- silhouetteaudit은 기준 프레임의 적응 EV로 잠근다.\n\n[플레이테스트 근거 측정 — tools/exposureprobe.mjs, 보고 전용·게이트 아님]\nfixed 모드, 계약 VIEW.\n- E1 실루엣–노출 민감도\n  - 샷 3(액터 토끼)의 적응 EV에서 ±0.5·±1 EV로 잠근다.\n  - 대비 C와 실루엣 화소 수를 잰다.\n  - 핵심 메커닉이 노출에 얼마나 기대는지 보여준다(§5-1 ⓐ '판독 자체가 노출에 달려 있다').\n- E2 실내외 전환\n  - lantern_night 조명에서 마당→내아 출입구→실내로 debugCamera 경로를 프레임당 고정 거리만큼 이동한다.\n  - EV(t) 궤적에서 상승·하강의 t50·t90을 구하고 rateUp/Down과 비교한다.\n- E3 섬광\n  - 어두운 실내에서 light:transient 풀(총구화염 점광, P4C 도깨비불의 대리)을 1회 터뜨린다.\n  - EV 하강폭과 회복 시간, 즉 '주변이 어두워져 있는 시간'을 잰다.\n- E4 극단\n  - S02 #4·S11 #5 해당 샷의 클립(≥254)·뭉개짐(≤1) 화소 비율.\n  - 현재 값과 발주자가 고른 후보 값을 비교한다.\n- 출력: EV 궤적 JSON + 대표 캡처.\n- 숫자로 값을 고르지 않는다. 후보 몇 개의 캡처와 궤적을 발주자가 보고 정한다(014-C).\n\n[시점]\n- 충돌: CONTRACT-NOTES:2087 'P4B 착수 전' vs 브리프 '값은 플레이테스트로 정하라'(P4-BRIEF:805).\n- 해소안:\n  - ① 착수 즉시 현재 값으로 구조를 동결한다(version 1, status 'provisional'). 이후 P4B 작업이 노출을 몰래 바꿀 경로를 닫는다.\n  - ② 액터와 샷 3 교체가 끝난 뒤 exposureprobe로 실측한다.\n  - ③ P4B 종료 전 발주자가 확정한다 → status 'contract'.\n    - 값이 바뀌면 version 2로 올리고, CONTRACT-NOTES에 기록하고, baseline을 재기준한다.\n- §8-5 보고에 궤적과 캡처를 첨부한다.",
+ "integrationAndTests": "[core/harness.js]\n- simSubstep(108-116): player.update 뒤, fire.update 앞에 actors.update(PHYSICS_DT, player). physics.step에 래그돌이 포함된다.\n- renderFrame(122-150): pipeline.render 앞에 actorView.sync().\n- resetState(236-262): ⑥a–⑥e (actorRuntime 참조).\n- 신규 API:\n  - getActorState() → {slots[{slot, active, alive, pos, yaw, controller}], ragdolls[{slot, active, sleeping, steps, hash}], nav{version, blockers, links}, occluders{actorSlots, legacy}, exposure{version, hash, ok}}\n  - debugSpawnActor(spec), debugDespawnActor(slot), debugKillActor({slot, at, impulse}), debugActorIntent(slot, intent) — fixed·busy 가드, 시뮬 창 밖에서만 상태 변경\n  - silhouetteAuditSetup(), silhouetteAuditPlace({character, yaw, pose, shapeOf?}) — shapeOf는 testOverride를 세운다, silhouetteAuditClear(), resetTemporal(), lockExposure()/unlockExposure()\n- getInvariants(293-320)에 추가: actors(유한성, 액터 캡슐 정적 침투), ragdolls(유한성), exposure.\n- getSceneTriangles groupOf(428-435)에 'actor_' 그룹과 byActor.\n- compileLog 태그 수정: 598-601의 'SKINNING' 문자열 탐색은 three 비트마스크 키에서 절대 맞지 않는다. 재질 이름 'ACTOR_'와 program.name으로 태그한다.\n- debugFreezeExposure를 대체한다.\n- _internal(581)에 actors·actorView·nav·ragdolls를 추가한다.\n\n[main.js] 순서\n1. 재질 합성: createActorMaterials를 synth.dispose 전에.\n2. buildWorld → bakeGroundAo → physics.build\n3. nav = NavGraph.load(GWANA_NAV_BAKED, physics.static) — 해시 불일치 시 throw\n4. actors = new ActorWorld(...)\n5. actorView = new ActorView(...): 풀, Skeleton, computeBoneTexture, patchMaterial\n6. HANJI 패치·syncPaneUniforms(334) 뒤에 hanjiOccluders.registerPane(판 목록 131-143 재사용)\n7. installDeathHandler(bus.markBoot 전)\n8. applyShot에 shot.actors 처리(배치만 — 프리웜 경로에서도 시뮬 진행 0)와 lantern intensityScale 한 줄\n9. 부팅 마감(371-379)에 actors/actorView/nav/ragdoll/occluders 리셋\n10. installHarness ctx에 추가\n- 148행 더미 등록은 교체 승인 시 삭제한다.\n\n[world/level.js] (발주자 결정 2·3 뒤)\n- silhouette_dummy 메시와 FABRIC 콜라이더(355-365)를 이름 앵커 Object3D 'silhouette_anchor'(−29.5, 1.0, −11.5, 지오메트리 없음)로 바꾼다.\n- 등롱(594-606)은 앵커 상대 상수로 둔다(B: +6.7 m, y 2.0). userData.intensityScale도 넣는다.\n\n[tools/shots.js]\n- hanji_silhouette에 actors:[{character:'tokki', anchor:'silhouette_anchor', yaw:'front'}]\n- audit 대상(72)을 'actor_s0'으로. minAreaPct 0.5는 유지한다.\n\n[prewarm]\n- 코드 변경은 없다. 샷 3에 액터가 보이므로 compileAsync가 스킨 forward를 만들고, 실렌더가 CSM 깊이 스킨과 GTAO 노멀 스킨을 만든다.\n- 부팅 후 compileLog에서 ACTOR_ 프로그램 3종을 확인한다.\n- 최종 판정은 profile compiledDuringPlayStrict(336-345) = 0이다.\n- 예상 programs 44 → 47. 태그마스크 스킨 2는 캡처 뒤 표식된다.\n\n[기존 도구 변경]\n- profile.mjs:\n  - 예산은 p3 그대로 둔다.\n  - trisScene.byGroup.actor·byActor를 보고한다.\n  - 캐릭터별 ≤25,000(계약값) 위반 시 실패 항목을 둔다. 1차 판정은 노드 테스트다.\n- baseline.mjs: 사이드카에 getActorState 해시를 넣어 2회 비트 동일 대상에 포함한다.\n- shotaudit.mjs: 노드 buildWorld에 샷 3 actors를 meshgen+meshbuild로 배치한다. 반투과 HANJI 너머 관측 규칙은 그대로다.\n- playtest.mjs: fullState(249-259)에 getActorState를 넣는다. 신규 검사:\n  - actor_reset_byte_identical: 2명 스폰·이동·분리·1명 사살·래그돌 → resetState → pristine과 바이트 동일\n  - ragdoll_final_pose_deterministic: 2회, 사이에 resetState. hash·steps 동일, 잔존 0\n  - actors_no_overlap: 액터끼리·플레이어와 겹침 ≤1 mm\n  - occluder_slots: 4명 동시 등록, 레거시 3번째 set이 throw\n  - nav_runtime: 블로커로 경로 변경, removeBlocker·resetState로 원복\n  - exposure_contract ok\n  - crates_exist = 3 유지\n  - 음성 플래그: --inject-exposure-drift, --inject-ragdoll-rng(충격 분배에 Math.random → 시뮬 창 오류), 각 exit 1\n- surfaceaudit.mjs: 캐릭터 데이터 전 원시의 surface ∈ SURFACES, meshgen 그룹별 표면 매핑. buildWorld 밖 캐릭터도 대상이다(PATCH-010-C).\n- harnesstest.mjs:\n  - 케이스 22: silhouetteaudit 음성 2건\n  - playtest 신규 음성 2건(번호 장부 순번)\n  - 헤더 목록(8-36) 갱신\n  - 타임아웃 = 실측 × 2.5\n- gates.sh / gates.yml / HARNESS.md:\n  - 67행 자리표를 viewmodelaudit 뒤로 옮겨 주석 해제\n  - CI 잡 'silhouette' 추가\n  - HARNESS.md 도구 표(40-54)와 브라우저 도구 표(65-66)에 행 추가\n- pixelowner.mjs: 사용 예 주석의 --hide silhouette_dummy → actor_s0\n\n[단위 테스트 — node --test, npm test = gates.sh:74]\n| 테스트 | 검사 |\n|---|---|\n| actor-data | 스키마, v1 fixture 4종, src 내 캐릭터 id 리터럴 0, 선언 예외 참조 유효 |\n| actor-pose | 결정성, 유한, 관절 연속 |\n| actor-mesh | 삼각형 ≤25k, 정점이 원시 표면 위 \\|sdf\\| ≤ 1e-5, 강체 가중, UV 범위, 그룹↔슬롯, 2회 바이트 동일 |\n| actor-proxy | 단일 rc = 옛 캡슐 공식, 합집합 겹침 이중 어둡힘 없음, 메시 투영 vs 해석 마스크 IoU 보고(허용치 = 테셀레이션 새그 유도값) |\n| silhouette-metrics | 합성 마스크 지표값, 복제 → 0축, v0 6쌍·v1 28쌍 예측 보고 |\n| hanji-occluders | 텍스처 패킹, 뷰 변환, 판 마스크 컬링, 예약 슬롯, 초과 throw |\n| actor-world | 이동, 분리, 스폰 검사, 리셋 바이트 동일 |\n| actor-hitbox | rc·el 진입/출구 vs 샘플링, 구간 합집합, 변장 시 진짜 리그 |\n| actor-hiding | publicView 화이트리스트, 변장 흥부 공개 스냅샷 = 도깨비 외견, trueCharacterId 부재 |\n| sim-purity | 시뮬 모듈 import 그래프 |\n| ragdoll | 결정성, 리셋, HANJI·창살 미관통, 슬립 상한, NaN 0 |\n| nav | 굽기 2회 바이트 동일, seam 대칭, 청크 삭제 후 유효, 블로커, 합성 담 VAULT 능력 필터, 0.49 m 틈(r .34 차단·r .2 통과), 컨트롤러 분류 일치 |\n| nav-fresh | 커밋된 굽기 = 현재 레벨 굽기 |\n| team-color | 대역 검사 + 음성 |\n| exposure-contract | 위 방법 3 (a) |\n\n[새 게이트]\n- silhouetteaudit 1개뿐이다(브리프 §7).\n- 나머지는 기존 게이트(playtest·shotaudit·surfaceaudit·profile·baseline·npm test·harnesstest)의 인자·검사 확장이다.\n\n[계약 샷 영향]\n- 샷 3 hanji_silhouette:\n  - 더미 → 액터, 등롱 이동·강도 배율\n  - baseline 픽셀과 shotaudit 대상이 바뀐다\n  - profile 스윕 삼각형 +≈6.5k, 프로그램 +3\n- lantern_light_na가 기여하는 다른 샷(lantern_night 등)은 캡처로 픽셀 차이 여부를 확인해 보고한다.\n- 샷 수 12는 그대로다(harnesstest.mjs:558).",
+ "ownerDecisions": [
+  {
+   "question": "야간 창호지 실루엣의 원천을 바꿔도 되는가: 등록 캡슐 4개(PATCH-008-B 구현)에서 '캐릭터 형상 원시 리그'로 개정한다. 원시 리그는 둥근원뿔·타원체, 액터 슬롯 8 × 원시 24, 액터 단위 합집합이다. 캐릭터 메시도 같은 원시에서 강체 스키닝으로 만든다. (대안: 점광 큐브 그림자맵)",
+   "recommendation": "원시 리그 + 강체 스키닝 + 노드 메시 투영 대조를 채택한다. 점광 castShadow=false와 프로그램 수는 유지한다. 레거시 set()은 예약 슬롯으로 남기고, 초과하면 throw한다.",
+   "why": "HANJI 불투명도가 1.0이라 메시는 판에 비치지 않고, 실루엣은 등록 프록시만 만든다(hanji.js:34, hanji-occluders.js:4-7). 프록시와 메시를 같은 데이터에서 만들어야 '어긋나지 않음'이 구성으로 보장된다. 큐브 그림자맵의 문제는 세 가지다. 첫째, three가 그림자 패스 레이어를 메인 카메라로 판정해(WebGLShadowMap.js:346) 반경 24 m 캐스터 전부를 6면 렌더한다. 둘째, 모든 조명 프로그램 정의가 바뀐다. 셋째, P3 결정(CONTRACT-NOTES:1151-1152)을 번복해야 한다. 이 개정은 materials 계약 변경이므로 발주자 승인 사항이다."
+  },
+  {
+   "question": "조명 구성 수정: lantern_light_na(와 na_lantern_head)를 어디로 옮기고 강도를 얼마로 하는가?",
+   "recommendation": "후보 B. 위치 x −22.8(판 뒤 9.2 m), 높이 2.0 유지, 이 등롱에만 강도 배율 ×1.96(≈17.7)을 준다. A(현행)·B·C(높이 1.8)의 4종 캡처를 나란히 보고 확정한다.",
+   "why": "현행은 판에 보이는 액터 공간 대역이 0.68–1.875 m, 반그림자가 0.116 m라 귀·뿔 끝과 치마 아래가 판 밖이다. 점광이 액터 뒤에 있는 한 대역 높이는 2.05/m이라, 깊이만이 대역 폭과 선명도를 함께 개선한다. B는 깊이 한 변수만 바꾼다(R4 규칙). 결과는 대역 0.60–2.09 m, 반그림자 0.075 m, 확대 1.37이다. 대신 실루엣이 약 20% 작아진다. 008-B의 '1.7×가 사람 비례를 읽힌다'는 판단을 바꾸는 일이라 발주자가 캡처를 보고 정해야 한다."
+  },
+  {
+   "question": "계약 샷 3(hanji_silhouette)에서 더미를 액터로 교체하는가? 교체한다면 어느 캐릭터를 두는가?",
+   "recommendation": "silhouette_dummy 메시와 FABRIC 콜라이더를 제거하고 이름 앵커 'silhouette_anchor'를 남긴다. 샷에는 토끼를 둔다. baseline·shotaudit·pixelowner 갱신을 한 커밋으로 묶는다.",
+   "why": "이월 S03 #2가 '더미가 액터로 바뀐다'를 게이트로 정했다(P4-BRIEF:70). 토끼의 귀는 4종 중 가장 가는 돌출부라, 판독 하한을 계약 샷이 상시 보여준다. 계약 샷 픽셀이 바뀌므로 발주자 승인이 필요하다."
+  },
+  {
+   "question": "silhouetteaudit 4축(높이·윤곽 폭 분포·상하 질량비·돌출부 위치)의 수치 정의와 '다르다' 임계를 무엇으로 하는가?",
+   "recommendation": "축 정의는 설계안을 채택한다. 판정 그림자 경계는 D=0.5(반그림자 중점)이고, 액터 공간 역투영, 12칸 폭 분포, 자기 중점 기준 질량비, 16섹터 최원점을 쓴다. 비교 임계는 기존 계약값 '상대차 15% 초과·최소 2축'(VISUAL_REL_MIN·VISUAL_AXES_MIN, 발주자 지시 2026-09-20)을 재사용 후보로 두고, 돌출부 섹터 거리 2는 신규 후보로 둔다. 감사가 내는 원값 표와 마스크 오버레이를 보고 확정한다.",
+   "why": "브리프는 축 이름만 주고 수치를 정하지 않았다. 설계자가 임계를 만들면 014-C 오류(CONTRACT-NOTES:1991-1998)를 되풀이하게 된다. 숫자는 후보를 좁히는 데까지만 쓴다."
+  },
+  {
+   "question": "대비 공식·측정 해상도·기준선을 무엇으로 하는가?",
+   "recommendation": "대비는 같은 화소 기준 Weber 대비다. C = 1 − mean(L_c)/mean(L_R)을 표시 선형 휘도로 계산하고, 본영 core(실루엣을 반그림자 반폭만큼 침식)만 잰다. 참고로 같은 프레임 고리 대비도 병기한다. 해상도는 계약 VIEW 1512×982 dpr 2로 한다. 기준선은 008-B 실측 4(.315, 2.5 m 야간)를 비교 수치로 쓰고, 006-D 대역(.24–.33)을 함께 적는다. 임계 0.15는 계약값이다.",
+   "why": "공식과 해상도는 코드·문서 어디에도 고정되어 있지 않고, 측정 프로브도 커밋되지 않았다. 006-D는 주간 ≤1 m, 008-B는 야간 2.5 m라 조건이 다르다. 공식에 따라 통과 여부가 갈린다."
+  },
+  {
+   "question": "게이트 판정에 쓰는 방향 범위는 무엇인가?",
+   "recommendation": "정면(판을 향함)과 측면(90°)을 둘 다 게이트로 판정하고, 45°는 보고만 한다.",
+   "why": "교전에서 캐릭터는 어느 방향으로든 서 있다. 정면만 보면 자라 등껍질 측면과 도깨비 방망이처럼 방향에 따라 달라지는 윤곽을 놓친다. 판정 범위를 넓히는 것은 엄격도를 바꾸는 일이라 발주자가 정한다."
+  },
+  {
+   "question": "'메시와 판 위 그림자가 어긋나지 않는다'를 게이트로 판정하는가? 한다면 기준은 무엇인가?",
+   "recommendation": "P4B 동안에는 보고 전용으로 둔다. 보고 항목은 IoU, 경계 편차 p95, 예측–실측 차다. 후보 기준은 '경계 편차 p95 ≤ 판 위 반그림자 반폭'(B 조명에서 ≈18 장치 px)이다. 실측 분포를 본 뒤 확정한다.",
+   "why": "이것은 구성으로 보장되는 성질을 감시하는 지표다. 숫자 기준은 새 임계이므로 발주자 몫이다."
+  },
+  {
+   "question": "팀 색 대역 수치, 자라 등껍질 재질, 팀 색 검사 단위를 무엇으로 하는가?",
+   "recommendation": "이세계 190–235°, 인간계 355–10°. 자라 등껍질은 ACTOR_BRONZE_ISEGYE(녹청 ≈195°)로 하고 LACQUER 원본은 쓰지 않는다. 단청은 팀 변형 2종을 만든다(청팀: 청·황·백·흑, 적팀: 적·황·백·흑). 검사 단위는 '캐릭터의 전 재질 슬롯 유채색이 상대 팀 대역 밖, accent는 자기 팀 대역 안'이다.",
+   "why": "LACQUER는 적 대역(4–8°)이라 이세계 규칙과 충돌한다. BRONZE 녹청은 청 하한 175°에서 1–2°밖에 떨어져 있지 않고, 등롱 아래에서 금지대로 넘어간다. 출력 셰이더 대역 cap(12–18°)이 적색을 탁하게 만들 수 있다. 원본 DANCHEONG에는 청과 적이 섞여 있다. 브리프 후보(LACQUER)를 바꾸는 일이라 발주자 판단이 필요하다."
+  },
+  {
+   "question": "액터 원시의 탄도 표면 유형을 무엇으로 하는가?",
+   "recommendation": "v0는 전 원시를 FABRIC(FREE)으로 한다. 시각 재질(등껍질 BRONZE 모양)과 분리하고, 새 표면 유형은 만들지 않는다. P4C 데미지 설계에서 다시 본다.",
+   "why": "자라 등껍질을 BRONZE(BLOCK)로 두면 몸이 걸어 다니는 차단물이 된다. 이는 '차단을 만드는 것은 스킬 spawnSurface뿐'(§4-1-C·D) 구조와 충돌한다. 표면 유형은 surfaces.js 동결 대상이다."
+  },
+  {
+   "question": "액터 복장의 FABRIC 직조 스케일을 어떻게 정하는가? (P3-DEBT 이월)",
+   "recommendation": "액터 전용 파생 프로파일 ACTOR_FABRIC을 만들고, 월드 FABRIC은 그대로 둔다. 셀 후보 4·5·6 mm를 0.6 m와 2.5 m 캡처로 판정한다.",
+   "why": "실물 0.5–1 mm는 2.5 m에서 화소 이하라 앨리어싱이 생긴다. 월드 공용 재질을 바꾸면 baseline·paletteaudit·천장 무아레로 번진다. 이월표가 발주자 지적 항목이다."
+  },
+  {
+   "question": "노출 적응 범위·속도 값과 동결 시점을 어떻게 하는가?",
+   "recommendation": "착수 즉시 현재 값(pipeline.js:51 + 셰이더 상수)으로 구조를 동결한다(version 1 provisional). 액터 포함 exposureprobe E1–E4를 실측한 뒤, P4B 종료 전에 확정한다(유지하거나 version 2).",
+   "why": "CONTRACT-NOTES:2087 'P4B 착수 전'과 브리프 '플레이테스트로 정하라'가 순서상 충돌한다. 구조를 먼저 닫으면 값 결정을 미뤄도 몰래 바뀔 경로가 없다."
+  },
+  {
+   "question": "캐릭터 기하를 절차 원시 리그로 만드는가, PATCH-010-A 임포트 에셋으로 만드는가?",
+   "recommendation": "P4B는 절차 원시 리그로 만든다. 임포트 에셋은 '원시 리그 맞춤(fitting) + 메시 투영 일치 검사 통과'를 조건으로만 받는다.",
+   "why": "에셋 메시를 그대로 쓰면 판 실루엣(프록시)과 메시가 어긋날 원천이 생긴다. 브리프 §3-1은 '절차적 스킨드 메시'라고 하고, 010-A는 에셋을 허용한다. 두 문서가 다르게 말하므로 발주자 확인이 필요하다."
+  },
+  {
+   "question": "P1 결함 두 건을 고치는가? (객사 서측 출입구의 기둥 (21,−10), 누각 전폭 북측 난간 nu_rail_x_-1)",
+   "recommendation": "PATCH-008-B 선례처럼 P1 미세 예외로 고친다. 기둥은 이동·제거하거나 개구를 넓히고, 전폭 난간은 제거한다. 고치기 전까지는 내비가 있는 그대로(섬·JUMP 간선) 기록하고 보고한다.",
+   "why": "내비 섬과 점프 간선이 축소 구역(P4C) 후보와 봇 경로를 왜곡한다. 레벨 수정은 P1 소유다."
+  },
+  {
+   "question": "3인칭 무기(≤3k)를 캐릭터 1종 25k 예산에 포함하는가? P4B에서 profile phase는 무엇을 쓰는가?",
+   "recommendation": "포함한다. 몸은 ≤12k를 목표로 한다. profile은 p3 예산을 유지하고 actor 그룹 보고를 추가한다.",
+   "why": "PATCH-010-C와 011-C가 포함 여부를 명시하지 않았다. 예산 해석은 발주자 몫이다."
+  },
+  {
+   "question": "디렉터리 소유권을 개정하는가? (src/actors 신설, src/ai/nav, src/physics/ragdoll.js)",
+   "recommendation": "승인하고 ARCHITECTURE.md §1 표를 개정한다. src/actors = 캐릭터 데이터·액터 시뮬·표현, src/ai = 내비·사망 배선, src/physics = PBD 래그돌, 캐릭터 룩 = src/materials/actor-look.js.",
+   "why": "§1 표에 액터 디렉터리가 없다. src/ai는 현재 존재하지 않는다. '1 에이전트 1 디렉터리' 규칙이 있어 신설에는 계약 개정이 필요하다."
+  }
+ ],
+ "risks": [
+  "발주자가 조명 재배치를 반려하면 대역이 0.68–1.875 m에 묶인다. 귀·뿔 끝(>1.875)과 치마 아랫부분(<0.68)이 판 밖으로 나가 높이 축이 포화되고 돌출부 축이 약해진다. 완화: 캐릭터 특징을 데이터 수정만으로 대역 안으로 옮기고, 감사가 clipped 플래그를 보고하며, silhouettepredict로 A 조명에서도 사전 확인한다.",
+  "SwiftShader 4코어에서는 HANJI 프래그먼트마다 원시를 평가하는 비용(최대 24 × texelFetch 3–4)이 샷 3과 silhouetteaudit 프레임 시간을 늘려 체인이 길어진다(미측정). 완화: 판별 마스크와 경계구 조기 탈출을 두고, 실측 뒤 상한을 ×2.5로 잡으며, 별도 CI 잡에 둔다.",
+  "기울기가 큰 rc(치마, 기울기 0.33)에서는 segseg 최근접 근사가 실제 최소 SDF와 최대 2–3 cm 다를 수 있어, 메시와 판 실루엣 경계가 어긋난다. 완화: 노드 메시 투영 대조로 측정하고, 필요하면 치마를 rc 3단으로 나눠 기울기를 줄인다.",
+  "강체 스키닝(관절 구)은 근접에서 인형처럼 읽혀 비평에 지적될 수 있다. 소프트 스키닝은 원시 동일성을 깨므로 쓰지 않는다. 완화: 소매·바지 원시로 관절을 덮고 재질로 분절하며, 비평 결과를 기록한다.",
+  "three는 첫 렌더에서 computeBoneTexture를 지연 실행하며(WebGLRenderer.js:2451), 이것이 시뮬 창 안에서 Math.random을 불러 하네스 오류를 낸다. 부팅 때 전 슬롯 선호출을 빠뜨리면 사망·스폰 첫 프레임에 터진다.",
+  "getSceneTriangles는 비가시 메시도 센다(harness.js:447). 풀 메시를 씬에 상주시키면 슬롯 × 캐릭터 전부가 잡혀 tris_scene 600k를 넘는다. 반드시 스폰 때만 scene.add한다.",
+  "프리웜: 풀 메시가 씬 밖이면 compileAsync가 보지 못한다. 샷 3 액터가 스킨 forward·깊이·GTAO 세 변형을 모두 그려야 하고, 액터 재질 구성이 하나라도 다르면 변형이 더 생겨 플레이 중 컴파일이 난다. 완화: 재질 공장 단일화와 compileLog 확인.",
+  "정보 은닉의 한계: 클라이언트는 외견 리그 원시를 받는다. P4C 가짜 실루엣을 '판 바로 뒤 원시'로 구현하면 위치만 보고 가짜를 알아챌 수 있다. P4C/P5에서 서버 배치 규칙이 필요하다.",
+  "CPU 프레임: 래그돌 4개 × 서브스텝 2가 cpuFrameMsP95 예산 6 ms(현재 2.1)를 압박한다. 완화: 몸 AABB에 queryAabb 1회 + 지역 삼각형 재사용, 빠른 슬립, profile 실측.",
+  "노드와 크롬은 V8 초월함수 마지막 비트가 다를 수 있어 래그돌 해시가 환경마다 다를 수 있다. 보장 범위를 '동일 엔진 재현성'으로 명시한다. 서버(노드)와 클라이언트가 갈리면 넷코드 단계에서 래그돌을 권위 판정에서 뺀다.",
+  "레벨이 바뀐 뒤 커밋된 내비 굽기 데이터가 낡을 수 있다. 부팅 sourceHash 불일치 시 throw하고 nav-fresh 테스트로 막는다. P1이 레벨을 수정할 때마다 재굽기 커밋이 따라와야 한다.",
+  "silhouetteaudit 실행 시간(게이트 ≈65–70 min + 케이스 22 ≈35 min, 추정)이 harnesstest와 CI 잡 시간을 늘린다. post 잡 180분 상한을 넘을 위험이 있어 별도 잡이 필요하다.",
+  "4축 정의 자체가 특정 형태에서 불안정할 수 있다. 예: 하단 클립 모서리, 대칭 돌출 두 개가 섹터 경계에 걸리는 경우. 축 정의는 발주자 검토 대상이며, 원값 표와 마스크 오버레이를 함께 낸다.",
+  "lantern_light_na에 개별 강도 배율을 주면 applyShot 일괄 강도 규약(main.js:235, 259)이 바뀐다. lantern_night 등 다른 샷 픽셀에 영향이 갈 수 있어 캡처 비교와 보고가 필요하다.",
+  "원시 집합(rc+el)으로 표현하지 못하는 v1 윤곽이 생길 수 있다(예: 넓게 펼친 천, 얇고 넓은 판). fixture로 지금 시험하고, 부족하면 원시 종류 추가(materials·셰이더 계약 변경)가 필요하다.",
+  "P4C 런타임 표면(자라 등껍질 GRANITE 벽)이 판 차폐에 등록되지 않으면 '빛을 가리지 않는 벽'이 되어 충실도 결함이 생긴다. P4C에서 상자 원시 추가나 등록 규칙을 검토해야 한다.",
+  "W1이 창살을 바꾸면 유효 화소 마스크(창살 투영)와 측정값이 달라진다. 창살 상자를 레벨에서 읽으므로 마스크는 자동으로 따라가지만, 재실행 규칙(P4-BRIEF:50)을 지켜야 한다."
+ ],
+ "implementationPlan": [
+  {
+   "step": "1. 착수 전 스캔 보고와 발주자 결정 요청: 차폐 모델 개정, 조명 후보 A–D 기하표, 더미 교체·배치 캐릭터, 4축 정의·임계 후보, 대비 공식·해상도, 방향 범위, 팀 대역·등껍질 재질, 액터 탄도 표면, FABRIC 스케일, 노출 시점, 기하 원천, P1 결함, 무기 예산, 소유권",
+   "files": "docs/CONTRACT-NOTES.md (P4B 착수 스캔 절); ARCHITECTURE.md §1 (승인 후)",
+   "parallelizable": false,
+   "verify": "발주자 회신을 CONTRACT-NOTES에 원문으로 기록하고, 결정별로 영향받는 단계를 표로 정리한다"
+  },
+  {
+   "step": "2. 노출 계약 구조 동결(잠정 v1)과 lock/unlock 훅",
+   "files": "src/render/exposure-contract.js (신규); src/render/exposure.js; src/render/pipeline.js:51; src/core/harness.js (lockExposure·getInvariants.exposure·debugFreezeExposure 대체); test/exposure-contract.test.mjs",
+   "parallelizable": true,
+   "verify": "node --test test/exposure-contract.test.mjs; node tools/determinismaudit.mjs exit 0; 계약 해시를 CONTRACT-NOTES에 기록"
+  },
+  {
+   "step": "3. 캐릭터 데이터 스키마·biped 골격·v0 4종·v1 fixture 4종",
+   "files": "src/actors/data/schema.js, skeletons/biped.js, characters/{jara,dokkaebi,tokki,kongjwi}.js, index.js; test/fixtures/characters-v1/*.js; test/actor-data.test.mjs",
+   "parallelizable": true,
+   "verify": "node --test test/actor-data.test.mjs: 8종 검증 통과, src 내 캐릭터 id 리터럴 0, 원시 ≤24, 추정 삼각형 ≤25k"
+  },
+  {
+   "step": "4. 포즈·리그 수학(순수)",
+   "files": "src/actors/pose.js, src/actors/rig.js; test/actor-pose.test.mjs",
+   "parallelizable": true,
+   "verify": "node --test: 2회 결과 바이트 동일, NaN 0, 보행 위상 연속, 원시 월드 좌표 = 수기 계산 사례"
+  },
+  {
+   "step": "5. 메시 생성기와 삼각형 예산",
+   "files": "src/actors/meshgen.js; test/actor-mesh.test.mjs",
+   "parallelizable": true,
+   "verify": "node --test: 정점 |sdf| ≤ 1e-5, 가중치 1개 뼈 1.0, UV 범위, 그룹↔슬롯, 캐릭터별 삼각형(설계 추정 ±10%)과 ≤25,000"
+  },
+  {
+   "step": "6. 차폐 수학 JS 미러, 실루엣 지표, 노드 예측 도구",
+   "files": "src/actors/occlusion-math.js, src/actors/silhouette-metrics.js; tools/silhouettepredict.mjs; test/actor-proxy.test.mjs, test/silhouette-metrics.test.mjs",
+   "parallelizable": false,
+   "verify": "단일 rc = 옛 캡슐 공식(index.js:325-329) 수치 일치; 합집합 겹침이 이중으로 어두워지지 않음; silhouettepredict --lighting A·B에서 v0 6쌍 × 2방향 축 수 보고(설계 목표 ≥3), v1 28쌍 보고"
+  },
+  {
+   "step": "7. 캐릭터 룩 재질과 팀 색 대역",
+   "files": "src/materials/actor-look.js, src/materials/team-bands.js; src/materials/index.js (synth.dispose 전 생성); src/materials/albedo-manifest.json; test/team-color.test.mjs",
+   "parallelizable": true,
+   "verify": "node --test test/team-color.test.mjs (양성 + 겹침 음성); node tools/fxaudit.mjs exit 0(paletteInBand 공유 확인)"
+  },
+  {
+   "step": "8. 창호지 차폐 v2(텍스처 버퍼·액터 합집합·판 마스크·레거시 예약 슬롯)",
+   "files": "src/materials/hanji-occluders.js; src/materials/index.js (HANJI_PARS_GLSL); src/main.js (registerPane, 동기화 334행 뒤); test/hanji-occluders.test.mjs",
+   "parallelizable": false,
+   "verify": "node --test(패킹·뷰 변환·마스크·초과 throw); 이후 단계 13에서 브라우저 샷 3 캡처, 프로그램 수 불변(compileLog)"
+  },
+  {
+   "step": "9. 액터 시뮬 런타임(슬롯·스폰·컨트롤러·이동·분리·히트박스·상태 가시성)",
+   "files": "src/actors/{world,movement,separation,state,hitbox}.js, src/actors/controllers/{index,idle,script,navfollow}.js; test/actor-world.test.mjs, test/actor-hitbox.test.mjs, test/actor-hiding.test.mjs, test/sim-purity.test.mjs",
+   "parallelizable": true,
+   "verify": "node --test: 헤드리스 buildWorld에서 이동·분리(겹침 ≤1 mm), 리셋 후 바이트 동일, 히트박스 vs 샘플링 진리값, 변장 공개 스냅샷에 trueCharacterId 없음, 시뮬 모듈의 three import 0"
+  },
+  {
+   "step": "10. PBD 래그돌과 사망 배선",
+   "files": "src/physics/ragdoll.js; src/physics/index.js (파사드·step 순서); src/ai/death.js; test/ragdoll.test.mjs",
+   "parallelizable": true,
+   "verify": "node --test test/ragdoll.test.mjs: 2회·리셋 해시 동일, HANJI 상자·창살 미관통, 720 스텝 안 슬립, NaN 0, rigid.bodies 불변"
+  },
+  {
+   "step": "11. 내비(오프라인 굽기·청크 2·seam·런타임 오버레이·A*·오디오 어댑터)",
+   "files": "src/ai/nav/{navbake,navprobe,navchunk,navgraph,navpath,audio-adapter}.js, src/ai/nav/config/gwana.js; tools/navbake.mjs → src/ai/nav/baked/gwana.js; test/nav.test.mjs, test/nav-fresh.test.mjs",
+   "parallelizable": true,
+   "verify": "node tools/navbake.mjs 리포트(객사 섬, 누각 JUMP, VAULT 0); node --test: 굽기 2회 바이트 동일, seam 대칭, 청크 삭제 후 유효, 블로커 경로 변경·원복, 합성 담 VAULT 능력 필터, 0.49 m 틈 판정, nav-fresh 일치"
+  },
+  {
+   "step": "12. 액터 표현(풀·Skeleton·computeBoneTexture·본 동기·경계구·차폐 공급)과 tris 그룹",
+   "files": "src/actors/view.js, src/actors/meshbuild.js; src/main.js (풀 생성·patchMaterial·부팅 마감 리셋); src/core/harness.js (getSceneTriangles 'actor' 그룹·byActor)",
+   "parallelizable": false,
+   "verify": "부팅 후 getSceneTriangles.byGroup.actor = 0(풀은 씬 밖); 스폰 시 캐릭터 삼각형과 같음; stepFrames 중 getErrors 비어 있음(Math.random 0)"
+  },
+  {
+   "step": "13. 코어 통합: simSubstep·resetState·getActorState·디버그·감사 훅, 샷 3 액터와 등롱(결정 2·3 반영), 앵커",
+   "files": "src/core/harness.js; src/main.js (applyShot shot.actors·intensityScale, installDeathHandler, nav 로드); src/world/level.js (더미 → silhouette_anchor, 등롱); tools/shots.js (hanji_silhouette actors·audit 대상)",
+   "parallelizable": false,
+   "verify": "node tools/playtest.mjs(신규 검사 6건 + 기존 p2b_reset_byte_identical·crates_exist); geometryaudit·chainaudit·coveraudit·surfaceaudit exit 0; compileLog에 ACTOR_ 스킨 3변형이 프리웜(frame −1)에 생성"
+  },
+  {
+   "step": "14. 조명 후보 실측과 발주자 판정 자료",
+   "files": "tools/silhouetteaudit.mjs (--lighting-report 보조 모드, 비게이트); 출력 /tmp 캡처·D 맵·크롭",
+   "parallelizable": false,
+   "verify": "A·B·C에서 4종 × 2방향 캡처, 대비, 4축 원값, 메시 투영 IoU를 표로 만들어 발주자에게 제출하고 회신을 기록한다(숫자로 고르지 않는다)"
+  },
+  {
+   "step": "15. silhouetteaudit 게이트, 케이스 22, 체인 편입",
+   "files": "tools/silhouetteaudit.mjs; tools/harnesstest.mjs (케이스 22 + 헤더); tools/gates.sh (67행 → viewmodelaudit 뒤); .github/workflows/gates.yml (silhouette 잡); HARNESS.md 도구 표",
+   "parallelizable": false,
+   "verify": "단독 실행 exit 0(축·대비는 발주자 확정 규칙 적용); --test-clone tokki=kongjwi와 --test-team-overlap이 exit 1 + 표식 + 증거; harnesstest 22 통과; bash tools/gates.sh --list에 포함; 실측 시간 × 2.5로 타임아웃 설정"
+  },
+  {
+   "step": "16. 기존 게이트 확장(playtest 음성 2, shotaudit 대상, surfaceaudit 액터, profile actor 그룹·캐릭터별 25k, baseline 사이드카 액터 해시, pixelowner 주석)",
+   "files": "tools/playtest.mjs, tools/shotaudit.mjs, tools/surfaceaudit.mjs, tools/profile.mjs, tools/baseline.mjs, tools/pixelowner.mjs, tools/harnesstest.mjs",
+   "parallelizable": true,
+   "verify": "각 도구 단독 exit 0; 음성 플래그 exit 1 + testOverride; profile programs ≈47 ≤110, compiledDuringPlayStrict 0, trisScene ≤600k, trisFrameP95 ≤250k"
+  },
+  {
+   "step": "17. 노출 근거 실측과 값 확정",
+   "files": "tools/exposureprobe.mjs; src/render/exposure-contract.js (status·version); docs/CONTRACT-NOTES.md",
+   "parallelizable": false,
+   "verify": "E1–E4 궤적·캡처를 발주자에게 제출 → 확정값 반영, 계약 해시 갱신, 값이 바뀌었으면 baseline 재기준"
+  },
+  {
+   "step": "18. 전체 게이트 체인 순차 실행과 보고",
+   "files": "tools/gates.sh (RESUME·구간 모드); docs/P4-LOG.md; P4B 보고(§8-3 6쌍 구별도·대비, §8-5 노출, 정직한 한계, 계약 모호 신규분)",
+   "parallelizable": false,
+   "verify": "고정 스냅샷 한 개로 ALL GREEN(CI coverage 잡 포함); baseline 2회 비트 동일(액터 해시 포함); 발주자 실 GPU 1회 실측 결과 첨부(P4B 종료 조건)"
+  }
+ ]
+}

@@ -1,0 +1,467 @@
+{
+ "subsystem": "월드·레벨 — src/world/level.js · src/world/kit.js (+ main.js의 buildWorld 사용부, tools/coveraudit.mjs·geometryaudit.mjs가 월드를 보는 방식, hanji_silhouette 배치)",
+ "summary": "(1) 좌표계는 m 단위, y-up이며 +x=동, −x=서, −z=북(동헌), +z=남(남문)이다(shots.js:8-9의 azim 규약과 level.js 배치로 확인). 지면은 90×90 박스이고 상면이 y=0이라 |x|,|z|>45는 허공이다(level.js:148). 담장은 중심선 ±44, 내면 ±43.55, 외면 ±44.45이고 화강암 1.7 m 위에 기와 갓이 얹혀 최고점이 2.08 m다. 남문 개구는 x∈(−3.2,3.2)이며 상인방 밑 높이는 3.0 m다(level.js:152-189, 헤드리스 덤프). (2) 이동을 막는 것은 부팅 때 한 번 빌드되는 정적 BVH 하나뿐이다(main.js:92). 캐릭터 마스크=STATIC이라 창호지도 0.3 mm 비가시 박스로 이동을 막고(level.js:112-116), 연못 물만 DEBRIS_ONLY라 걸어서 통과한다(level.js:520). (3) 플레이어 크기 캡슐(r 0.34)로 노드 헤드리스 실측한 결과는 다음과 같다. 0.6 m 기단 모서리, 0.45 m 문지방, 0.7 m 얇은 난간은 걷기만으로 넘는다. 0.85 m 연못 테두리는 점프해야 넘는다. 2.08 m 담장은 점프로도 못 넘는다. 즉 실효 등반 한계가 stepHeight 0.42보다 높다. (4) 같은 실측에서 결함 2건이 나왔다. 객사 서측 출입구는 중앙 기둥(21,−10)이 0.49 m 틈 두 개로 쪼개 플레이어가 들어갈 수 없는데, coveraudit의 1 m 격자는 이 출입구를 통과 가능으로 본다. 누각 계단 꼭대기는 전폭 북측 난간 nu_rail_x_-1이 막고 있어 점프로만 데크에 오른다. (5) 남문 밖은 0.55 m 지면 띠 뒤가 바로 허공이다(걸어 나가면 떨어지는 것을 실측). 현 경내에서 청크 경계를 넘는 보행 연결은 남문 하나뿐이고 그 목적지도 없다. 견우가 담을 넘어 내릴 바깥 공간(갓 외연 44.645에서 지면 끝 45까지)도 사실상 없다. (6) hanji_silhouette 배치는 다음과 같다. 판 na_w_-3: 중심 (−32, 2.475, −11.5), 2.7×2.05, 판 아래 0.45 m 머름. 더미 캡슐: (−29.5, 1.83, −11.5), 판 뒤 2.5 m. 점광 lantern_light_na: (−26, 2.0, −11.5), 판 뒤 6 m. 카메라: (−36.8,1.9,−10)에서 (−32,1.9,−10)을 본다. (7) 야간 실루엣은 실제 메시로 만들어지지 않는다. HanjiOccluders에 등록된 캡슐(최대 4개)로 해석적으로 계산되고, HANJI 기본 불투명도가 1.0이라 알파 비침도 없다. 따라서 귀·뿔·등껍질·치마 같은 윤곽은 차폐 모델을 확장하지 않으면 판에 나타나지 않는다. 투영 기하로 계산하면 바닥에서 0.68 m 아래 몸통은 판에 닿지 못한다. (8) 표면은 Assembler가 userData.surface를 붙이고 physics.addStaticMesh(…, layer, {decal})로 등록하며, BVH가 삼각형마다 Uint8로 저장한다. 전체 재빌드는 노드에서 49–270 ms 걸리고, removeObject는 있지만 쓰는 곳이 없다. (9) 플레이 구역 개념은 코드에 없다. coveraudit의 HALF=43·SPAWN (0,24)가 하드코딩되어 있고 스폰도 하나뿐이다(player.js:23). (10) 문서가 말하는 내비메시와 PBD 래그돌은 코드에 없다. math.js:227에 'ragdoll' 주석 한 줄만 있다.",
+ "files": [
+  {
+   "path": "/home/user/fps/src/world/level.js",
+   "role": "관아 경내 90×90 m 조립의 단일 출처. 지면, 담장+남문루, 7동(동헌·내아·객사·행랑·누각·회랑 + 담장/문루), 연못·소품·범종, 등롱 3개(남문 2, 내아 실내 1), 실루엣 더미, 동적 상자 3개를 만들고 그룹·조명·리셋 훅을 반환한다.",
+   "keyExports": [
+    "buildWorld(scene, physics, materials?)",
+    "HANJI_LATTICE",
+    "hanjiLatticeCount(w)"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/world/kit.js",
+   "role": "한옥 모듈 킷. 부재 두께 상수 T(게임플레이 두께), 회색 규율 재질, 표면→재질 매핑, Assembler(메시·인스턴스 생성 + 표면 태그 + 정적 콜라이더 등록), 팔작·맞배 지붕 빌더, 공포 부재.",
+   "keyExports": [
+    "T",
+    "makeMaterials",
+    "MAT_OF",
+    "Assembler",
+    "addHipRoof",
+    "addGableRoof",
+    "columnGeometry",
+    "shellGeometry",
+    "defineBracketParts",
+    "placeBracketSet",
+    "bracketSetHeight",
+    "bracketSetOut",
+    "tileGeometry",
+    "rafterGeometry",
+    "mergeGeometries",
+    "mergeBoxes"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/main.js",
+   "role": "buildWorld 소비자. 86행 buildWorld → 89행 bakeGroundAo(world.group) 1회 → 92행 physics.build() 1회. 131-137행 hanjiPanes 등록, 147-149행 silhouette_dummy를 HanjiOccluders에 등록, 235·259행 lanternLights 강도 일괄 설정, 296행 world를 하네스에 전달."
+  },
+  {
+   "path": "/home/user/fps/tools/coveraudit.mjs",
+   "role": "§5 엄폐 규칙 게이트. 재질 없이 buildWorld + 정적 BVH만 쓴다. 1 m 다층 격자, 두 높이 레이 통행 판정, STEP_UP 1.0, 스폰 (0,24)에서 홍수 채움, GRANITE/BRONZE 수직면까지 Dijkstra ≤13.4 m. 사실상 원시적인 내비 그래프다."
+  },
+  {
+   "path": "/home/user/fps/tools/geometryaudit.mjs",
+   "role": "구조 불변식 정적 감사. 씬그래프 메시 이름 규약(_ridge, _hip_main_, _kidan$, wall_g_i, _hanji$, dh|na|gs 접두)과 WALL=44에 의존한다. [6]은 모든 비담장 메시가 ±43.7 안에 있는지, [8]은 창살 방향(톱니 상한 4)을 본다."
+  },
+  {
+   "path": "/home/user/fps/tools/shots.js",
+   "role": "hanji_silhouette 샷 정의(65-78행): 카메라, 조명(태양 .02·반구 .05·등롱 9), audit 등록(판 na_w_-3_hanji ≥8%, silhouette_dummy ≥0.5%). 30·67행 주석은 현 배치와 다르다(낡음)."
+  },
+  {
+   "path": "/home/user/fps/src/materials/hanji-occluders.js",
+   "role": "창호지 점광 투과의 해석적 캡슐 차폐 레지스트리(PATCH-008-B). HANJI_OCC_MAX=4. 야간 실루엣의 유일한 원천이다.",
+   "keyExports": [
+    "HanjiOccluders",
+    "HANJI_OCC_MAX"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/materials/index.js",
+   "role": "applyHanjiTransmit(426행). 태양은 CSM PCSS 그림자 실루엣, 점광은 등록 캡슐 해석 차폐(321-331, 404-417행). HANJI_POINT 상수 268행.",
+   "keyExports": [
+    "applyHanjiTransmit",
+    "HANJI_TRANSMIT",
+    "HANJI_POINT"
+   ]
+  },
+  {
+   "path": "/home/user/fps/src/materials/hanji.js",
+   "role": "HANJI_BASE_OPACITY=1.0(34행): 성한 창호지는 알파로 비치지 않는다. 판별 구멍 상태(HanjiState)도 이 파일에 있다."
+  },
+  {
+   "path": "/home/user/fps/src/physics/bvh.js",
+   "role": "정적 삼각형 수프 + BVH. addMesh(105), removeObject(188), build(204, 전체 재빌드·version++), sweepCapsule(672), overlapCapsule(781). 표면 태그가 없으면 throw(863-869)."
+  },
+  {
+   "path": "/home/user/fps/src/physics/surface-registry.js",
+   "role": "LAYER {STATIC:1, DEBRIS_ONLY:2}, MASK.CHARACTER=STATIC, 표면 인덱스 매핑(미지 표면이면 throw)."
+  },
+  {
+   "path": "/home/user/fps/src/physics/character.js",
+   "role": "키네마틱 캡슐 컨트롤러(정적 BVH만 본다. 강체와 상호작용하는 코드 없음). 액터·봇도 이 컨트롤러를 쓰게 된다."
+  },
+  {
+   "path": "/home/user/fps/src/player/player.js",
+   "role": "이동 상수: WALK 4.2, SPRINT 6.7, CROUCH 2.2 m/s, JUMP 6.9 m/s(정점 ≈1.156 m), GRAVITY 20.6, 캡슐 r 0.34 h 1.78(앉으면 1.22), stepHeight 0.42, 스폰 (0, 0.05, 24)."
+  },
+  {
+   "path": "/home/user/fps/src/core/harness.js",
+   "role": "resetState(236-261)가 월드에 대해서는 world.resetDynamic()만 호출한다(243). getSceneTriangles는 world.group 소속 삼각형을 'world'(§9 동결 대상)로 분류한다(425-429)."
+  },
+  {
+   "path": "/home/user/fps/tools/shotaudit.mjs",
+   "role": "노드 헤드리스 buildWorld + Raycaster로 샷 대상의 관측 여부를 검사한다(반투과 HANJI·FABRIC은 통과). 더미 교체 시 등록을 함께 고쳐야 한다."
+  },
+  {
+   "path": "/home/user/fps/docs/contracts/patches/CONTRACT-PATCH-008.md",
+   "role": "PATCH-008-B: 더미 2.5 m 유지(거리 단축 반려), 샷 3을 야간 실내 광원 폐색으로 재정의, 더미 배치는 P1 소유(24-57행)."
+  },
+  {
+   "path": "/home/user/fps/docs/CONTRACT-NOTES.md",
+   "role": "008-B 실측 기록(1143-1182행): 기둥 뒤 더미 결함 → z −11.5로 측면 이동, T_p .6·등롱 더미 뒤 3.5 m 채택, 대비 .315·경계 12 px·확대 1.7×. 측정 당시 불투명도는 .95였다(현재는 1.0)."
+  }
+ ],
+ "apis": [
+  {
+   "name": "buildWorld",
+   "where": "src/world/level.js:40, 반환 662",
+   "signature": "buildWorld(scene, physics, materials = null) → { group, crates, lanternLights, resetDynamic, instanced }",
+   "semantics": "경내 전체를 A.group('gwana')에 조립하고 정적 콜라이더를 physics.static에 등록한다(빌드는 호출자가 physics.build()로 따로 한다). materials를 주지 않으면 회색 재질을 쓰지만 기하·콜라이더는 같다. 그래서 coveraudit·geometryaudit·shotaudit·chainaudit·surfaceaudit·audioaudit가 재질 없이 같은 월드를 본다(grep: buildWorld 소비자 8곳)."
+  },
+  {
+   "name": "world.resetDynamic",
+   "where": "src/world/level.js:643-660; 호출 src/core/harness.js:243",
+   "signature": "resetDynamic()",
+   "semantics": "동적 상자 3개(crate_0..2)만 초기 자세로 되돌린다. 월드 쪽 resetState 훅은 이것 하나뿐이다."
+  },
+  {
+   "name": "world.lanternLights",
+   "where": "src/world/level.js:569-606; 사용 src/main.js:235, 259",
+   "signature": "PointLight[] = [lantern_light_-1 (−5,2.45,40), lantern_light_1 (5,2.45,40), lantern_light_na (−26,2.0,−11.5)]",
+   "semantics": "세 개 모두 PointLight(0xfff6e8, 0, distance 24, decay 1.5)이다. applyShot이 셋을 shot.lantern 값으로 한꺼번에 켠다. 개별 제어 경로는 없다."
+  },
+  {
+   "name": "HANJI_LATTICE / hanjiLatticeCount",
+   "where": "src/world/level.js:30-35",
+   "signature": "HANJI_LATTICE={pitch:0.16,bands:[−0.36,0,0.36]}; hanjiLatticeCount(w)=max(2, round(w/0.16)−1)",
+   "semantics": "창살 배치의 단일 출처로, 월드 배치와 찢어짐 셰이더가 같이 쓴다. na_w_-3(w 2.7)은 세로살 16개(간격 0.159 m), 가로띠 y={1.737, 2.475, 3.213}이다."
+  },
+  {
+   "name": "hanjiBay (내부 함수)",
+   "where": "src/world/level.js:107-131",
+   "signature": "hanjiBay(name, axis, cx, cy, cz, w, h, out)",
+   "semantics": "시각 평면 `${name}_hanji`(HANJI, collide:false) + 비가시 충돌 박스 `${name}_hanji_col`(HANJI, 0.3 mm, STATIC) + 창살 인스턴스(바깥 방향 out). 판 이름 규약은 이 함수가 정한다."
+  },
+  {
+   "name": "hanjiPanes 등록 (23판)",
+   "where": "src/main.js:131-142 (등록 규칙), 헤드리스 덤프(스크래치 worlddump.mjs panes)",
+   "signature": "scene.traverse: o.isMesh && o.visible && userData.surface==='HANJI' && name.endsWith('_hanji')",
+   "semantics": "동헌 전면 z=−19.5: dh_bay_-8/-4.8/1.6/4.8(중심 x −6.4/−3.2/3.2/6.4, w2.9 h2.45 y1.45–3.9, 창살이 실내 쪽인 기지 위반 4건). 판 뒤 북쪽은 서방·대청·동방이고 깊이 9 m, 실내 광원 없음. 동헌 칸막이 x=±4.8 ×8판(w1.6, 양쪽 모두 실내, 판 뒤 3.15 m에 측벽). 내아 서면 x=−32: na_w_-3(z −12.85..−10.15; +x 2.22 m에 더미 표면)과 na_w_0(z −8.85..−6.15; +x 9.95 m에 동벽), w2.7 h2.05 y1.45–3.5. 판 뒤 실내는 10×6 m(x −32..−22, z −13..−7)이고 실내 기둥은 (−28.67,−10)·(−25.33,−10). 내아 남면 z=−7: na_s ×3(w3.03, 판 뒤 6 m). 객사 남면 z=−6.5: gs_s ×4(w2.7 h2.25 y1.45–3.7, 판 뒤 7 m, 실내 광원 없음). 객사 서면 x=21: gs_w_a(z −12.85..−10.65)·gs_w_b(−9.35..−7.15), 머름이 없어 판 아래에 0.45 m 틈. 실내 광원이 있는 판은 내아뿐이다."
+  },
+  {
+   "name": "Assembler.mesh / box",
+   "where": "src/world/kit.js:329-351",
+   "signature": "mesh(name, surface, geometry, x,y,z, {rx,ry,rz, collide=true, layer=STATIC, visible=true, matKey, shadow, decal})",
+   "semantics": "재질 키는 matKey, 없으면 decal(세트에 있을 때), 없으면 matOf[surface] 순으로 정한다. userData.surface = surface, decal이면 userData.decal도 붙인다. collide면 physics.addStaticMesh(m, surface, layer, {decal}). box는 aBoxDims 속성이 달린 캐시 BoxGeometry를 쓴다."
+  },
+  {
+   "name": "Assembler.defineInstanced / place / finalizeInstancing",
+   "where": "src/world/kit.js:354-408",
+   "signature": "defineInstanced(key, geo, surface, {collide, layer, matKey, shadow, decal}); place(key,x,y,z,rx,ry,rz,s); finalizeInstancing({cellSize=18})",
+   "semantics": "인스턴스를 18 m 평면 버킷(floor(x/18)|floor(z/18))으로 나눠 InstancedMesh `inst_${key}@${bk}`를 만들고 userData.surface를 붙인 뒤 collide면 addStaticMesh. 기와·소로·행공은 비충돌, 기둥·초석·창살·서까래·주두·첨차·살미는 충돌."
+  },
+  {
+   "name": "physics.addStaticMesh / layers",
+   "where": "src/physics/index.js:28-35, src/physics/surface-registry.js:68-80",
+   "signature": "addStaticMesh(mesh, surface, mask = LAYER.STATIC, opts={decal,userData}) → object id",
+   "semantics": "월드 공간 삼각형으로 구워 넣고 dirty를 세운다. MASK.CHARACTER=STATIC, BULLET/DEBRIS=STATIC|DEBRIS_ONLY. 월드에서 DEBRIS_ONLY는 pond_water 하나다(덤프 staticObjMasks {1:488, 2:1})."
+  },
+  {
+   "name": "StaticWorld.removeObject / build / version",
+   "where": "src/physics/bvh.js:188, 204, 65/213/288",
+   "signature": "removeObject(id) → bool; build() (전체 재빌드, version++)",
+   "semantics": "런타임 제거 API는 있지만 src 안에 쓰는 곳이 없다(grep). build는 증분이 아닌 전체 재빌드이고, 노드 실측으로 43,592 tris·19,781 노드에 49–270 ms(JIT 예열에 따라)가 걸린다(스크래치 bvhms.mjs)."
+  },
+  {
+   "name": "HanjiOccluders",
+   "where": "src/materials/hanji-occluders.js:13-57",
+   "signature": "set(id,{a,b,r}); setFromMesh(id, capsuleMesh); delete(id); update(viewMatrix)",
+   "semantics": "판→점광 선분과 캡슐 축의 최근접 거리로 smoothstep 차폐를 계산한다. 등록 순서대로 최대 4개만 유니폼에 넣고 초과분은 조용히 버린다(update의 `if (i >= this.max) break`). 등록되지 않은 물체는 점광을 가리지 않는다."
+  },
+  {
+   "name": "PhysicsWorld.createCharacter",
+   "where": "src/physics/index.js:43; 파라미터 src/player/player.js:27-33",
+   "signature": "createCharacter({radius, height, stepHeight, slopeLimit=50°, snapDistance=0.32})",
+   "semantics": "정적 BVH에 대해 collide-and-slide한다. 플레이어 값은 r 0.34, h 1.78, step 0.42다. 액터와 봇의 이동 판정 기준이 된다."
+  },
+  {
+   "name": "coveraudit groundLevels / passable",
+   "where": "tools/coveraudit.mjs:60-78, 96-104",
+   "signature": "groundLevels(x,z): 위에서 멀티히트 레이, ny>0.64, 캡슐 r .30 h 1.72 여유 검사; passable: 높이 0.45·1.35 수평 레이 2개",
+   "semantics": "다층(마루·데크) 보행면 샘플러다. 통행 판정이 가는 레이 두 줄뿐이라 캡슐 폭을 보지 않는다. 그래서 객사 서측 틈(0.49 m)을 통과 가능으로 판정한다(스크래치 covercheck.mjs: pass true)."
+  }
+ ],
+ "invariants": [
+  {
+   "rule": "좌표 규약: m, y-up, +x 동, −x 서, −z 북, +z 남. 지면 상면 y=0, 지면 범위 |x|,|z|≤45, 그 밖은 허공",
+   "evidence": "level.js:148(ground 90×1×90, y −0.5), shots.js:8-9(azim 0=북·180=남), level.js:178('남문루' z=+44), 실측: 남문을 걸어 나가면 z 47.3에서 y −2.78로 떨어짐(스크래치 walktest.mjs gate_walk)"
+  },
+  {
+   "rule": "담장: 중심선 ±44(P0 앵커), 화강암 두께 0.9 높이 1.7, 기와 갓 y 1.7–2.02(평면 외연은 중심 ±0.645), 용마루 상단 2.08. 남쪽 담은 남문으로 끊김(wall_g_3: x −44.9..−3.2, wall_g_4: 3.2..44.9)",
+   "evidence": "level.js:10-11, 151-176; kit.js:36-37; 덤프 wall_g_*·wall_cap_0_±1·wall_ridge_0 박스; 덤프 top 레이 (0,−44)=2.08 ROOF_TILE; geometryaudit.mjs:39 WALL=44"
+  },
+  {
+   "rule": "남문 개구: 협문벽 x ±(3.2..4.3), z 43.3..44.7, 높이 3.0. 통로 x∈(−3.2,3.2), 상인방 하면 y 3.0, 문루 바닥 3.4–3.44",
+   "evidence": "level.js:178-189; 덤프 gate_jamb_±1, gate_lintel; lv(0,44)=…|3.0 WOOD_PLANK|0 PACKED_DIRT"
+  },
+  {
+   "rule": "주건물 3동(동헌·내아·객사)은 기단 0.6, 실내 마루 상면 1.0, 기둥 ø0.3(배흘림 최대 반경 0.1575)이다",
+   "evidence": "kit.js:20-24, 122-131; level.js:195/209, 292/302, 371/381"
+  },
+  {
+   "rule": "동헌 (0,−24): 기단 x −10..10, z −30..−18. 전면 계단 x −1.6..1.6(0.2/0.4 m). 마루 x −9.6..9.6, z −29.6..−18.4로 벽 바깥 퇴 1.1/1.6/1.1 m. 출입은 전면 중앙 개방 x∈[−1.45,1.45] 하나뿐이다(후면 판문은 고정 판벽). 칸막이 x=±4.8의 문은 z∈[−22.25,−21.25]·[−26.75,−25.75] 두 곳이고 문지방이 0.45 m(머름이 세그먼트 전폭에 깔림)",
+   "evidence": "level.js:195-209, 252-263, 270-286(284행 머름 전폭); 실측 dh_steps_walk가 z −23.4 도달, dh_door_sill_walk가 maxY 1.46으로 문지방을 걸어서 넘음"
+  },
+  {
+   "rule": "내아 (−27,−10): 기단 x −33..−21, z −14..−6. 동측 디딤돌 0.3. 출입은 동면 x=−22, z∈[−10.9,−9.1] 하나뿐인데 기둥(−22,−10)이 0.74 m 틈 두 개로 나눈다(r 0.34로 통과됨). 서·남면은 창호+머름이고 북면은 심벽",
+   "evidence": "level.js:291-354; 덤프 na_e_a/b; 실측 na_east_z−10.5가 실내 x −28.36까지 진입"
+  },
+  {
+   "rule": "객사 (27,−10): 기단 x 20..34, z −14.5..−5.5. 서측 디딤돌 0.3. 서면 x=21 창호 사이 개구 z∈[−10.65,−9.35]의 한가운데에 기둥(21,−10)이 서서 틈이 각 ≈0.49 m다. 플레이어 캡슐(지름 0.68)은 들어갈 수 없다. 남면은 창호+머름, 북·동면은 판벽이라 다른 출입구도 없다",
+   "evidence": "level.js:372-381(colsX에 −6, rowsZ에 0 포함), 413-426; kit.js:127; 실측 walktest3.mjs: z −10.6~−9.4 모든 시도가 x 20.72에서 정지, r 0.2일 때만 진입"
+  },
+  {
+   "rule": "누각 (−30,28): 데크 상면 3.0(x −32.9..−27.1, z 25.1..30.9), 사면 난간 0.7. 북측 계단 12단(rise 0.25, x −30.6..−29.4, z 21.65..25.25). 그런데 루프가 만든 전폭 북측 난간 nu_rail_x_-1(z 25.13, y 3.0–3.7)이 그대로 남아 있어 계단 정상을 막는다. 데크 밑 보 하면이 2.65라 그 아래는 걸어 다닐 수 있다",
+   "evidence": "level.js:466-488(470-473 루프가 s=−1 전폭 난간 생성, 487-488은 분할 난간을 추가만 함); 덤프 nu_rail_x_-1 [−32.9,3,25.1]–[−27.1,3.7,25.16]; 실측 walktest4.mjs: 걷기로는 z 24.75에서 정지, 정상에서 점프하면 데크 진입"
+  },
+  {
+   "rule": "행랑 (−36.5,14): 죽담 0.3, 마루 0.5. 동면 개구 z∈[10.35,12.95]·[15.05,17.65]이고 기둥(z 11.9, 16.1)이 각 개구를 둘로 나눈다. 서벽 x=−38.5와 담장 사이 4.95 m 골목. 아궁이(GRANITE) x −37.3..−35.7, z 8.55..9.45",
+   "evidence": "level.js:430-453; 덤프 hr_*; 실측 hr_east_z11·12.5·15.6·17 모두 진입"
+  },
+  {
+   "rule": "회랑 x 38/40.2 기둥 13쌍(z −30..18). 기단 0.35(x 37.4..40.8, z −31..19), 마루 0.55, 측면 개방, 보 하면 2.95. 동측 담장과 사이 골목 2.75 m",
+   "evidence": "level.js:492-512; 덤프 cr_plinth·cr_floor·cr_beam_w; 실측 cr_plinth_walk가 회랑을 가로질러 동측으로 내려감"
+  },
+  {
+   "rule": "실효 보행 등반 한계는 stepHeight 0.42보다 높다. 0.6 m 기단 모서리, 0.45 m 문지방, 0.7 m 얇은 난간(데크 남측)은 걷기로 넘고, 0.75 m(계단 정상→북측 난간)와 0.85 m(연못 테두리)는 못 넘는다. 점프 정점 ≈1.156 m로 연못 테두리는 넘지만 담장(2.08)은 못 넘는다",
+   "evidence": "player.js:17-18, 30-32; character.js:150-170(lift→slide→drop); 실측 walktest.mjs·walktest2.mjs·walktest4.mjs(스크래치, 저장소 밖 /tmp/claude-0/-home-user-fps/3c1b06d0-bb19-5041-8521-d899c35118dc/scratchpad). 원인을 캡슐 반구의 모서리 슬라이드로 보는 것은 추정"
+  },
+  {
+   "rule": "이동 차단 = 정적 BVH(MASK.CHARACTER=STATIC). 창호지는 비가시 0.3 mm STATIC 박스라 이동을 막는다(탄·시야는 통과). 연못 물(DEBRIS_ONLY)은 캐릭터가 통과(도섭). 동적 상자는 정적 BVH에 없고, 컨트롤러 코드에도 강체와의 상호작용이 없다",
+   "evidence": "level.js:13-14, 110-116, 520, 624-634; surface-registry.js:68-80; character.js(rigid 참조 없음, grep); 덤프 lv(28,28)=0 PACKED_DIRT(물 통과)"
+  },
+  {
+   "rule": "정적 BVH는 부팅 때 한 번만 빌드되고 런타임 편집은 없다",
+   "evidence": "main.js:92가 src 안의 유일한 physics.build 호출(grep); removeObject(bvh.js:188)는 사용처 없음"
+  },
+  {
+   "rule": "표면 태그 필수: 모든 메시에 userData.surface. 태그가 없거나 미지의 표면이면 throw",
+   "evidence": "kit.js:342, 398; bvh.js:863-869; surface-registry.js:20-28; level.js:363, 541, 564, 577, 621(직접 생성 메시도 수동 태깅)"
+  },
+  {
+   "rule": "관통 등급: HANJI·FABRIC = FREE·반투과, LACQUER·DANCHEONG = DECAL(물리 표면이 아니라 시각 층), GRANITE·BRONZE·PACKED_DIRT = BLOCK. 엄폐 소스는 GRANITE/BRONZE 수직면만",
+   "evidence": "node -e로 surfaces.js SURFACES 출력; surfaces.js:285 VERTICAL_COVER_SURFACES; kit.js:333-334(decal은 재질만 바꾸고 surface는 유지)"
+  },
+  {
+   "rule": "hanji_silhouette 배치(PATCH-008-B). 판 na_w_-3: 중심 (−32, 2.475, −11.5), 법선 ±x, 창살 실외(−x) 쪽, 아래 머름 y 1.0–1.45. 더미: CapsuleGeometry(r 0.28, 원통 1.1) 중심 (−29.5, 1.83, −11.5), y 1.0–2.66, FABRIC STATIC 콜라이더, 판 뒤 2.5 m. 실내 등롱: 머리 (−26, 2.05, −11.5, 비충돌·무그림자), 점광 (−26, 2.0, −11.5), 더미 뒤 3.5 m·판 뒤 6 m. 카메라 pos (−36.8,1.9,−10) → target (−32,1.9,−10), fov 60. 조명: 태양 elev35 azim300 강도 .02, 반구 .05, 등롱 9",
+   "evidence": "level.js:338-342, 355-365, 594-606; shots.js:65-78; 덤프 silhouette_dummy·na_lantern_head·light lantern_light_na; panes 덤프 'na_w_-3_hanji +n:2.22m->FABRIC'"
+  },
+  {
+   "rule": "야간 실루엣은 등록 캡슐(최대 4)의 해석 차폐로만 생긴다. HANJI 기본 불투명도가 1.0이라 성한 종이로는 실제 메시가 비치지 않는다. 주간은 CSM 그림자(PCSS)라 실제 그림자 메시가 반영된다",
+   "evidence": "materials/index.js:248-252, 321-331, 404-417; hanji-occluders.js:1-13; hanji.js:34; main.js:147-148(더미만 등록)"
+  },
+  {
+   "rule": "투영 기하(계산): 점광 (x −26, y 2.0)에서 판(x −32)까지 확대율은 6/3.5 = 1.714. 판 가시 대역 y 1.45–3.5는 액터 월드 y 1.68–2.875(바닥 1.0 기준 0.68–1.875 m)에 대응하고, 측면은 z −11.5 ± 0.79 m에 대응한다. 액터 하부 0.68 m는 머름 쪽으로 투영된다",
+   "evidence": "level.js:336-341(bayH = 3.8−0.3−1.45 = 2.05, bayCY = 2.475), 599-603; 계산식 y_p = 2.0 + (y−2.0)·6/3.5. CONTRACT-NOTES.md:1170-1180 실측 확대 1.7× 기록과 일치"
+  },
+  {
+   "rule": "액터는 world.group에 넣으면 안 된다. world.group 소속 삼각형은 'world'(§9 지오메트리 동결 집계)로 분류되고, 접지 음영은 부팅 때 world.group에서 한 번 굽는다",
+   "evidence": "harness.js:425-429; main.js:89; render/groundao.js:20-39"
+  },
+  {
+   "rule": "월드 리셋 경로는 resetDynamic(상자 3개) 하나뿐이다",
+   "evidence": "level.js:643-660; harness.js:236-261"
+  },
+  {
+   "rule": "점광 수가 바뀌면 셰이더 순열이 갈라진다. 등롱 라이트는 강도 0으로라도 항상 씬에 있다",
+   "evidence": "shots.js:9-10 주석; level.js:588, 601(초기 강도 0); CONTRACT-NOTES.md:1157(점광 4→5 define 변경 기록)"
+  },
+  {
+   "rule": "코드에 내비메시와 PBD 래그돌 구현이 없다",
+   "evidence": "grep -i 'ragdoll|PBD|navmesh|nav' src tools 결과: physics/math.js:227 주석 한 줄('ragdoll bone collision … reduce to it')뿐"
+  }
+ ],
+ "extensionPoints": [
+  {
+   "point": "씬그래프 이름 앵커: silhouette_dummy, na_w_-3_hanji(+_hanji_col), na_w_meo_-3, lantern_light_na, na_lantern_head",
+   "where": "level.js:357, 341-342(hanjiBay 이름 규약 110/113), 600-603; main.js:148(getObjectByName)",
+   "howP4BUsesIt": "silhouetteaudit가 판·광원·카메라 배치를 하드코딩하지 않고 이름으로 찾아 재사용한다. 액터는 더미 자리(판 뒤 2.5 m, 바닥 y 1.0)에 두고, 측정 중에는 더미를 숨기거나 차폐 등록에서 제외(HanjiOccluders.delete)해 이중 차폐를 막는다. pixelowner의 --hide silhouette_dummy가 선례다(pixelowner.mjs:23)."
+  },
+  {
+   "point": "HanjiOccluders 레지스트리",
+   "where": "src/materials/hanji-occluders.js:29-44; harness._internal.hanjiOccluders(harness.js:581)",
+   "howP4BUsesIt": "액터 캡슐을 프레임마다 set/setFromMesh로 등록한다. 윤곽 구별(귀·뿔·등껍질·치마)을 야간 판에 반영하려면 액터당 다중 캡슐 세트를 데이터로 선언하고 상한 4를 늘리는 확장이 필요하다. materials(P3) 소유라 계약 협의 대상이다."
+  },
+  {
+   "point": "buildWorld 반환 객체 + resetDynamic 훅",
+   "where": "level.js:662; harness.js:243",
+   "howP4BUsesIt": "내비 생성기는 world.group 대신 physics.static(삼각형·표면·마스크)이나 coveraudit 방식 샘플러를 입력으로 쓰는 편이 월드 코드를 건드리지 않는다. 액터·래그돌·런타임 간선 리셋은 resetDynamic에 섞지 말고 별도 reset으로 harness.resetState에 넣는다(제안)."
+  },
+  {
+   "point": "StaticWorld.addMesh / removeObject / build / version",
+   "where": "bvh.js:105, 188, 204, 65",
+   "howP4BUsesIt": "런타임 표면(자라 등껍질, P4C)이 BVH에 들어가면 version이 바뀐다. 내비는 런타임 간선 활성 플래그를 데이터 계층에 두고 BVH 재빌드(49–270 ms)에 동기화하지 않는 구조가 맞다(추정·제안)."
+  },
+  {
+   "point": "coveraudit 샘플러(groundLevels·passable·홍수 채움·Dijkstra)",
+   "where": "tools/coveraudit.mjs:60-142",
+   "howP4BUsesIt": "내비 검증의 대조 기준이 된다(도달 집합 비교). 다만 이 샘플러는 캡슐 폭을 무시하고 STEP_UP 1.0(점프 포함)이라 실제 보행보다 관대하다. 내비 bake를 이 격자로 대체하면 객사 같은 섬을 놓친다."
+  },
+  {
+   "point": "PhysicsWorld.createCharacter + player 상수",
+   "where": "physics/index.js:43; player.js:11-33",
+   "howP4BUsesIt": "액터 이동과 내비 간선 분류(걷기/점프/낙하/넘기)의 기준 파라미터다. 간선 유형 판정은 컨트롤러 실측 프로브(위 walktest 방식)로 검증할 수 있다."
+  },
+  {
+   "point": "Assembler 표면 태깅 경로",
+   "where": "kit.js:329-408",
+   "howP4BUsesIt": "절차 메시 액터의 표면 태그(FABRIC·BRONZE·WOOD_COLUMN 등)와 시각 decal(LACQUER·DANCHEONG) 분리 규약을 그대로 따른다. 액터 히트 판정에 정적 BVH를 쓰지 않는다면 태그 규약만 차용한다."
+  },
+  {
+   "point": "18 m 렌더 버킷 격자",
+   "where": "kit.js:379-389(finalizeInstancing cellSize 18)",
+   "howP4BUsesIt": "청크 경계를 이 격자 선(x,z = 0, ±18, ±36)에 맞추면 이후 청크 단위 스트리밍·컬링과 정렬된다(제안). 현 경내에서 z=0 선은 건물을 자르지 않는다."
+  },
+  {
+   "point": "shots.js audit 등록 형식",
+   "where": "shots.js:70-73; shotaudit.mjs:8-15",
+   "howP4BUsesIt": "더미를 액터로 교체하면 audit 대상 이름(silhouette_dummy)과 shotaudit 기대값을 함께 바꿔야 한다. silhouetteaudit의 배치 유효성(기둥에 가리지 않음)을 shotaudit 기법으로 미리 검사할 수 있다."
+  }
+ ],
+ "p4bConstraints": [
+  {
+   "constraint": "지오메트리를 지우지 않는다. 축소 구역은 경계만 좁히고 3:3부터 담장까지 넓힌다. 그러므로 내비는 경내 전체를 굽고 구역은 런타임 플래그(폴리곤·간선 비활성)로 거르는 구조여야 재빌드 없이 확장된다(뒷부분은 추론)",
+   "source": "P4-BRIEF.md:583-589"
+  },
+  {
+   "constraint": "내비메시는 청크 단위로 생성하고 경계를 넘는 연결을 명시적으로 관리한다. 현 경내는 청크 1~2개다. 경계를 넘는 보행 연결 후보는 남문 포털 하나(x −3.2..3.2, z 43.55→44.45, 바닥 0, 천장 3.0)이고 목적지는 현재 허공이다",
+   "source": "P4-BRIEF.md:358-364; level.js:152-189; 실측 gate_walk 낙하"
+  },
+  {
+   "constraint": "2청크로 나눈다면 분할선 후보(제안)는 z=0(18 m 버킷 선)이다. 북쪽 청크에 동헌·내아·객사·범종, 남쪽 청크에 마당·행랑·누각·연못·남문이 들어간다. 이 선은 건물을 자르지 않지만 마당 개활지(x −43.55..37.4), 회랑 마루(y 0.55), 동측 골목을 가로지르는 약 87 m 개활 이음선이라, 경계 간선이 포털이 아니라 이음선 다수가 된다. x=±18도 건물을 자르지 않지만 3분할이 된다",
+   "source": "kit.js:385; level.js 건물 기단 좌표(덤프); 추정"
+  },
+  {
+   "constraint": "견우 담 넘기는 담장까지만이고 건물 벽은 불가다. 현 경내에서 넘을 수 있는 담은 외곽 담장 wall_g_0..4뿐이다. 높이 2.08(갓 평면 1.29 m 폭)이라 일반 점프(≈1.156)로는 불가하니 플래그 간선이 꼭 필요하다. 다만 바깥 착지 여유는 갓 외연 44.645 + r 0.34 = 44.985 대 지면 끝 45로 0.015 m뿐이다(계산). 지금 맵에서는 담 넘기 간선이 의미 있는 목적지 없이 청크 경계를 넘는 간선이 된다",
+   "source": "P4-BRIEF.md:466, 366-370; 덤프 wall_cap/ridge; player.js:17-18"
+  },
+  {
+   "constraint": "간선마다 이동 능력 플래그를 두고 런타임에 생기고 사라질 수 있어야 한다. 캐릭터별로 내비를 따로 굽지 않는다",
+   "source": "P4-BRIEF.md:366-370"
+  },
+  {
+   "constraint": "간선 분류 기준은 stepHeight가 아니라 컨트롤러 실측이어야 한다. 걷기는 0.6 m 기단·0.7 m 얇은 난간까지 넘고, 0.75–0.85 m는 점프, 2.08 m는 넘기 전용이며, 낙하(데크 3.0, 마루 1.0, 회랑 0.55)도 간선으로 다룬다",
+   "source": "실측 walktest*.mjs(스크래치); player.js:17-33"
+  },
+  {
+   "constraint": "내비 bake에는 플레이어 반경(0.34) 침식을 적용해야 한다. 그러면 객사 실내는 섬이 된다. coveraudit은 같은 자리를 도달 가능으로 세므로 두 결과가 갈라진다",
+   "source": "실측 walktest3.mjs·covercheck.mjs; coveraudit.mjs:69-72(r .30), 96-104"
+  },
+  {
+   "constraint": "silhouetteaudit은 더미를 가까이 옮겨 통과시키면 안 된다. 2.5 m에서 판독되지 않으면 조명 구성을 고친다. 기준선은 006-D 실측(대비 .24–.33), 008-B 실측(대비 .315)이다",
+   "source": "P4-BRIEF.md:342-356; CONTRACT-PATCH-008.md:41-46; CONTRACT-NOTES.md:1170-1180"
+  },
+  {
+   "constraint": "silhouetteaudit은 현 창살 위에서 잰다. W1에서 창살이 바뀌면 다시 실행한다",
+   "source": "P4-BRIEF.md:47"
+  },
+  {
+   "constraint": "야간 판 실루엣의 원천은 등록 캡슐뿐이고 상한은 4다(2:2 액터 4 + 더미 1 = 5면 초과분은 조용히 탈락)",
+   "source": "hanji-occluders.js:13, 47-57; materials/index.js:248-252"
+  },
+  {
+   "constraint": "silhouetteaudit이 점광을 새로 추가하면 셰이더 순열이 달라진다. 기존 lantern_light_na를 재사용하는 것이 안전하다",
+   "source": "shots.js:9-10; CONTRACT-NOTES.md:1157"
+  },
+  {
+   "constraint": "액터·래그돌 메시는 world.group 밖에 둔다(§9 world 삼각형 집계, 접지 음영 베이크, geometryaudit [6]이 buildWorld 결과를 본다)",
+   "source": "harness.js:425-429; main.js:89; geometryaudit.mjs:266-284"
+  },
+  {
+   "constraint": "액터의 물리 표면에 LACQUER·DANCHEONG을 쓰지 않는다(DECAL 등급). 시각 decal로만 얹고, 물리 표면은 FABRIC·BRONZE·WOOD_COLUMN 등 실재 등급을 쓴다",
+   "source": "surfaces.js(LACQUER/DANCHEONG penClass decal); kit.js:333-345; P4-BRIEF.md:397-400"
+  },
+  {
+   "constraint": "표면 태그 누락이나 미지 표면은 throw하므로 런타임 생성 메시도 태그가 필수다",
+   "source": "bvh.js:863-869; physics/index.js:51-55; surface-registry.js:20-28"
+  },
+  {
+   "constraint": "결정성: 신규 시스템은 core/clock·core/rng만 쓰고 resetState로 완전히 복원돼야 한다. 현재 월드 리셋 훅은 상자 3개뿐이라 액터·래그돌·런타임 간선 리셋은 새로 넣어야 한다",
+   "source": "P4-BRIEF.md:790, 815, 853-855; harness.js:236-261; level.js:643-660"
+  },
+  {
+   "constraint": "coveraudit의 정적 규칙(2초 이내 화강암)은 유지한다. 축소 구역 기준 재실행은 인자 확장으로 한다(현재 HALF=43, SPAWN (0,24) 하드코딩)",
+   "source": "P4-BRIEF.md:526-527, 589, 838; coveraudit.mjs:29-44"
+  },
+  {
+   "constraint": "PBD 래그돌과 내비메시는 신규 구현이다. 문서는 'physics의 PBD 래그돌을 사용한다'고 하지만 physics에 해당 코드가 없다",
+   "source": "P4-BRIEF.md:373; grep 결과(physics/math.js:227 주석만)"
+  }
+ ],
+ "risks": [
+  {
+   "risk": "silhouetteaudit 6쌍이 모두 같은 캡슐 윤곽이 되어 exit 1이 난다. 혹은 통과시키려고 측정 조건을 바꾸게 된다",
+   "why": "야간 판 실루엣은 등록 캡슐의 해석 차폐로만 계산되고(materials/index.js:321-331), 성한 종이는 불투명도 1.0이라 실제 메시가 비치지 않는다(hanji.js:34). 액터별 윤곽 차이가 판에 아예 나타나지 않는다",
+   "mitigation": "P4B 설계 초기에 materials(P3) 소유자와 차폐 모델 확장(액터당 다중 캡슐 세트를 데이터로 선언, 상한 상향, 초과 시 throw)을 계약 변경으로 협의한다. 대안은 점광 그림자맵이지만 순열·비용이 바뀐다. 더미 거리와 2.5 m는 건드리지 않는다"
+  },
+  {
+   "risk": "콩쥐 치마선·자라 낮은 윤곽처럼 하부에 특징이 있는 캐릭터는 판에 투영되지 않는다",
+   "why": "현 배치에서는 바닥 기준 0.68 m 아래 몸통이 판 하단(1.45) 밑 머름으로 투영된다(계산: 확대 1.714, 점광 y 2.0)",
+   "mitigation": "silhouetteaudit의 축 정의를 판 가시 대역 기준으로 명시한다. 하부 축이 필요하면 '조명 구성을 고쳐라' 조항(P4-BRIEF:355)에 따라 등롱 높이를 조정하는 것을 검토하고 측정 근거를 기록한다. 더미·액터의 판 뒤 거리는 고정한다"
+  },
+  {
+   "risk": "객사 실내가 플레이어와 액터에게 닫혀 있어 내비 섬이 되고, coveraudit 수치와 실제 플레이가 어긋난다",
+   "why": "서측 개구 한가운데 기둥 (21,−10) 때문에 틈이 0.49 m인데 캡슐 지름은 0.68이다(실측). coveraudit 격자는 이를 통과 가능으로 판정한다",
+   "mitigation": "P1 결함으로 보고하고 수정한다(PATCH-008-B 같은 P1 미세 예외 절차, 개구 폭이나 기둥 배치). 그때까지 내비·축소 구역 후보에서 객사를 제외하거나 섬으로 명시한다"
+  },
+  {
+   "risk": "누각 데크로 가는 경로가 점프 간선으로 잘못 분류되거나 끊긴다",
+   "why": "계단 정상을 전폭 북측 난간 nu_rail_x_-1이 막는다(level.js:470-473이 생성, 486-488의 분할 난간은 추가만 함)",
+   "mitigation": "P1 수정(전폭 북측 난간 제거)을 권고한다. 수정 전에는 내비에 점프 간선으로 기록하고 플레이테스트로 확인한다"
+  },
+  {
+   "risk": "stepHeight 0.42를 기준으로 간선을 분류하면 실제 보행 가능한 기단·문지방·난간을 점프로 오분류하고, 데크 사면 난간(0.7)을 넘는 낙하 경로를 놓친다",
+   "why": "컨트롤러의 실효 등반 한계가 약 0.7 m다(실측, 원인은 캡슐 모서리 슬라이드로 추정)",
+   "mitigation": "간선 분류 테스트를 컨트롤러로 실제 이동해 보는 결정적 프로브로 만들고, 단위 테스트로 고정한다"
+  },
+  {
+   "risk": "청크 경계를 넘는 연결과 견우 담 넘기 간선을 현 맵에서 검증할 수 없다",
+   "why": "남문 밖과 담 바깥은 지면 0.355–0.55 m 뒤 허공이다(실측 낙하). 연결의 목적지가 없다",
+   "mitigation": "테스트 전용 외곽 청크(비게이트, auditOnly)나 '목적지 없는 포털' 상태를 데이터로 명시해 구조만 검증한다. 2청크 분할을 택하면 축소 구역(동헌+마당)이 경계를 넘으므로 v0에서 실제 연결이 쓰인다(추정)"
+  },
+  {
+   "risk": "런타임 간선이나 표면을 정적 BVH 전체 재빌드에 묶으면 히치와 비결정성이 생긴다",
+   "why": "build()는 증분이 아니라 전체 재빌드이고 노드에서 49–270 ms가 걸린다(실측). 현재 런타임 편집 경로는 아예 없다",
+   "mitigation": "내비의 런타임 간선은 활성 플래그 데이터로 두고, 동적 차폐 표면은 P4C에서 소형 별도 구조로 설계한다. 내비는 표면 이벤트를 구독해 해당 간선만 토글한다"
+  },
+  {
+   "risk": "더미를 액터로 교체하면 여러 게이트가 동시에 깨진다",
+   "why": "더미는 정적 FABRIC 콜라이더(level.js:365)이자 유일한 등록 캡슐(main.js:148)이고, shotaudit 대상(shots.js:72)이며 baseline 픽셀의 일부다",
+   "mitigation": "교체를 한 커밋으로 묶어 shots.js audit, main.js 등록, harnesstest, baseline 갱신 승인 경로를 함께 처리한다. 교체하지 않는다면 silhouetteaudit 측정 중에만 더미를 숨기고 차폐 등록을 해제한다"
+  },
+  {
+   "risk": "HANJI_OCC_MAX 초과분이 조용히 탈락해 실루엣이 사라진다",
+   "why": "update 루프가 상한에서 break한다(hanji-occluders.js:49-50). PATCH-001-D 성격의 조용한 축소다",
+   "mitigation": "상한 초과 시 throw하거나 선택 정책을 명시하고, 2:2 + 더미 동시 등록 시나리오를 테스트한다"
+  },
+  {
+   "risk": "낡은 주석이 silhouetteaudit 구현을 오도한다",
+   "why": "shots.js:67은 '판 뒤 4 m 실내 등롱'이라 쓰지만 실제는 판 뒤 6 m(level.js:599)이고, shots.js:30은 더미를 (−29.5,−10)이라 쓰지만 실제는 z −11.5(level.js:360)다",
+   "mitigation": "배치는 코드(이름 앵커)에서 읽고 상수를 복제하지 않는다. 주석 정정은 해당 소유 패스에 넘긴다"
+  },
+  {
+   "risk": "액터를 world.group에 넣어 §9 동결 수치, 접지 음영, geometryaudit [6]이 오염된다",
+   "why": "harness.js:425-429는 world.group 소속을 동결 대상으로 집계하고, main.js:89는 world.group에서 AO를 굽는다",
+   "mitigation": "액터 전용 그룹을 만들고 이름 접두를 정한다(fx_·vm_처럼 groups 분류에 추가)"
+  },
+  {
+   "risk": "점광 수를 바꾸면 프리웜이 깨지고 플레이 중 컴파일이 일어난다",
+   "why": "라이트 개수가 셰이더 순열을 가른다(shots.js:9-10)",
+   "mitigation": "silhouetteaudit은 lantern_light_na를 재사용하고, P4C spawnLight는 고정 풀로 설계한다"
+  }
+ ],
+ "openQuestions": [
+  "견우 담 넘기의 대상에 남문루 협문벽(3.0 m)이 포함되는가? 현 맵에는 바깥 착지 공간이 없는데, P4D 전에 경내 밖 청크(골목 등)를 추가할 계획인가, 아니면 v0에서는 구조만 증명하는가?",
+  "청크를 1개(경내 전체 + 남문 포털)로 갈지, 2개(z=0 분할 등)로 갈지? 2개라면 개활 이음선 경계 간선을 어떤 형식(포털 목록 vs 경계 에지 집합)으로 관리할 것인가?",
+  "축소 구역(P4C)의 '중심 건물 1~2동'은 동헌+내아인가, 동헌+객사인가? 객사는 지금 진입이 불가능하므로 P1 수정이 먼저 필요하다. 구역 경계는 물리 장벽(비가시 콜라이더)인가, 규칙(구역 밖 판정)인가? 물리 장벽이면 BVH와 내비 양쪽에 반영해야 한다",
+  "객사 서측 출입구(기둥 21,−10)와 누각 전폭 북측 난간(nu_rail_x_-1)을 P1 결함으로 수정할 것인가, 내비가 있는 그대로 기록할 것인가? 의도가 '서측 진입'(level.js:372 주석)과 '계단 개구부'(level.js:486 주석)였다는 점에 비추어 보면 결함으로 보는 것이 맞다는 추정이다",
+  "야간 실루엣 차폐 모델 확장(액터당 다중 캡슐·상한 상향)은 materials(P3) 계약 변경이다. P4B에서 할 수 있는가, 별도 패치가 필요한가?",
+  "silhouetteaudit의 '상하 질량비·돌출부 위치' 축을 판 가시 대역(액터 바닥 기준 0.68–1.875 m)으로 잴 것인가, 등롱 높이를 조정해 전신을 투영할 것인가? 등롱 높이 2.0은 계약값이 아니라 P1 배치다",
+  "더미를 액터로 교체할 때 hanji_silhouette 샷과 baseline 변경 승인은 어떤 경로를 따르는가(P4-BRIEF:72 '더미가 액터로 바뀐다')?",
+  "동적 상자(crate_0..2)는 정적 BVH에도 없고 컨트롤러와 상호작용하는 코드도 없다. 내비가 이를 동적 장애물로 다룰지, 무시할지?",
+  "실효 등반 한계(약 0.7 m)를 계약값으로 고정할 것인가? 원인이 캡슐 반구 모서리 슬라이드라는 것은 추정이라 확정하려면 컨트롤러 단위 실측이 필요하다",
+  "지붕 위(처마 4–7 m)는 현재 도달 불가다(coveraudit도 대상에서 제외). 견우 담 넘기의 '지붕 여부는 플레이테스트 후'(P4-BRIEF:466)에 대비해 지붕 면을 내비 폴리곤으로 미리 굽어둘 것인가?"
+ ]
+}

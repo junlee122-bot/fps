@@ -1,0 +1,118 @@
+{
+ "scores": [
+  {
+   "key": "fidelity",
+   "contract": 6,
+   "mechanic": 7,
+   "determinism": 8,
+   "extensibility": 8,
+   "cost": 5,
+   "testability": 6,
+   "notes": "실루엣 모델은 셋 중 최고다. rc/el 원시를 액터 안에서 min 합집합으로 묶고 smoothstep을 한 번만 걸며, 메시를 같은 원시에서 강체 스키닝으로 만든다(단일 원천). 조명 기하표(대역·반그림자·감쇠·강도 보상 ×1.96)도 검산 결과 일치한다(s=2.5/9.2일 때 soft 0.075 m, att 0.0672→0.0342). v1 fixture 4종을 P4B npm test에서 미리 돌리는 것도 좋다. 결함은 두 가지다. ① 감사 추출이 '표시 선형, 정규화 없음, D≥0.5'라서 대비 검사가 공허하고 마스크가 비거나 침식된다(치명 1). ② 내비 굽기가 얇은 벽을 보지 못한다(치명 2). 그 밖에: 텍스처 차폐(8×24 texelFetch 루프)의 SwiftShader 비용이 셋 중 가장 크고 측정되지 않았다. 감사 상태당 90이 아니라 32프레임을 쓰는 것은 '도구 기본값 = 계약 조건'(HARNESS.md:25-27)에서 벗어날 위험이 있다. 돌출부 '섹터 거리 2'는 새로 만든 후보 숫자다(발주자 대기로 표시는 했다). 자라 충돌 반지름 0.40으로는 내아 동문 0.7425 m 틈을 지나갈 수 없다."
+  },
+  {
+   "key": "extensible",
+   "contract": 8,
+   "mechanic": 8,
+   "determinism": 8,
+   "extensibility": 9,
+   "cost": 6,
+   "testability": 8,
+   "notes": "확장성이 셋 중 최상이다. 근거: JSON 왕복 순수 데이터, 빌더 5종 폐쇄 집합, 외형 from/keep, dangle 사슬, 45 m 청크 × 9 m 서브타일 바이너리 자산(manifest/distaudit, 도시 스트리밍), 판별 차폐 소스 브로커(매 프레임 재구성하므로 resetState 미복원 문제가 구조적으로 사라짐). silhouetteaudit은 sceneRT(HalfFloat, 노출 전: pipeline.js:184-185, 441)에서 o=(B−A)/(B−Z)로 정규화한다. 셋 중 경계 정의가 코드 사실과 맞는 것은 이것뿐이다. 대비도 마스크와 독립적으로 계산하므로 공허하지 않다. 약점: 메시와 프록시를 따로 선언한다(lathe·ellipsoid는 근사 목록, 2뼈 블렌드 스키닝). 그래서 둘의 일치가 구성으로 보장되지 않고, '판정 집합 동일' 시험으로만 확인된다. 판당 유니폼 +64 vec4는 측정되지 않았다. XPBD 클러스터와 빌더 5종 때문에 구현량이 크다. '여유 0.06 ≥ 셀/2면 연결 보장'은 수학적으로 틀렸다(셀 폭 이상이 필요하다). 다만 현 좌표에서는 내아 동문 두 틈에 모두 0.1 m 격자점(−10.55, −9.45)이 들어가 우연히 성립한다. ρ를 봉우리 돌출도 정의에도 겹쳐 쓴다."
+  },
+  {
+   "key": "robust",
+   "contract": 6,
+   "mechanic": 5,
+   "determinism": 9,
+   "extensibility": 5,
+   "cost": 7,
+   "testability": 8,
+   "notes": "결정성·검증 설계는 셋 중 최상이다. 헤드리스 동등성, determinismaudit 검사 3과 그 음성, playtest 음성 4종, B_start=B_end 누설 검사, 부팅 시 활성 액터 0으로 11샷 불변을 갖췄다. 내비(대표점 탐색 + 정확한 클리어런스 + sweep 간선 + 실제 이동 코드 오라클)도 셋 중 가장 정확하다. 임계 확정 전에는 체인 밖에 두는 것도 014-C와 audioaudit 선례에 가장 충실하다. 그러나 실루엣 표현력이 가장 약하다. 균일 캡슐 ≤12라 자체 자라 예시가 13개로 상한을 넘고(본문이 인정), 테이퍼가 안 되어 치마·등껍질이 계단형이 된다. HANJI_OCC_MAX 48 = 4×12라 3:3이면 throw한다. 추출·대비 정의는 A와 같은 결함이 있고(치명), 조명 후보 D에는 강도 보상이 없다(치명). 팀 대역을 팔레트 대역 전체(175–240 / 355–15)로 잡아 BRONZE 녹청과 grade 대역 cap 12–18°에 대한 여유가 0이다. 내비 3.4 MB 정적 JS import는 도시 확장 때 번들이 비대해진다. 캡슐마다 1024 tris를 고정으로 써서 낭비다(캐릭터당 12–16k)."
+  }
+ ],
+ "perComponentWinner": [
+  {
+   "component": "데이터 형식",
+   "winner": "fidelity",
+   "why": "형상 원시 리그(rc/el, 뼈 강체 부착) 하나가 메시·창호지 차폐·히트박스·래그돌 충돌체의 유일한 입력이다. 그래서 '판 실루엣 = 메시'가 데이터 수준에서 보장된다. 그 밖의 장점: biped 템플릿 + 비례 키, '{team}' 치환, appearance.states(shapeOf/lookOf/team) + identicalTo, 스킬 원시 6종 닫힌 집합, stepHeight 0.42 고정(단일 굽기 전제). src 안 캐릭터 id 리터럴 0 검사로 P4-BRIEF:336-337을 기계 검사로 만들었다.",
+   "grafts": "B: JSON 왕복 순수성 테스트와 roster 린트. appearances.keep[collision,presentation](변장 중 이동 충돌·발소리 유지의 일반 규칙). dangle 사슬 포즈 레이어(v1 댕기). 검증기 'collision.radius ≤ nav.agentRadius 0.34'(A의 자라 r 0.40은 내아 동문 0.7425 m 틈 통과 불가). C: limits.js 단일 상수 파일. problems[]를 돌려주는 검증기와 규칙별 합성 음성 fixture."
+  },
+  {
+   "component": "메시 생성",
+   "winner": "fidelity",
+   "why": "원시를 그대로 테셀레이션하고 가중치를 뼈 1개·1.0으로 둔다(강체). 그래서 어떤 자세·래그돌에서도 메시가 원시 합집합과 같고, 오차는 새그(≤2.8 mm)뿐이다. 정점은 뼈 로컬에 두고 boneInverses를 단위 행렬로 해서 슬롯당 Skeleton 1개를 공유한다. 부팅 때 computeBoneTexture를 미리 호출한다(WebGLRenderer.js:2451 지연 생성 → DataTexture UUID → Math.random, 확인함). boundingSphere는 매 프레임 직접 기록한다(Frustum.js:148-152, 확인함). 밴드 고리로 재질 분절(§3-5)을 하고 미터 UV에 'uv' 모드를 쓴다.",
+   "grafts": "C: 'estimateTris = index.count/3' 정확 단언과 현 오차 상한 정점 테스트(A의 |sdf|≤1e-5와 병행). prewarmSpawn으로 풀 전부를 1프레임 그려 스킨 변형을 보증. B: 액터 그룹을 world.group 밖에 두는 규칙(harness.js:425-429, main.js:89). compileLog의 SKINNING 태그는 비트마스크라 맞지 않으므로(harness.js:598-600) p4b_actor_no_play_compile로 직접 측정."
+  },
+  {
+   "component": "실루엣 모델",
+   "winner": "fidelity",
+   "why": "rc + el 원시를 액터 안에서 min 합집합으로 묶은 뒤 smoothstep을 한 번만 건다. 현행 곱셈(index.js:323-330 vis *= smoothstep)이 관절에서 만드는 이중 어둡힘이 없어지고, 테이퍼(치마·뿔)와 납작함(등껍질)을 그릴 수 있다. 슬롯 8 × 원시 24, 판별 마스크와 경계구 조기 탈출, 초과 시 throw(hanji-occluders.js:49-50 조용한 탈락 폐지)를 둔다. 점광 castShadow=false와 프로그램 수는 그대로다. B의 round cone도 근사이고, C의 균일 캡슐 ≤12로는 4종 윤곽을 담기에 상한이 빠듯하다.",
+   "grafts": "B: 차폐를 소스(액터·P4C 가짜 실루엣)에서 매 프레임 재구성해 resetState 미복원(harness.js:236-262에 hanjiOccluders 없음)을 구조적으로 없앤다. 0색 광원은 건너뛰고, 더미를 재현해 '12샷 getSceneHash 비트 동일' 체크포인트를 둔다. C: '단일 균일 캡슐 = 현행 식' 회귀 기준과 부팅 시 유니폼·텍스처 유닛 단언. 비용: SwiftShader 실측에서 texelFetch 루프를 못 견디면 같은 브로커 API 뒤에 B의 유니폼 배열 경로를 폴백으로 둔다."
+  },
+  {
+   "component": "조명 수정",
+   "winner": "fidelity",
+   "why": "후보 A–D에 대해 판 가시 대역·측면 폭·반그림자·판 중심 감쇠·강도 보상을 표로 계산했다. 결론은 '대역 높이 2.05/m이므로 깊이만이 폭과 선명도를 함께 개선한다'이다. 깊이 한 변수만 바꾸고(R4 규칙), 감쇠 0.0672→0.0342를 ×1.96으로 보상한다. 실내 기둥 이격과 앵커 상대 배치도 다뤘다. 검산 결과 수치가 맞다.",
+   "grafts": "C: 순서. 현행 구성으로 1차 실측해 clip 플래그와 대비를 보고하고, 판독이 실패하면 그때 바꾼다(P4-BRIEF:354-356 문면에 가장 충실). 앵커 기준 상수 {behindActor, y}와 |anchor.x−pane.x| = 2.5 단언. B: --stage-candidates 진단 모드(항상 exit 0 + testOverride, L0–L3 캡처). C의 '조도 2배 감소가 Weber 대비에 1차 영향 없음'은 채택하지 않는다(차폐 불가 상수항 uHanjiAmbient, index.js:398)."
+  },
+  {
+   "component": "내비메시",
+   "winner": "robust",
+   "why": "셀 안 대표점을 탐색하고 overlapCapsule을 이분 탐색해 nodeClear를 정확히 구한다. edgeClear는 sweepCapsule(bvh.js:672-775) 이분 탐색으로 구한다. 그래서 0.3 mm 창호지 박스, 0.10 m 심벽(kit.js:31,33), 내아 동문 0.7425 m 틈이 모두 올바로 처리된다. 간선 분류는 실제 액터 이동 코드(move.js)와 CharacterController 오라클로 해서 실효 등반 한계(~0.7 m)가 자동으로 반영된다. 청크 간 연결은 portals 표에만 둔다. 오버레이는 BVH를 재빌드하지 않는다. worldHash가 다르면 throw하고, 픽스처(객사 섬, 누각 JUMP 전용, 내아 r .34 통과/.40 불통)로 현 맵 결함을 고정한다. A는 얇은 벽을 관통하고(치명), B는 정확하지만 0.1 m 격자에서 1 cm 여유로 우연히 성립한다.",
+   "grafts": "B: 청크별 바이너리 자산 + assets/manifest 등록(distaudit 200, 도시 스트리밍). C의 3.4 MB 정적 JS import는 도시 규모에서 번들이 비대해진다. 9 m 서브타일 단위 국소 재계산. nav-calibration 테스트(합성 단차 0.30–1.20 m)와 nav-expect 기대값 파일. A: 섹터 HPA* 캐시(version 무효화). maxExpand 초과 시 {ok:false}(조용한 부분 경로 금지). audio-adapter findDetours(주입은 청감 판정과 함께)."
+  },
+  {
+   "component": "래그돌",
+   "winner": "fidelity",
+   "why": "관절 입자 16에 막대·버팀대·거리 한계·경첩 반공간(무릎·팔꿈치 전방 굽힘)을 건다. 뼈 캡슐 대 삼각형은 segTriangleClosest(math.js:224)로 풀고, character.js:364-378식 already/extra 누적과 maxPush로 테셀레이션 과다 밀림을 막는다. 관통 시 '이전 쪽' 부호 규칙, 입자 CCD(sweepCapsule p0=p1), _cand 즉시 복사(bvh.js:661-666)를 둔다. RigidBody를 쓰지 않아 crates_exist=3과 _nextId에 영향이 없다. 슬립 상한과 해시를 둔다. B의 XPBD 클러스터·콘은 과잉이고, C의 입자 구 충돌만으로는 사지가 얇은 난간을 관통한다.",
+   "grafts": "C: '입자 중심은 어떤 삼각형도 건너지 않는다' raycast 클램프 불변식(매 스텝 단언). 1e-9 섭동이면 해시가 달라야 한다는 비공허 증명. spawnSync 별도 프로세스 해시 동일 테스트. B: 속도 상한 vMax, wake(slot) API 예약. 노드–크롬 해시 일치는 C 제안처럼 게이트로 두지 않고 A·B 판단대로 보고만 한다(V8 초월함수 차이)."
+  },
+  {
+   "component": "액터 런타임",
+   "winner": "robust",
+   "why": "슬롯 SoA와 슬롯별 CharacterController를 부팅 때 만든다. 플레이어는 '밀지 않는 고정체'로만 참여하므로 기존 playtest 플레이어 궤적이 바뀌지 않는다. VIEW_BRAND가 없는 객체를 거부해, 표현이 전체 상태를 읽는 경로를 런타임에서 막는다. 시뮬 순수성은 determinismaudit 검사 3과 그 음성으로 강제한다(기존 게이트 확장). 노드 헤드리스 동등성으로 '서버가 시뮬만 돈다'를 실증한다.",
+   "grafts": "A: FIELD_VISIBILITY 3계층(public/owner/server)과 snapshotFor(P5 패킷 경계). actors.update를 fire.update 앞에 두어 히트박스가 같은 서브스텝 위치를 보게 한다(harness.js:108-116). B: CharacterController.configure()(스크래치 재사용). '변장 중 히트 형상 = 외견'으로 히트 피드백을 통한 변장 누설을 막는다(결정은 발주자). C의 MAX_ACTIVE_V0=4 throw는 A의 슬롯 8 차폐로 대체해 3:3에 대비한다."
+  },
+  {
+   "component": "silhouetteaudit",
+   "winner": "extensible",
+   "why": "판 마스크를 HDR sceneRT(노출·AgX 전)에서 o=(B−A)/(B−Z)(Z = 등롱 off)로 정규화한다. 그러면 차폐 불가 상수항(uHanjiAmbient 0.035, index.js:256·398)과 전면 조명이 상쇄되어 o=1−V가 정확하고, 'o≥0.5 = smoothstep 중점 = 프록시 경계'가 실제로 성립한다. 대비는 표시 PNG에서 마스크와 독립으로 재므로 0.15 검사가 공허하지 않다. 그 밖에: 2.5 m ±1 mm 단언, 정체·면제를 데이터에서만 열거, objectMask로 창살 제외, ρ=VISUAL_REL_MIN 재사용을 '발주자 확정 대기'로 표시. A·C는 이 부분에서 치명 결함이 있다.",
+   "grafts": "A: 노드 메시 투영 IoU·경계 편차 p95, 셰이더 JS 미러 예측–실측 대조(보고 전용). clipped 축을 '판정 불가'로 처리하고 축을 액터 공간으로 역투영. 별도 CI 잡 'silhouette'와 gates.sh 자리표 이동(gates.yml:34·46 coverage MISSING 방지). C: B_start=B_end 바이트 동일 누설 검사, 대조군 ≥30/255, --test-anchor-shift/--test-team-hue 정적 음성. 임계 확정 전에는 체인 밖에 둔다(gates.sh:58 audioaudit 선례, P4-BRIEF §7)."
+  },
+  {
+   "component": "노출 동결",
+   "winner": "fidelity",
+   "why": "범위·속도에 계량(ec·centerWeight·k 8·meterN 64·reduceN 8·taps 16)까지 한 동결 객체(version·status·hash)로 묶는다. 생성자 params를 폐지하고(exposure.js:112-118) pipeline.js:51을 삭제하며 셰이더 리터럴(8·, −3.0)을 템플릿으로 주입한다. uniformsMatchContract와 getInvariants.exposure hash를 둔다. lock/unlock은 유니폼으로 해서 프로그램 수가 그대로이고, reset이 unlock+snap을 한다. 시점은 '구조는 즉시 동결 → 실측 → P4B 종료 전 확정'으로 해소한다.",
+   "grafts": "B: E3 '밝은 곳에서 들어와 대비 ≥0.15에 걸리는 시간 C(t)'(게임플레이 의미). 기존 debugFreezeExposure의 원복과 표식(harness.js:496-504 비복원 결함). contractCheck가 JS가 아니라 GPU 유니폼과 define을 대조. C: 소스 정규식 검출기와 그 검출기 자체의 음성. core/surfaces.js식 '단독 수정 금지' 머리주석. 값 확정을 P4C 이후로 미루는 C 안은 쓰지 않는다."
+  },
+  {
+   "component": "통합/테스트",
+   "winner": "robust",
+   "why": "부팅 시 활성 액터가 0이라 샷 3 밖 11샷 픽셀이 바뀌지 않는다. 단계마다 비트 동일 체크포인트(노출 구조화 직후, 차폐 배열 변경 직후)를 둔다. playtest P4B 절 음성 4종(래그돌 비결정·액터 리셋 누설·내비 오버레이 누설·노출 드리프트)이 있다. determinismaudit 검사 3, 헤드리스 동등성, fullState에 getActorState를 넣어 p2b_reset_byte_identical이 액터·래그돌·내비를 덮게 한다. 이 모두가 기존 게이트를 최소한으로 건드리면서 음성으로 닫힌다.",
+   "grafts": "A: v1 fixture 4종을 npm test에 넣고 nav-fresh·actor-proxy·sim-purity 테스트, HARNESS 도구 표 갱신. B: HANJI 셰이더 변경 직후 더미를 B.w=r로 재현한 12샷 getSceneHash 체크포인트와 단계별 verify. 케이스 22는 B의 rigFrom 페이지 경로(부팅 메시 재사용, 런타임 지오메트리 0)."
+  }
+ ],
+ "fatalFlaws": [
+  {
+   "key": "fidelity",
+   "flaw": "silhouetteaudit의 실루엣 추출·대비 정의가 코드 사실과 모순된다. 'D=1−L_c/L_R ≥ 0.5 = 반그림자 중점 = 기하 경계'라는 주장이 성립하지 않는다. 그 결과 대비 0.15 검사(§3-2 5항)가 구성상 공허해지고, 판독 가능한 실루엣의 마스크가 비거나 돌출부가 지워진다.",
+   "evidence": "A는 캡처 PNG를 sRGB→선형(viewmodelaudit lin)으로 풀어 D를 정의한다. 그러나 ① HANJI 판 휘도에는 캡슐이 가리지 않는 상수항 `+ vec3(uHanjiAmbient)`(src/materials/index.js:398, HANJI_AMBIENT=0.035 :256)과 전면 반구·태양광이 더해지고, ② 캡처는 노출·AgX·LUT 뒤의 표시값이다(output.js). 따라서 D는 1−V에 비례하지 않는다. 현행 구성 추정: 점광항 ≈ 9 × att(6 m) 0.0675 × T_p 0.6/π ≈ 0.116, 차폐 불가 항 ≈ 0.05. 완전 차폐에서도 HDR D_max ≈ 0.7이고 톤매핑 뒤에는 더 압축된다. 008-B 실측 대비 .315(CONTRACT-NOTES:1170-1177, 공식 미상)가 바로 이 영역이다. 결과 (a): 대비 C를 S(D≥0.5)의 침식 core에서 재므로 S가 비어 있지 않으면 C≥0.5가 자동이다. 0.15 검사는 결코 실패하지 않는다. (b): 실제 대비가 0.15–0.5인 판독 가능 실루엣은 S=∅가 되어 비공허 조건으로 exit 1이 난다. (c): 귀(rc .045→.035, 폭 7–9 cm)처럼 반그림자(0.075–0.116 m)보다 좁은 돌출은 V가 0까지 내려가지 않아 S에서 먼저 사라진다. 그러면 돌출부 축이 깨진다. B는 HDR sceneRT(HalfFloat, pipeline.js:184-185, 441)에서 (B−A)/(B−Z)로 정규화해 이 문제를 피한다."
+  },
+  {
+   "key": "fidelity",
+   "flaw": "내비 굽기가 셀 크기보다 얇은 충돌체를 보지 못한다. 평탄 이웃(|Δy|≤0.42)은 쓸기 검사 없이 WALK로 연결된다. 그래서 그래프에 벽·창호지를 관통하는 간선이 생긴다. 또 EDT 양자화가 좁은 문을 정렬에 따라 잘못 닫거나 연다.",
+   "evidence": "A 굽기는 0.25 m 셀 중심의 하향 다중 레이로 보행 셀을 정하고, '|Δy|≤0.42는 WALK'다(navprobe는 0.42<Δy≤1.0에만 쓴다). clearance는 보행 마스크 EDT − 셀 반폭이다. 심벽 0.10 m(src/world/kit.js:33 SIMBYEOK_T), 창호지 충돌 박스 0.3 mm(kit.js:31, level.js:111-116), 창살 24 mm는 셀 중심이 벽 중심선에서 0.125 m 떨어지면 어느 셀에도 잡히지 않는다. 예: 내아 서벽 x=−32(level.js:338-341, 머름 + 창호)에서 안쪽 마루(1.0) 셀과 바깥 기단(0.6) 셀이 Δy 0.4로 WALK 연결된다. '거리 − 반셀' 추정은 보수적이지 않다. 내아 동문 0.7425 m 틈(r .34 여유 약 3 cm)은 격자 정렬에 따라 닫히거나 열린다. 또 A가 정한 자라 충돌 반지름 0.40으로는 이 틈을 물리적으로 지나갈 수 없다(map_world: 내아 출입구는 동문 하나, r 0.34만 통과). 실루엣 메커닉 무대인 내아에 자라가 들어갈 수 없다. B(셀마다 r 0.34 캡슐 서기 검사)와 C(sweepCapsule 간선 + 정확한 클리어런스)에는 이 결함이 없다."
+  },
+  {
+   "key": "robust",
+   "flaw": "silhouetteaudit의 추출·대비 정의가 A와 같은 이유로 코드 사실과 모순된다. o=1−L_A/L_B(표시 선형) ≥ 0.5를 '프록시 캡슐 표면'이라 하는데, C_same을 S 위에서 계산하므로 정의상 ≥0.5다. 대비 0.15 게이트가 공허해지고, 판독 가능한 실루엣이 S=∅로 실패한다.",
+   "evidence": "C 본문은 '0.5는 smoothstep(rad±soft/2) 중점, 곧 프록시 캡슐 표면이다(index.js:326-329)'라 하고, C_same = 1 − mean_{S∩M}(L_A)/mean_{S∩M}(L_B)로 정의한다. 그런데 S의 각 화소는 L_A ≤ 0.5·L_B이므로 S≠∅이면 항상 C_same ≥ 0.5다. 계약 0.15는 비교 대상이 되지 못한다. 판 휘도에는 차폐 불가 상수항(src/materials/index.js:398 `+ vec3(uHanjiAmbient)`, :256 0.035)이 있고 PNG는 AgX·LUT 뒤 값(output.js)이다. 그래서 0.5 등고선은 프록시 경계가 아니고, 008-B .315 수준의 실제 대비에서는 S가 공집합이거나 본영만 남는다."
+  },
+  {
+   "key": "robust",
+   "flaw": "조명 후보 D의 근거가 코드와 모순된다. 강도 보상 없이 판 점광 조도를 절반 이하로 낮추면서 'Weber 대비에는 1차 영향이 없다'고 한다. 실제로는 대비와 C 자신의 o≥0.5 마스크가 함께 줄어, 조명을 고치면 판독 게이트가 오히려 더 실패한다.",
+   "evidence": "감쇠는 decay 1.5, distance 24다(level.js:601, three getDistanceAttenuation). att(9.6 m) ≈ 0.032이고 att(6 m) ≈ 0.0675이므로 점광항이 ×0.47이 된다. 반면 판의 차폐 불가 상수항 uHanjiAmbient 0.035(index.js:256, 398)와 전면 조명은 그대로다. 차폐 가능 분율은 ≈0.68에서 ≈0.52로 떨어진다(HDR 추정). A·B는 같은 이동에 등롱별 강도 배율 ≈2(×1.96 / 1/0.49)을 명시했다. C는 '점광 개수를 늘리지 않는다'만 적고 강도 보상을 두지 않았다."
+  }
+ ]
+}
