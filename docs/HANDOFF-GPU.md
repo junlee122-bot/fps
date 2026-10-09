@@ -170,6 +170,17 @@ node -e "const r=JSON.parse(require('fs').readFileSync('tmp/xcheck/report.json',
 ```
 첫 값이 위 표와 같으면 이 컴퓨터는 게이트 동등 환경(적어도 그 샷). **다르면 이 컴퓨터는 게이트를 못 돌린다** — Windows/macOS 에서 Linux 와 SwiftShader 결과가 같은지는 **미검증**이다. 달라도 정상일 수 있으니 그 경우 게이트는 CI 에서만 돌린다. (`--shots` 부분 실행이라 `NON-CONTRACT` 배너가 뜨지만 sha256 은 유효하다.)
 
+**재현 기록 — GPU 컴퓨터(Windows), 2026-10-09 UTC.** 이 컴퓨터는 골든 해시를 **12/12 비트 동일**로 재현했다. 따라서 Windows 네이티브 + SwiftShader 도 Linux 러너·컨테이너와 같은 픽셀을 낸다(이 컴퓨터에서 실측).
+
+| 항목 | 값 |
+|---|---|
+| 컴퓨터 | Intel Core Ultra 5 250K Plus (18코어/18스레드) · RAM 31.3 GB · NVIDIA GeForce RTX 5060 Ti(드라이버 32.0.16.1742) + Intel Graphics · Windows 11 Home |
+| 실행 환경 | Node 22.23.2 · Playwright 1.56.1 · chromium-1194 · `FPS_GPU` 없음(SwiftShader 강제) · `FPS_NO_PIN=1`(Windows 심볼릭 링크 회피 — 깨끗한 워크트리를 직접 서빙, §5-2) · `git config core.autocrlf false` |
+| 1샷 확인 | `r4-wip` `6cec35e` · courtyard_noon sha256·programs 44·triangles 371666·drawCalls 1625·오디오 `e98b5ee9…ab7c`(192000) 모두 표와 같음 · **205.16 s** (16:56:58Z → 17:00:23Z) |
+| 12샷(체크포인트 ①) | `p4b/exposure` `c6d6069`(노출 구조 동결) · 계약 조건(1512×982@2x, settle 90, `nonContract=false`) · 12샷 sha256·programs·triangles·drawCalls 와 오디오 해시가 모두 표와 같음 · **3213.54 s** (17:07:16Z → 18:00:50Z, 앞쪽 일부 구간은 노드 시험과 병행) |
+
+이 컴퓨터에서는 baseline 류 렌더 게이트를 직접 돌릴 수 있다(샷당 ≈3.4–4.5 분, 컨테이너 ≈18 분). `gates.sh` 체인 전체는 bash·`/tmp` 경로 전제(§5-2)라 여전히 CI 를 권장한다.
+
 ---
 
 ## 7. 실 GPU 실측 (종료 게이트) — 요약

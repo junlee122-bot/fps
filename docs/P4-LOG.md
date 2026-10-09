@@ -95,3 +95,9 @@ GitHub Pages 는 리포 설정에서 꺼져 있어(Settings → Pages → Source
 - P4B 구현 1묶음 워크플로를 중단. 진행분은 브랜치로 원격에 보존 — `p4b/exposure`(c6d6069, 10 커밋, `npm test` 62/62, 체크포인트 ①·전체 playtest·독립 검증 **미실행**) · `p4b/actordata`(a4a64d2, 6 커밋, 실제 단위 테스트 **미작성** — `npm test` 79/79 는 `test/fixtures` 의 데이터 파일 43개가 `node --test` 에 실행된 것이라 무의미) · 래그돌 미착수.
 - 설계 입력·이력·워크플로 스크립트를 `docs/p4b/` 로 옮김(지도 6 · 설계안 3 · 심사 · 검토 3회).
 - 사용량 한도에 두 번 걸렸다(재검토 에이전트 11:00 UTC, 구현자 3명 16:30 UTC 해제). 17:03 에 구현을 재개했다가 이번 지시로 중단했다.
+
+### GPU 컴퓨터에서 골든 해시 재현 (2026-10-09 UTC)
+새 컴퓨터(Windows 11 Home · Intel Core Ultra 5 250K Plus 18코어 · RAM 31.3 GB · RTX 5060 Ti)에서 `FPS_GPU` 없이(SwiftShader), `FPS_NO_PIN=1` 로 깨끗한 워크트리를 서빙해 baseline 을 돌렸다. Node 22.23.2 · Playwright 1.56.1 · chromium-1194.
+- 1샷: `r4-wip` `6cec35e` courtyard_noon — sha256 `1281bb7e…8c2d` · programs 44 · triangles 371666 · drawCalls 1625 · 오디오 `e98b5ee9…ab7c`(192000), HANDOFF §6 표와 같음. 205.16 s.
+- 12샷(P4B 체크포인트 ①): `p4b/exposure` `c6d6069`, 계약 조건(`nonContract=false`) — **12/12 비트 동일**, 오디오 해시 같음. 3213.54 s.
+- 결론: Windows 네이티브 SwiftShader 도 Linux 러너 2대·컨테이너와 픽셀이 같다. HANDOFF §6 의 "Windows 미검증"은 이 컴퓨터에 한해 해소. 노출 구조 동결(단계 1)은 픽셀을 바꾸지 않았다(체크포인트 ①).
