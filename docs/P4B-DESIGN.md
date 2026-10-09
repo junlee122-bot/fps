@@ -147,7 +147,7 @@
 | `skills[]` | `{primitive, params, maxActive:1, cooldownS, durationS}` | primitive ∈ 닫힌 6종, 값 null 허용 | P4C |
 | `appearance.states` | `{default:{rigOf:'self', lookOf:'self', team:'self'}, <name>:{rigOf, lookOf, team:'self'\|'opponent'}}` | default 필수, 참조 유효, 순환 없음, `rigOf` 대상과 템플릿 동일, **`lookOf === rigOf`**(풀 메시는 캐릭터당 그 look slot 그룹으로 1개, §3-8), **해석된 외견 팀 = `rigOf` 대상 진영**(풀 재질 `{team}`은 부팅 고정) | 표현·차폐·래그돌 배치·(규칙에 따라) 히트 |
 | `silhouette` | `{audit, auditPose, identicalTo:[{state, character, characterState, reason}]}` | 참조 유효, 대칭 해석. `auditPose`는 시각 리그 항목(외견 상태에서는 `rigOf` 대상 값). `identicalTo` 쌍의 해석된 `rigOf`가 같아야 함 | silhouetteaudit |
-| `audio.footstep` | 프로파일 키 | 존재 | 오디오(외견 무관, §4-1-C) |
+| `audio.footstep` | 프로파일 키 | 존재(`ctx.footstepProfiles` 주입 시. 주입이 없으면 검증은 `skipped`에 이름·사유를 남기고, **부팅 배선(main.js)은 주입 누락이면 throw**) | 오디오(외견 무관, §4-1-C) |
 | `ragdoll` | `{template:'biped', massScale, limits?}` | 키 유효 | ragdoll(시각 리그와 함께 컴파일, 템플릿은 질량 **분율**만) |
 | `pose` | `{style:{strideM, armSwing, bob, idleBreath}, aim:{propBone, twoHand}, dangle:[{chain, stiffness, damping}]}` | 체인 뼈 유효 | pose(시각 리그) |
 
@@ -243,7 +243,7 @@ export default Object.freeze({
 1. 고유성이 모두 데이터 축이다: 윤곽 = 원시 조합(견우 삿갓 납작 el, 직녀 두루마리 비대칭 rc, 심청 댕기 dangle rc, 흥부 갓·지게), 무기 = 계열 + 개체, 스킬 = 닫힌 6종 + params, 이동 = 능력 비트(견우 `'vault'`), 체력·속도 = 수치.
 2. 흥부 변장은 데이터 두 줄: `appearance.states.disguise = {rigOf: 'dokkaebi', lookOf: 'dokkaebi', team: 'opponent'}`, `silhouette.identicalTo = [{state: 'disguise', character: 'dokkaebi', characterState: 'default', reason: 'P4-BRIEF §4-1-C'}]`. `applyModifier`(P4C)는 `appearanceState`만 바꾼다. 시각 리그를 통째로 바꾸므로 선언쌍 HDR이 바이트 동일해지고(§8-6) P4D에 코드가 필요 없다(P4-BRIEF:337·865).
 3. 정보 은닉은 필드 표(§7-8)가 정한다.
-4. 지금 시험한다: `test/fixtures/characters-v1/{gyeonu, jiknyeo, simcheong, heungbu}.js`로 스키마·meshgen·삼각형·dangle·히트·내비 클래스·흥부 원시 비트 동일·실루엣 예측(28쌍 보고)을 돌린다. 제안 윤곽이고 제품 데이터가 아니다. 내비 굽기에 이 클래스를 포함한다. rc+el로 못 그리는 윤곽은 P4B 안에서 드러난다(R12).
+4. 지금 시험한다: `test-fixtures/characters-v1/{gyeonu, jiknyeo, simcheong, heungbu}.js`로 스키마·meshgen·삼각형·dangle·히트·내비 클래스·흥부 원시 비트 동일·실루엣 예측(28쌍 보고)을 돌린다. 제안 윤곽이고 제품 데이터가 아니다. 내비 굽기에 이 클래스를 포함한다. rc+el로 못 그리는 윤곽은 P4B 안에서 드러난다(R12).
 
 ---
 
