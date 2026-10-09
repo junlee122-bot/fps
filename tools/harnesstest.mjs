@@ -32,6 +32,8 @@
  * 26. playtest 구멍 모델 음성 훅 (--inject-no-holes: 피격은 기록되고 구멍만 차단 → exit 1 + 표식 + hanji_hole_per_hit 실패) (PATCH-014-D 6항)
  * 27. 창호지 판별 유니폼 기본값 금지 — 부팅 가드 (baseline --test-hanji-unsync: 판 하나를 기본값으로 오염 → exit 1 + 표식 + 판 이름) (PATCH-001-D 유니폼판)
  * 28. 탄흔 데칼 부재 클립 음성 훅 (playtest --inject-decal-noclip: 클립 해제 → 창살 탄흔이 창호지로 번짐 → exit 1 + 표식 + decal_within_member 실패) (R4)
+ * 30. 노출 계약 드리프트 음성 훅 (playtest --inject-exposure-drift --section p4b-exposure: 계약 적용 직후 rateUp 변경 → exit 1 + 표식 +
+ *     그리기 시점 rateUp = 주입값, 실패는 계약 검사뿐) (P4B 설계서 §9-4 · §10-7; 22·31–35 는 P4B 후속 단계 예약)
  */
 
 import { spawnSync } from 'node:child_process';
@@ -40,6 +42,7 @@ import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { PNG } from 'pngjs';
 import { percentile, sortedAsc, pairSum, maxAcross } from './lib/stats.mjs';
+import { EXPOSURE_CONTRACT } from '../src/render/exposure-contract.js';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const TMP = resolve(ROOT, 'tmp/harnesstest');
@@ -65,6 +68,11 @@ const AUDIT_TIMEOUT_MS = 1800000;
  * 음성 판정 실패처럼 보였다 — 케이스 10·13 과 같은 부류의 리그 결함이 재발한 것. 실측의 2.5 배(케이스 10·13 과 같은 여유율)로 둔다.
  * 시간 초과는 케이스 detail 에도 `timedOut=` 으로 박는다 — retries 기록만으로는 요약 줄에서 보이지 않았다. */
 const PLAYTEST_TIMEOUT_MS = 6000000;
+/* playtest `--section p4b-exposure` 부분 실행(케이스 30)은 부팅 + 몇 프레임이라 유휴 컨테이너에서 단독 30 s(스냅샷 워크트리 생성 포함 첫 실행)·
+ * 26 s(케이스 30 단독 실행), 2026-10-08 실측. 다른 케이스와 같은 여유율 실측 × 2.5 로 둔다. CI 는 ≈ 컨테이너 × 1.5(P4-LOG:59)라 이 안에 든다. */
+const PLAYTEST_SECTION_MEASURED_MS = 30000;
+const TIMEOUT_MARGIN = 2.5;
+const PLAYTEST_SECTION_TIMEOUT_MS = PLAYTEST_SECTION_MEASURED_MS * TIMEOUT_MARGIN;
 const LIMIT_FOR_20 = 1.5; // paletteaudit LIMIT_PCT — 케이스 20(a)의 패치(3%)가 단독으로 넘어야 하는 값
 function run(cmd, args, timeoutMs = AUDIT_TIMEOUT_MS) {
   const r = spawnSync(cmd, args, { cwd: ROOT, encoding: 'utf8', timeout: timeoutMs });
@@ -459,6 +467,37 @@ const SHORT = ['--duration', '16', '--runs', '1', '--dpr', '1', '--w', '640', '-
   const ok = neg.code === 1 && marked && clipFailed && painted === false;
   record(28, '탄흔 데칼 부재 클립 음성 (--inject-decal-noclip → exit 1 + 표식 + 클립 미성립)', ok,
     `exit=${neg.code} timedOut=${neg.timedOut} 표식=${marked} 클립검사실패=${clipFailed} 탄흔수=${spillPx} 배선검사=${painted}`);
+}
+
+/* ---- 30. 노출 계약 드리프트 음성 훅 (P4B 설계서 §9-4 · §10-7, 단계 1) ----
+ * playtest 가 `ExposureMeter._applyContract` 를 감싸 계약을 쓴 **직후** rateUp 을 바꾼다 — 다음 adapt 드로우가 그 값으로 그려지므로
+ * 그리기 시점 값 대 계약 검사(p4b_exposure_contract_ok)는 반드시 실패해야 한다. "현재 유니폼 대 계약" 대조였다면 항등이라 못 잡는다(검토 #15).
+ * 증거는 셋이다: exit 1 + testOverride 표식(훅·부분 실행 둘 다) + 실패 기록의 mismatch 가 **그리기 시점** rateUp = 주입값(≠ 계약).
+ * 실패가 다른 이유로 난 exit 1 과 구별되도록 실패는 계약 검사뿐이어야 하고, 훅을 걸기 전 부팅 직후 판정은 참이어야 한다(같은 실행 안의 양성 대조).
+ * 전체 playtest(≈38 분)를 다시 돌리지 않도록 `--section p4b-exposure` 로 그 절만 돈다(설계서 §10-7 시간 예산 ①). 양성 경로는 게이트 목록의
+ * playtest 본 실행이 담당한다(케이스 26·28 과 같은 규칙). */
+{
+  const neg = runAudit('node', ['tools/playtest.mjs', '--inject-exposure-drift', '--section', 'p4b-exposure'], PLAYTEST_SECTION_TIMEOUT_MS);
+  let marked = false, sectionOnly = false, onlyContractFailed = false, drawnRateUp = null, injected = null, bootOk = null, phases = [];
+  try {
+    const j = JSON.parse(neg.out);
+    const mark = String(j.testOverride ?? '');
+    marked = mark.includes('inject-exposure-drift') && mark.includes('section=p4b-exposure');
+    sectionOnly = j.section === 'p4b-exposure' && Array.isArray(j.sections) && j.sections.length === 1 && j.sections[0] === 'p4b-exposure';
+    const fails = j.failures ?? [];
+    onlyContractFailed = fails.length >= 1 && fails.every((f) => f.check === 'p4b_exposure_contract_ok');
+    phases = fails.map((f) => f.phase);
+    injected = j.injection?.key === 'rateUp' ? j.injection.value : null;
+    // resetState 뒤 첫 판정 — 훅이 걸린 뒤 처음 그려진 프레임의 그리기 시점 기록
+    const m = fails.find((f) => f.phase === 'reset')?.mismatches?.find((x) => x.key === 'rateUp');
+    if (m && m.contract === EXPOSURE_CONTRACT.speed.rateUp) drawnRateUp = m.drawn;
+    bootOk = (j.log ?? []).find((l) => l.check === 'p4b_exposure_contract_ok' && l.phase === 'boot')?.ok ?? null;
+  } catch { /* fail */ }
+  const ok = neg.code === 1 && marked && sectionOnly && onlyContractFailed && injected !== null
+    && drawnRateUp === injected && drawnRateUp !== EXPOSURE_CONTRACT.speed.rateUp && bootOk === true;
+  record(30, '노출 계약 드리프트 음성 (playtest --inject-exposure-drift --section p4b-exposure → exit 1 + 표식 + 그리기 시점 rateUp = 주입값)', ok,
+    `exit=${neg.code} timedOut=${neg.timedOut} 표식=${marked} 절만=${sectionOnly} 계약검사만실패=${onlyContractFailed}(${phases.join(',')}) `
+    + `그리기rateUp=${drawnRateUp} 주입=${injected} 계약=${EXPOSURE_CONTRACT.speed.rateUp} 부팅판정=${bootOk}`);
 }
 
 /* ---- 21. audioaudit 음성 훅 (P4-BRIEF §2-5 "케이스 21") ----

@@ -40,15 +40,14 @@ import { SimplexNoise } from 'three/addons/math/SimplexNoise.js';
 import { clock } from '../core/clock.js';
 
 /**
- * C4 노출·블룸·출력 파라미터 — 미학 상수 (실측 근거: CONTRACT-NOTES C4 기록).
- *  ec: 노출 보정 EV(+가 밝게). evMin/evMax: 적응 EV100 클램프 — 야간이 중회색으로 끌려 올라가지 않게 하한을 둔다.
- *  rateUp/rateDown: 적응 속도(1/s) — 밝아질 때 빠르고 어두워질 때 느리다(시각 적응 비대칭).
+ * C4 블룸·출력 파라미터 — 미학 상수 (실측 근거: CONTRACT-NOTES C4 기록).
+ * 노출(ec·적응 범위·속도·계량)은 여기 두지 않는다 — 동결 계약 render/exposure-contract.js 가 단일 출처이고
+ * ExposureMeter 가 매 프레임 그 값을 유니폼에 쓴다(P4B 설계서 §9-2, 종전 EXPOSURE_PARAMS 삭제).
  */
 /** 태양광 색 (선형, R1 수정 A-2 — csm.fade 아래 주석) */
 const SUN_COLOR = Object.freeze([1.0, 0.97, 0.92]);
 /** GTAO 파라미터 (R1 수정 B — 접지 음영). radius(m)·scale·thickness·distanceExponent·distanceFallOff는 GTAOPass 유니폼 */
 const GTAO_PARAMS = Object.freeze({ radius: 0.7, scale: 1.4, thickness: 1.0, distanceExponent: 1.0, distanceFallOff: 1.0 });
-const EXPOSURE_PARAMS = Object.freeze({ ec: 1.0, evMin: 1.0, kneeSlope: 0.2, evMax: 14.0, rateUp: 3.0, rateDown: 1.5, centerWeight: 0.35 });
 const BLOOM_PARAMS = Object.freeze({ threshold: 0.8, knee: 0.5, iterations: 2 });
 const OUTPUT_PARAMS = Object.freeze({ bloomStrength: 0.08, lutIntensity: 1.0, ditherAmp: 0.0 });
 
@@ -265,11 +264,13 @@ export class RenderPipeline {
     this._csmFov = -1; this._csmAspect = -1;
     // ---- C4: 노출 미터 → 블룸 → 출력(AgX·sRGB·LUT) — 전부 자체 RT·자체 재질 (output.js 머리주석) ----
     const blit = (m, t) => this._blit(m, t);
-    this.exposure = new ExposureMeter({ renderer, blit, params: EXPOSURE_PARAMS });
+    this.exposure = new ExposureMeter({ renderer, blit }); // 값은 노출 계약 단일 출처 (P4B §9-2)
     this.bloom = new BloomPass({ blit, params: BLOOM_PARAMS });
     // R1 A-3: 대역 채도 상한은 LUT(암부에서 무력)가 아니라 출력 셰이더가 건다 — LUT는 bandCap 없이 빌드 (output.js 주석)
     this.lut = buildGradeLUT({ bandCap: null });
     this.outputMat = createOutputMaterial({ lut: this.lut.texture, lutSize: this.lut.size, params: OUTPUT_PARAMS, band: GRADE_DEFAULT });
+    /** 노출 보정 ec 를 읽는 드로우 → 그리기 시점 기록 키 (P4B §9-3: ec 는 미터가 아니라 블룸 밝기 추출·출력에서 쓰인다) */
+    this._ecDraws = new Map([[this.bloom.brightMat, 'bloom'], [this.outputMat, 'output']]);
 
     this._prevVP = new THREE.Matrix4();
     this._curVP = new THREE.Matrix4();
@@ -352,8 +353,8 @@ export class RenderPipeline {
     this.bloom.setSize(w, h);
     this.outputMat.uniforms.bloomSize.value.copy(this.bloom.size);
     // 포스트 체인 풀스크린 등가 비용 (계측 보고 — §8 overdraw 지표 정의(씬+안개+HANJI)와 별개):
-    // GTAO 4 + 안개 1 + TAA 1 + MB 1 + 출력 1 + 노출 미터(64²+8²+1)/픽셀 + 블룸(1/16+5/64)
-    this.passStats.postFullscreenEq = +(4 + 1 + 1 + 1 + 1 + (64 * 64 + 64 + 1) / (w * h) + this.bloom.fullscreenEq).toFixed(4);
+    // GTAO 4 + 안개 1 + TAA 1 + MB 1 + 출력 1 + 노출 미터(meterN²+reduceN²+1, 노출 계약)/픽셀 + 블룸(1/16+5/64)
+    this.passStats.postFullscreenEq = +(4 + 1 + 1 + 1 + 1 + this.exposure.passPixels / (w * h) + this.bloom.fullscreenEq).toFixed(4);
     this.csm.updateFrustums();
     // 히스토리·재투영·패리티 전부 리셋 — historyValid만 끄고 _hasPrev를 남기면
     // 다음 첫 프레임의 MB가 stale _prevVP(프리웜 마지막 뷰)로 비항등 재투영을 만들어
@@ -377,6 +378,9 @@ export class RenderPipeline {
   }
 
   _blit(material, target) {
+    // 그리기 시점 기록(P4B §9-3): ec 를 읽는 두 드로우는 묶인 값을 드로우 직전에 노출 계약 대조용으로 남긴다
+    const ecPass = this._ecDraws.get(material);
+    if (ecPass !== undefined) this.exposure.noteDrawnEc(ecPass, material.uniforms.ec.value);
     this._fsQuad.material = material;
     const prev = this.renderer.getRenderTarget();
     this.renderer.setRenderTarget(target);

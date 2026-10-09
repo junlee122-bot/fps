@@ -11,13 +11,23 @@
  *  - 충돌 배선 (벽·기단은 실제로 막는다)
  *  - 점프 상태 전이, 앉기 높이 변화
  *  - 강체 안정 (상자들이 유한한 위치에 정착)
+ *  - [P4B §9-3] 노출 계약 일치(그리기 시점 값 대 계약 + 노드 해시) — 부팅 직후 · resetState 후 · 절 스크립트 후
  *
- * 비정상 시 exit 1.
+ * 절(section, 설계서 §10-5): 각 절은 resetState 로 시작한다. P4B 절은 첫 resetState 자리(부팅 직후 판정 뒤)에 둔다.
+ *   p4b-exposure — 노출 계약(그리기 시점 일치 · frozen 뷰 · 측정 잠금 · testOverride 층)
+ *   core         — 이동·충돌·강체·사격·창호지·데칼 (P0–R4)
+ * `--section <이름>` 은 그 절만 돌린다(+ 끝의 페이지 오류 검사). **`--inject-*` 와 함께일 때만** 허용하고, 아니면
+ * exit 2 다 — 부분 실행이 게이트 통과처럼 보이면 안 된다(PATCH-001-C, silhouetteaudit 축소 플래그 규칙과 같다).
+ * 음성 훅이 겨냥하는 절과 다른 절을 지정해도 exit 2. 부분 실행은 testOverride 에 `section=` 표식이 박힌다.
+ *
+ * 비정상 시 exit 1. 인자 오류 exit 2.
  */
 
 import { startServer } from './lib/server.mjs';
 import { HANJI_BASE_OPACITY, HANJI_TEAR_THRESHOLD, HANJI_HOLE_RADIUS } from '../src/materials/hanji.js';
 import { launchBrowser, openGamePage, parseArgs } from './lib/browser.mjs';
+import { resolveSections } from './lib/sections.mjs';
+import { EXPOSURE_CONTRACT, exposureContractHash } from '../src/render/exposure-contract.js';
 
 const args = parseArgs();
 /**
@@ -31,8 +41,32 @@ const NO_HOLES = args['inject-no-holes'] === true;
  * 38~64 mm 탄흔이 창호지 위로 번지므로 `decal_within_member` 는 반드시 실패해야 한다.
  */
 const DECAL_NO_CLIP = args['inject-decal-noclip'] === true;
-const testOverride = NO_HOLES ? 'inject-no-holes(구멍 생성 차단) — harnesstest 전용, 계약 판정 무효'
-  : DECAL_NO_CLIP ? 'inject-decal-noclip(데칼 부재 클립 해제) — harnesstest 전용, 계약 판정 무효' : undefined;
+/**
+ * 음성 훅 (P4B §9-4, 케이스 30): `ExposureMeter._applyContract` 를 감싸 계약을 쓴 **직후** rateUp 을 바꾼다 — 다음 adapt 드로우가
+ * 그 값으로 그려지고 그리기 시점 기록에 남으므로 노출 계약 검사는 반드시 실패해야 한다(현재 유니폼 대 계약 대조는 항등이라 못 잡는다).
+ */
+const EXPOSURE_DRIFT = args['inject-exposure-drift'] === true;
+/** 드리프트 값 — 계약 rateUp 과 다르기만 하면 된다(설계서 §9-4 가 고른 값, 판정 임계 아님) */
+const DRIFT_RATE_UP = 9;
+
+/** 절 실행 순서 — P4B 절은 첫 resetState 자리(부팅 직후 판정 뒤), core 는 그 뒤 자기 resetState 로 시작한다 (§10-5) */
+const SECTION_ORDER = ['p4b-exposure', 'core'];
+/** 음성 훅 → 겨냥하는 절 · 표식 (표식 문자열은 harnesstest 케이스 26·28·30 이 찾는다) */
+const INJECTS = {
+  'inject-no-holes': { section: 'core', marker: 'inject-no-holes(구멍 생성 차단)' },
+  'inject-decal-noclip': { section: 'core', marker: 'inject-decal-noclip(데칼 부재 클립 해제)' },
+  'inject-exposure-drift': { section: 'p4b-exposure', marker: `inject-exposure-drift(계약 적용 직후 rateUp=${DRIFT_RATE_UP} — 그리기 값 드리프트)` },
+};
+/* 절 규칙(--section 은 --inject-* 와 함께만, 겨냥 절 일치, 표식)은 tools/lib/sections.mjs 한 곳 — test/sections.test.mjs 가 양성·음성을 본다 */
+const plan = resolveSections(args, SECTION_ORDER, INJECTS, 'harnesstest 전용, 계약 판정 무효');
+if (!plan.ok) {
+  console.error(plan.error);
+  process.exit(plan.exitCode);
+}
+const SECTION = plan.section;
+const SECTIONS = plan.sections;
+const runs = (name) => SECTIONS.includes(name);
+const testOverride = plan.testOverride;
 const failures = [];
 const log = [];
 
@@ -47,6 +81,14 @@ function check(name, cond, detail) {
 
 const PEN_LIMIT = 0.02;      // m — 해석 후 허용 침투
 const FALL_LIMIT = -5;       // m — 이보다 낮으면 월드 밖으로 떨어진 것
+/** 노출 계약 판정 전 진행 프레임 — 1프레임이면 미터·블룸·출력 드로우가 모두 한 번씩 돌아 그리기 기록이 갱신된다 */
+const CONTRACT_FRAMES = 1;
+/** 잠금 탐침 — 적응값과 달라야 잠금이 관측된다(임의 1 EV 이동, 판정 임계 아님) */
+const LOCK_PROBE_EV_OFFSET = 1;
+/** testOverride 층 탐침 — §9-6 후보 축(kneeSlope ±0.1)과 같은 크기. 층이 그려지고 잡히는지만 본다(판정 임계 아님) */
+const OVERRIDE_PROBE_DELTA = 0.1;
+/** 노드에서 같은 계약 파일로 다시 계산한 해시 — 페이지가 다른 계약을 서빙하면 어긋난다 */
+const NODE_CONTRACT_HASH = exposureContractHash();
 
 const server = await startServer();
 const browser = await launchBrowser();
@@ -72,256 +114,334 @@ try {
     });
   }
 
-  await page.evaluate(() => window.__harness.resetState());
-
-  // --- 1. 정지 30프레임: 스폰 안착 ---
-  await step(30);
-  let a = await inv();
-  check('spawn_grounded', a.player.grounded === true, { got: a.player });
-  check('spawn_finite', a.finitePlayer === true, {});
-  check('spawn_no_penetration', a.penetrationDepth < PEN_LIMIT, { depth: a.penetrationDepth });
-
-  // --- 2. 서쪽으로 4.5m 비켜서기 (x=0 직선상에는 석등(0,16)이 있다 —
-  //        그 충돌 자체는 아래 6번이 담장으로 검증한다) ---
-  await setInput({ right: -1 });
-  await step(70);
-  await setInput({ right: 0 });
-  await step(10);
-  const a2 = await inv();
-  check('strafe_moves', a.player.pos[0] - a2.player.pos[0] > 3, {
-    strafedMeters: +(a.player.pos[0] - a2.player.pos[0]).toFixed(2),
-  });
-
-  // --- 3. 북쪽으로 걷기 2초 → 달리기 2초 (걷기보다 빨라야 한다) ---
-  await setInput({ forward: 1 });
-  await step(120);
-  const b = await inv();
-  const walked = a2.player.pos[2] - b.player.pos[2];
-  check('walk_moves', walked > 6, { walkedMeters: +walked.toFixed(2) });
-  check('walk_finite', b.finitePlayer === true, {});
-  check('walk_no_penetration', b.penetrationDepth < PEN_LIMIT, { depth: b.penetrationDepth });
-
-  await setInput({ forward: 1, sprint: true });
-  await step(120);
-  let c = await inv();
-  const sprinted = b.player.pos[2] - c.player.pos[2];
-  check('sprint_faster', sprinted > walked + 2, {
-    walked: +walked.toFixed(2), sprinted: +sprinted.toFixed(2),
-  });
-  // --- 3b. 계속 달려 대청 기단(앞면 z=-18, 높이 0.7)에 막힌다 ---
-  await setInput({ forward: 1, sprint: true });
-  await step(240);
-  c = await inv();
-  check('hall_kidan_blocks', c.player.pos[2] > -18.6, { z: +c.player.pos[2].toFixed(2) });
-  check('hall_no_penetration', c.penetrationDepth < PEN_LIMIT, { depth: c.penetrationDepth });
-  check('hall_no_fall', c.player.pos[1] > FALL_LIMIT, { y: +c.player.pos[1].toFixed(2) });
-
-  // --- 4. 점프 상태 전이 ---
-  await setInput({ forward: 0, sprint: false });
-  await step(30);
-  const beforeJump = await inv();
-  await setInput({ jump: true });
-  await step(12);
-  const midJump = await inv();
-  await step(80);
-  const afterJump = await inv();
-  check('jump_leaves_ground', midJump.player.grounded === false || midJump.player.pos[1] > beforeJump.player.pos[1] + 0.15, {
-    before: beforeJump.player.pos[1], mid: midJump.player.pos[1],
-  });
-  check('jump_lands', afterJump.player.grounded === true, { got: afterJump.player.state });
-  check('jump_no_penetration', afterJump.penetrationDepth < PEN_LIMIT, { depth: afterJump.penetrationDepth });
-
-  // --- 5. 앉기 → 높이 감소, 서기 → 복귀 ---
-  await setInput({ crouch: true });
-  await step(10);
-  const crouched = await inv();
-  check('crouch_height', crouched.player.height < 1.4, { h: crouched.player.height });
-  await setInput({ crouch: false });
-  await step(10);
-  const stood = await inv();
-  check('stand_height', stood.player.height > 1.7, { h: stood.player.height });
-
-  // --- 6. 서쪽 담장으로 돌진 6초 — 막혀야 한다 ---
-  await setInput({ yaw: Math.PI / 2, forward: 1, sprint: true });
-  await step(360);
-  const westEnd = await inv();
-  check('west_wall_blocks', westEnd.player.pos[0] > -43.9, { x: +westEnd.player.pos[0].toFixed(2) });
-  check('west_no_penetration', westEnd.penetrationDepth < PEN_LIMIT, { depth: westEnd.penetrationDepth });
-  check('west_finite', westEnd.finitePlayer === true, {});
-
-  // --- 7. 강체: 부팅 낙하 상자 3개가 유한 위치에 정착 ---
-  const bodies = westEnd.bodies;
-  check('crates_exist', bodies.length === 3, { count: bodies.length });
-  for (const bd of bodies) {
-    check(`crate_${bd.id}_finite`, bd.finite === true, { pos: bd.pos });
-    check(`crate_${bd.id}_above_ground`, bd.pos[1] > 0 && bd.pos[1] < 4, { y: +bd.pos[1].toFixed(3) });
-    check(`crate_${bd.id}_settled`, bd.sleeping === true || bd.speed < 0.5, {
-      sleeping: bd.sleeping, speed: +bd.speed.toFixed(3),
-    });
-  }
-
-  // --- 7b. 사격 시나리오 (P2A) — 스폰에서 동헌 전면 창호 조준·연사 ---
-  // 스폰 (0, 1.69눈, 24) → 창호 베이 중심 (3.2, 2.2, -19.5): 거리 ~43.6m.
-  // 힙 산포 1.4°는 이 거리에서 ±1m라 판 명중이 불확실 — ADS(0.18°, ±14cm)로 조준.
-  await page.evaluate(() => window.__harness.resetState());
-  await step(30); // 스폰 안착
-  const aimYaw = -Math.atan2(3.2 - 0, 24 - (-19.5));
-  const aimPitch = Math.atan2(2.2 - 1.69, Math.hypot(3.2, 43.5));
-  await setInput({ yaw: aimYaw, pitch: aimPitch, ads: true });
-  await step(30); // ADS 블렌드 완료
-  // [R4 정정] 두 번에 나눠 쏜다. 종전의 60 프레임 연사(≈11 발)는 임계 T=6 을 바로 넘겨 판이 찢어지므로
-  // 구멍 검사 1·2 의 대상(임계 미만 판)이 **비어** every() 가 공허하게 참이 됐다 — 마감 체인 2차의 케이스 26
-  // (--inject-no-holes 음성)이 exit 0 으로 그것을 처음 드러냈다. 1차 연사 14 프레임(≈3 발, T 미만)에서 구멍 검사를
-  // 비공허하게 하고, 2차 연사 44 프레임으로 임계를 넘겨 찢어짐을 검사한다(합 ≈12 발, 종전 8~13 범위 유지).
-  await setInput({ fire: true });
-  await step(14); // ≈3 발 @700rpm — 임계 미만
-  await setInput({ fire: false });
-  await step(6);
-  const ws1 = await page.evaluate(() => window.__harness.getWeaponState());
-  const panes1 = Object.keys(ws1.hanji);
-  check('hanji_hit_recorded', panes1.length >= 1, { panes: ws1.hanji, fired: ws1.counters.fired });
-  {
-    // [PATCH-014-D] 구멍 모델 검사 1·2 — 상태가 "판 전체 반투명"이 아니라 "맞은 자리 구멍"인지. **비공허 조건**: 임계 미만 판이 1 개 이상.
-    const belowT = Object.entries(ws1.hanji).filter(([, p]) => p.hits < HANJI_TEAR_THRESHOLD);
-    check('hanji_below_threshold_pane', belowT.length >= 1 && ws1.counters.fired < HANJI_TEAR_THRESHOLD,
-      { fired: ws1.counters.fired, threshold: HANJI_TEAR_THRESHOLD, panes: Object.entries(ws1.hanji).map(([id, p]) => [id, p.hits]) });
-    // 1. 임계 미만이면 피격 수 = 구멍 수
-    check('hanji_hole_per_hit', belowT.length >= 1 && belowT.every(([, p]) => p.holes.length === p.hits),
-      { panes: belowT.map(([id, p]) => [id, p.hits, p.holes.length]) });
-    // 2. 구멍 위치가 판 안(0..1)이고 반지름이 무기 상수와 일치 (카빈 사격이었다) — 구멍이 하나도 없으면 실패
-    const R = HANJI_HOLE_RADIUS.CARBINE;
-    const holes1 = Object.values(ws1.hanji).flatMap((p) => p.holes);
-    check('hanji_hole_uv_in_pane', holes1.length >= 1 && holes1.every(([u, v, r]) => u >= 0 && u <= 1 && v >= 0 && v <= 1 && Math.abs(r - R) < 1e-3),
-      { sample: holes1.slice(0, 3), count: holes1.length, expectedR: R });
-  }
-  await setInput({ fire: true });
-  await step(44); // 2차 연사 — 합 ≈12 발, 임계 초과 → 찢어짐
-  await setInput({ fire: false, ads: false });
-  await step(10);
-  const ws = await page.evaluate(() => window.__harness.getWeaponState());
-  check('fire_rounds', ws.counters.fired >= 8 && ws.counters.fired <= 13, { fired: ws.counters.fired });
-  check('fire_ammo_spent', ws.weapons.CARBINE.ammo === 30 - ws.counters.fired, {
-    ammo: ws.weapons.CARBINE.ammo, fired: ws.counters.fired,
-  });
-  check('fire_multilayer_hits', ws.counters.hits > ws.counters.fired, { counters: ws.counters });
-  check('fire_stops_at_wall', ws.counters.stops >= 1, { stops: ws.counters.stops });
-  const hanjiPanes = Object.keys(ws.hanji);
-  if (hanjiPanes.length) {
-    const hp = ws.hanji[hanjiPanes[0]];
-    check('hanji_opacity_drops', hp.opacity < HANJI_BASE_OPACITY, { got: hp, base: HANJI_BASE_OPACITY }); // PATCH-005-D: 기본값은 materials 상수
-    // [PATCH-014-D] 4. 임계 초과 판은 찢어짐 상태 — 그리고 임계 미만 판은 찢어지지 않았다. **비공허 조건**: 찢어진 판이 1 개 이상(2차 연사가 임계를 넘겼다)
-    check('hanji_tear_threshold', Object.values(ws.hanji).some((p) => p.torn) && Object.values(ws.hanji).every(
-      (p) => p.torn === (p.hits >= HANJI_TEAR_THRESHOLD)),
-      { threshold: HANJI_TEAR_THRESHOLD, panes: Object.entries(ws.hanji).map(([id, p]) => [id, p.hits, p.torn]) });
-  }
-
-  // --- 7c. 무기 교체(산탄) → 1격발 = 9펠릿 독립 ---
-  await page.evaluate(() => window.__harness.setWeapon('SHOTGUN'));
-  const pelletsBefore = ws.counters.pellets;
-  await setInput({ fire: true });
-  await step(4);
-  await setInput({ fire: false });
-  await step(10);
-  const ws2 = await page.evaluate(() => window.__harness.getWeaponState());
-  check('shotgun_one_trigger', ws2.counters.fired === ws.counters.fired + 1, {
-    fired: ws2.counters.fired,
-  });
-  check('shotgun_nine_pellets', ws2.counters.pellets - pelletsBefore === 9, {
-    delta: ws2.counters.pellets - pelletsBefore,
-  });
-
-  // --- 7d. 장전 배선 ---
-  await page.evaluate(() => window.__harness.setWeapon('CARBINE'));
-  await setInput({ reload: true });
-  await step(10);
-  const midReload = await page.evaluate(() => window.__harness.getWeaponState());
-  check('reload_begins', midReload.weapons.CARBINE.reloading === true, {
-    got: midReload.weapons.CARBINE,
-  });
-  await step(140); // 2.2s = 132프레임
-  await setInput({ reload: false });
-  const done = await page.evaluate(() => window.__harness.getWeaponState());
-  check('reload_refills', done.weapons.CARBINE.ammo === 30, { ammo: done.weapons.CARBINE.ammo });
-
-  // --- 7d2. [P2B §3-1] 사격 후 resetState → 전 상태 바이트 단위 복원 ---
-  // 기준: 리셋 직후 스냅샷. 사격(파티클·데칼·예광·화염·기와낙하·반동·강체 임펄스)
-  // 후 resetState하면 JSON 직렬화가 기준과 정확히 일치해야 한다.
-  const fullState = async () => {
-    // 복원 검증 대상: 무기·FX·강체·플레이어·HANJI (frameTimes 등 계측 배열은 제외 —
-    // 벽시계 종속이라 결정 대상이 아니다)
-    const inv0 = await page.evaluate(() => window.__harness.getInvariants());
-    const w0 = await page.evaluate(() => window.__harness.getWeaponState());
-    const f0 = await page.evaluate(() => window.__harness.getFxState());
-    return JSON.stringify({
-      player: inv0.player, bodies: inv0.bodies, simTime: inv0.simTime, frame: inv0.frame,
-      weapon: w0, fx: f0,
-    });
+  // ===================== P4B 절: p4b-exposure (설계서 §9-3 · §9-5) =====================
+  /** 노출 계약 판정 — 그리기 시점 값·셰이더 문자열 대 계약(ok) + 페이지 해시 = 노드 해시 + 그리기 기록 ≥ 1 */
+  const checkContract = async (phase) => {
+    const r = await page.evaluate(() => window.__harness.getExposureContract());
+    check('p4b_exposure_contract_ok',
+      r.ok === true && r.hash === NODE_CONTRACT_HASH && r.version === EXPOSURE_CONTRACT.version && r.drawnFrames >= 1, {
+        phase, contractOk: r.ok, hash: r.hash, nodeHash: NODE_CONTRACT_HASH, version: r.version, status: r.status,
+        overrideActive: r.overrideActive, measurement: r.measurement, drawnFrames: r.drawnFrames, drawn: r.drawn, mismatches: r.mismatches,
+      });
+    return r;
   };
-  await page.evaluate(() => window.__harness.resetState());
-  const pristine = await fullState();
-  // 사격 난장: 지붕(기와 낙하) + 상자(강체 임펄스) + 창호(HANJI) 순서로 갈긴다
-  await setInput({ yaw: 0, pitch: 0.6, fire: true });  // 상공(지붕 방향)
-  await step(40);
-  await setInput({ yaw: aimYaw, pitch: aimPitch, fire: true });
-  await step(40);
-  await setInput({ fire: false });
-  await step(30);
-  const dirtyFx = await page.evaluate(() => window.__harness.getFxState());
-  check('p2b_fx_engaged', dirtyFx.particles.emittedTotal > 0 && dirtyFx.decals.cursor > 0, {
-    fx: dirtyFx,
-  });
-  await page.evaluate(() => window.__harness.resetState());
-  const restored = await fullState();
-  check('p2b_reset_byte_identical', restored === pristine, restored === pristine ? {} : {
-    diffHint: '복원 불일치 — 두 스냅샷 길이 ' + pristine.length + ' vs ' + restored.length,
-  });
+  const testOverrideNow = () => page.evaluate(() => window.__harness.getStats().testOverride ?? null);
 
-  // --- 7e. resetState가 사격 상태를 완전 초기화 (§7 결정성) ---
-  await page.evaluate(() => window.__harness.resetState());
-  const cleared = await page.evaluate(() => window.__harness.getWeaponState());
-  check('reset_clears_counters', cleared.counters.fired === 0 && cleared.counters.pellets === 0, {
-    counters: cleared.counters,
-  });
-  check('reset_clears_hanji', Object.keys(cleared.hanji).length === 0, { hanji: cleared.hanji });
-  check('reset_refills_ammo', cleared.weapons.CARBINE.ammo === 30 && cleared.weapons.SHOTGUN.ammo === 6, {
-    carbine: cleared.weapons.CARBINE.ammo, shotgun: cleared.weapons.SHOTGUN.ammo,
-  });
-
-  // --- 7f. [R4] 탄흔 데칼 부재 클립 — 창살 탄흔이 창호지 위로 번지지 않는다 ---
-  // 데칼은 부재에 맞춰 잘리지 않는 쿼드다. 창살은 24 mm 각재인데 탄흔 쿼드는 38~64 mm 라
-  // 종이 위로 번졌다(R4 실측). 맞은 부재의 월드 AABB 를 인스턴스 속성으로 넘겨 프래그먼트에서 자른다.
-  //
-  // **기하로 잰다(픽셀 아님)**: 같은 장면을 두 번 찍어 차분하면 TAA 지터 잔여가 화면 전체에
-  // 11,600 px 남는데 탄흔 발자국은 1,104 px, 클립이 지우는 양은 435 px 라 잡음이 신호를 삼킨다.
-  // 클립의 성립은 기하 성질이므로 기하로 판정하고, 그림 증거(클립 유무 두 실행의 직접 차분:
-  // 435 px 삭제, 남는 띠 16 px = 24 mm 창살)는 docs/R4-LOG.md 에 남긴다.
-  {
+  if (runs('p4b-exposure')) {
+    // 부팅 직후(resetState 전): 프리웜·웜 렌더가 남긴 그리기 기록 — 음성 훅을 걸기 전이라 드리프트 실행에서도 참이어야 한다
+    await checkContract('boot');
+    if (EXPOSURE_DRIFT) {
+      await page.evaluate((v) => {
+        const ex = window.__harness._internal.pipeline.exposure;
+        const orig = ex._applyContract.bind(ex);
+        ex._applyContract = () => { orig(); ex.adaptMat.uniforms.rateUp.value = v; };
+      }, DRIFT_RATE_UP);
+    }
     await page.evaluate(() => window.__harness.resetState());
-    const PANE = 'na_w_-3_hanji';
-    const pose = await page.evaluate((n) => window.__harness.debugObjectPose(n), PANE);
-    if (!pose) {
-      check('decal_within_member', false, { reason: `판 ${PANE} 없음 — 검사 대상을 찾지 못했다` });
-    } else {
-      const [cx, cy, cz] = pose.center;
-      const eye = [cx - 0.6, cy, cz];
-      // 창살 중앙(띠 0)과 **가장자리**(중앙선 +10 mm) 두 곳 — 가장자리 명중이 더 잘 번진다
-      for (const dy of [0, 0.010]) {
-        await page.evaluate(({ e, d }) => window.__harness.debugFire({
-          pos: [e[0], e[1] + d, e[2]], yaw: -Math.PI / 2, pitch: 0,
-        }), { e: eye, d: dy });
+    await step(CONTRACT_FRAMES);
+    await checkContract('reset');
+
+    // (1) frozen 뷰 — __pipeline 을 거친 대입은 비엄격 문맥에서 조용히 무시되고 값이 그대로다 (§9-2)
+    const fv = await page.evaluate((v) => {
+      const ex = window.__pipeline.exposure;
+      let threw = false;
+      try { ex.params.rateUp = v; } catch { threw = true; }
+      return { frozen: Object.isFrozen(ex.params), rateUp: ex.params.rateUp, threw };
+    }, DRIFT_RATE_UP);
+    check('p4b_exposure_frozen_view', fv.frozen === true && fv.rateUp === EXPOSURE_CONTRACT.speed.rateUp,
+      { ...fv, contract: EXPOSURE_CONTRACT.speed.rateUp });
+
+    // (2) 측정 잠금 — 다음 프레임 적응 EV = 잠금값(Float32), measurement 'locked' → unlock 뒤 'adaptive' (§9-5)
+    const ev0 = (await page.evaluate(() => window.__harness.getExposure())).ev100;
+    const lockEv = ev0 + LOCK_PROBE_EV_OFFSET;
+    const lk = await page.evaluate((e) => window.__harness.lockExposure(e), lockEv);
+    await step(CONTRACT_FRAMES);
+    const locked = await page.evaluate(() => ({ e: window.__harness.getExposure(), c: window.__harness.getExposureContract() }));
+    check('p4b_exposure_lock',
+      lk.measurement?.exposure === 'locked' && locked.c.measurement.exposure === 'locked' && locked.c.measurement.ev100 === lockEv
+        && locked.e.ev100 === +Math.fround(lockEv).toFixed(4),
+      { lockEv, adaptedBefore: ev0, readBack: locked.e.ev100, measurement: locked.c.measurement });
+    const ul = await page.evaluate(() => window.__harness.unlockExposure());
+    await step(CONTRACT_FRAMES);
+    const unlocked = await page.evaluate(() => window.__harness.getExposureContract());
+    check('p4b_exposure_unlock', ul.measurement?.exposure === 'adaptive' && unlocked.measurement.exposure === 'adaptive',
+      { measurement: unlocked.measurement });
+
+    // (3) testOverride 층 — 그려지고 contractCheck 가 잡는다(검사 자체의 양성 대조) + getStats 표식 → resetState 가 해제한다
+    const ks = EXPOSURE_CONTRACT.range.kneeSlope + OVERRIDE_PROBE_DELTA;
+    await page.evaluate((v) => window.__harness.debugExposureOverride({ kneeSlope: v }), ks);
+    await step(CONTRACT_FRAMES);
+    const ov = await page.evaluate(() => window.__harness.getExposureContract());
+    const ovMark = await testOverrideNow();
+    check('p4b_exposure_override_caught',
+      ov.ok === false && ov.overrideActive === true && ov.mismatches.some((m) => m.key === 'kneeSlope' && m.drawn === ks)
+        && String(ovMark ?? '').includes('debugExposureOverride'),
+      { contractOk: ov.ok, overrideActive: ov.overrideActive, mismatches: ov.mismatches, testOverride: ovMark });
+    await page.evaluate(() => window.__harness.resetState());
+    await step(CONTRACT_FRAMES);
+    const cleared = await page.evaluate(() => window.__harness.getExposureContract());
+    const clearedMark = await testOverrideNow();
+    check('p4b_exposure_reset_clears',
+      cleared.overrideActive === false && cleared.measurement.exposure === 'adaptive' && clearedMark === null,
+      { overrideActive: cleared.overrideActive, measurement: cleared.measurement, testOverride: clearedMark });
+
+    // 절 스크립트 후 — 잠금·층을 거친 뒤에도 계약 그대로 그려진다
+    await checkContract('script');
+  }
+
+  // ============================== core 절 (P0–R4) ==============================
+  if (runs('core')) {
+    await page.evaluate(() => window.__harness.resetState());
+
+    // --- 1. 정지 30프레임: 스폰 안착 ---
+    await step(30);
+    let a = await inv();
+    check('spawn_grounded', a.player.grounded === true, { got: a.player });
+    check('spawn_finite', a.finitePlayer === true, {});
+    check('spawn_no_penetration', a.penetrationDepth < PEN_LIMIT, { depth: a.penetrationDepth });
+
+    // --- 2. 서쪽으로 4.5m 비켜서기 (x=0 직선상에는 석등(0,16)이 있다 —
+    //        그 충돌 자체는 아래 6번이 담장으로 검증한다) ---
+    await setInput({ right: -1 });
+    await step(70);
+    await setInput({ right: 0 });
+    await step(10);
+    const a2 = await inv();
+    check('strafe_moves', a.player.pos[0] - a2.player.pos[0] > 3, {
+      strafedMeters: +(a.player.pos[0] - a2.player.pos[0]).toFixed(2),
+    });
+
+    // --- 3. 북쪽으로 걷기 2초 → 달리기 2초 (걷기보다 빨라야 한다) ---
+    await setInput({ forward: 1 });
+    await step(120);
+    const b = await inv();
+    const walked = a2.player.pos[2] - b.player.pos[2];
+    check('walk_moves', walked > 6, { walkedMeters: +walked.toFixed(2) });
+    check('walk_finite', b.finitePlayer === true, {});
+    check('walk_no_penetration', b.penetrationDepth < PEN_LIMIT, { depth: b.penetrationDepth });
+
+    await setInput({ forward: 1, sprint: true });
+    await step(120);
+    let c = await inv();
+    const sprinted = b.player.pos[2] - c.player.pos[2];
+    check('sprint_faster', sprinted > walked + 2, {
+      walked: +walked.toFixed(2), sprinted: +sprinted.toFixed(2),
+    });
+    // --- 3b. 계속 달려 대청 기단(앞면 z=-18, 높이 0.7)에 막힌다 ---
+    await setInput({ forward: 1, sprint: true });
+    await step(240);
+    c = await inv();
+    check('hall_kidan_blocks', c.player.pos[2] > -18.6, { z: +c.player.pos[2].toFixed(2) });
+    check('hall_no_penetration', c.penetrationDepth < PEN_LIMIT, { depth: c.penetrationDepth });
+    check('hall_no_fall', c.player.pos[1] > FALL_LIMIT, { y: +c.player.pos[1].toFixed(2) });
+
+    // --- 4. 점프 상태 전이 ---
+    await setInput({ forward: 0, sprint: false });
+    await step(30);
+    const beforeJump = await inv();
+    await setInput({ jump: true });
+    await step(12);
+    const midJump = await inv();
+    await step(80);
+    const afterJump = await inv();
+    check('jump_leaves_ground', midJump.player.grounded === false || midJump.player.pos[1] > beforeJump.player.pos[1] + 0.15, {
+      before: beforeJump.player.pos[1], mid: midJump.player.pos[1],
+    });
+    check('jump_lands', afterJump.player.grounded === true, { got: afterJump.player.state });
+    check('jump_no_penetration', afterJump.penetrationDepth < PEN_LIMIT, { depth: afterJump.penetrationDepth });
+
+    // --- 5. 앉기 → 높이 감소, 서기 → 복귀 ---
+    await setInput({ crouch: true });
+    await step(10);
+    const crouched = await inv();
+    check('crouch_height', crouched.player.height < 1.4, { h: crouched.player.height });
+    await setInput({ crouch: false });
+    await step(10);
+    const stood = await inv();
+    check('stand_height', stood.player.height > 1.7, { h: stood.player.height });
+
+    // --- 6. 서쪽 담장으로 돌진 6초 — 막혀야 한다 ---
+    await setInput({ yaw: Math.PI / 2, forward: 1, sprint: true });
+    await step(360);
+    const westEnd = await inv();
+    check('west_wall_blocks', westEnd.player.pos[0] > -43.9, { x: +westEnd.player.pos[0].toFixed(2) });
+    check('west_no_penetration', westEnd.penetrationDepth < PEN_LIMIT, { depth: westEnd.penetrationDepth });
+    check('west_finite', westEnd.finitePlayer === true, {});
+
+    // --- 7. 강체: 부팅 낙하 상자 3개가 유한 위치에 정착 ---
+    const bodies = westEnd.bodies;
+    check('crates_exist', bodies.length === 3, { count: bodies.length });
+    for (const bd of bodies) {
+      check(`crate_${bd.id}_finite`, bd.finite === true, { pos: bd.pos });
+      check(`crate_${bd.id}_above_ground`, bd.pos[1] > 0 && bd.pos[1] < 4, { y: +bd.pos[1].toFixed(3) });
+      check(`crate_${bd.id}_settled`, bd.sleeping === true || bd.speed < 0.5, {
+        sleeping: bd.sleeping, speed: +bd.speed.toFixed(3),
+      });
+    }
+
+    // --- 7b. 사격 시나리오 (P2A) — 스폰에서 동헌 전면 창호 조준·연사 ---
+    // 스폰 (0, 1.69눈, 24) → 창호 베이 중심 (3.2, 2.2, -19.5): 거리 ~43.6m.
+    // 힙 산포 1.4°는 이 거리에서 ±1m라 판 명중이 불확실 — ADS(0.18°, ±14cm)로 조준.
+    await page.evaluate(() => window.__harness.resetState());
+    await step(30); // 스폰 안착
+    const aimYaw = -Math.atan2(3.2 - 0, 24 - (-19.5));
+    const aimPitch = Math.atan2(2.2 - 1.69, Math.hypot(3.2, 43.5));
+    await setInput({ yaw: aimYaw, pitch: aimPitch, ads: true });
+    await step(30); // ADS 블렌드 완료
+    // [R4 정정] 두 번에 나눠 쏜다. 종전의 60 프레임 연사(≈11 발)는 임계 T=6 을 바로 넘겨 판이 찢어지므로
+    // 구멍 검사 1·2 의 대상(임계 미만 판)이 **비어** every() 가 공허하게 참이 됐다 — 마감 체인 2차의 케이스 26
+    // (--inject-no-holes 음성)이 exit 0 으로 그것을 처음 드러냈다. 1차 연사 14 프레임(≈3 발, T 미만)에서 구멍 검사를
+    // 비공허하게 하고, 2차 연사 44 프레임으로 임계를 넘겨 찢어짐을 검사한다(합 ≈12 발, 종전 8~13 범위 유지).
+    await setInput({ fire: true });
+    await step(14); // ≈3 발 @700rpm — 임계 미만
+    await setInput({ fire: false });
+    await step(6);
+    const ws1 = await page.evaluate(() => window.__harness.getWeaponState());
+    const panes1 = Object.keys(ws1.hanji);
+    check('hanji_hit_recorded', panes1.length >= 1, { panes: ws1.hanji, fired: ws1.counters.fired });
+    {
+      // [PATCH-014-D] 구멍 모델 검사 1·2 — 상태가 "판 전체 반투명"이 아니라 "맞은 자리 구멍"인지. **비공허 조건**: 임계 미만 판이 1 개 이상.
+      const belowT = Object.entries(ws1.hanji).filter(([, p]) => p.hits < HANJI_TEAR_THRESHOLD);
+      check('hanji_below_threshold_pane', belowT.length >= 1 && ws1.counters.fired < HANJI_TEAR_THRESHOLD,
+        { fired: ws1.counters.fired, threshold: HANJI_TEAR_THRESHOLD, panes: Object.entries(ws1.hanji).map(([id, p]) => [id, p.hits]) });
+      // 1. 임계 미만이면 피격 수 = 구멍 수
+      check('hanji_hole_per_hit', belowT.length >= 1 && belowT.every(([, p]) => p.holes.length === p.hits),
+        { panes: belowT.map(([id, p]) => [id, p.hits, p.holes.length]) });
+      // 2. 구멍 위치가 판 안(0..1)이고 반지름이 무기 상수와 일치 (카빈 사격이었다) — 구멍이 하나도 없으면 실패
+      const R = HANJI_HOLE_RADIUS.CARBINE;
+      const holes1 = Object.values(ws1.hanji).flatMap((p) => p.holes);
+      check('hanji_hole_uv_in_pane', holes1.length >= 1 && holes1.every(([u, v, r]) => u >= 0 && u <= 1 && v >= 0 && v <= 1 && Math.abs(r - R) < 1e-3),
+        { sample: holes1.slice(0, 3), count: holes1.length, expectedR: R });
+    }
+    await setInput({ fire: true });
+    await step(44); // 2차 연사 — 합 ≈12 발, 임계 초과 → 찢어짐
+    await setInput({ fire: false, ads: false });
+    await step(10);
+    const ws = await page.evaluate(() => window.__harness.getWeaponState());
+    check('fire_rounds', ws.counters.fired >= 8 && ws.counters.fired <= 13, { fired: ws.counters.fired });
+    check('fire_ammo_spent', ws.weapons.CARBINE.ammo === 30 - ws.counters.fired, {
+      ammo: ws.weapons.CARBINE.ammo, fired: ws.counters.fired,
+    });
+    check('fire_multilayer_hits', ws.counters.hits > ws.counters.fired, { counters: ws.counters });
+    check('fire_stops_at_wall', ws.counters.stops >= 1, { stops: ws.counters.stops });
+    const hanjiPanes = Object.keys(ws.hanji);
+    if (hanjiPanes.length) {
+      const hp = ws.hanji[hanjiPanes[0]];
+      check('hanji_opacity_drops', hp.opacity < HANJI_BASE_OPACITY, { got: hp, base: HANJI_BASE_OPACITY }); // PATCH-005-D: 기본값은 materials 상수
+      // [PATCH-014-D] 4. 임계 초과 판은 찢어짐 상태 — 그리고 임계 미만 판은 찢어지지 않았다. **비공허 조건**: 찢어진 판이 1 개 이상(2차 연사가 임계를 넘겼다)
+      check('hanji_tear_threshold', Object.values(ws.hanji).some((p) => p.torn) && Object.values(ws.hanji).every(
+        (p) => p.torn === (p.hits >= HANJI_TEAR_THRESHOLD)),
+        { threshold: HANJI_TEAR_THRESHOLD, panes: Object.entries(ws.hanji).map(([id, p]) => [id, p.hits, p.torn]) });
+    }
+
+    // --- 7c. 무기 교체(산탄) → 1격발 = 9펠릿 독립 ---
+    await page.evaluate(() => window.__harness.setWeapon('SHOTGUN'));
+    const pelletsBefore = ws.counters.pellets;
+    await setInput({ fire: true });
+    await step(4);
+    await setInput({ fire: false });
+    await step(10);
+    const ws2 = await page.evaluate(() => window.__harness.getWeaponState());
+    check('shotgun_one_trigger', ws2.counters.fired === ws.counters.fired + 1, {
+      fired: ws2.counters.fired,
+    });
+    check('shotgun_nine_pellets', ws2.counters.pellets - pelletsBefore === 9, {
+      delta: ws2.counters.pellets - pelletsBefore,
+    });
+
+    // --- 7d. 장전 배선 ---
+    await page.evaluate(() => window.__harness.setWeapon('CARBINE'));
+    await setInput({ reload: true });
+    await step(10);
+    const midReload = await page.evaluate(() => window.__harness.getWeaponState());
+    check('reload_begins', midReload.weapons.CARBINE.reloading === true, {
+      got: midReload.weapons.CARBINE,
+    });
+    await step(140); // 2.2s = 132프레임
+    await setInput({ reload: false });
+    const done = await page.evaluate(() => window.__harness.getWeaponState());
+    check('reload_refills', done.weapons.CARBINE.ammo === 30, { ammo: done.weapons.CARBINE.ammo });
+
+    // --- 7d2. [P2B §3-1] 사격 후 resetState → 전 상태 바이트 단위 복원 ---
+    // 기준: 리셋 직후 스냅샷. 사격(파티클·데칼·예광·화염·기와낙하·반동·강체 임펄스)
+    // 후 resetState하면 JSON 직렬화가 기준과 정확히 일치해야 한다.
+    const fullState = async () => {
+      // 복원 검증 대상: 무기·FX·강체·플레이어·HANJI (frameTimes 등 계측 배열은 제외 —
+      // 벽시계 종속이라 결정 대상이 아니다)
+      const inv0 = await page.evaluate(() => window.__harness.getInvariants());
+      const w0 = await page.evaluate(() => window.__harness.getWeaponState());
+      const f0 = await page.evaluate(() => window.__harness.getFxState());
+      return JSON.stringify({
+        player: inv0.player, bodies: inv0.bodies, simTime: inv0.simTime, frame: inv0.frame,
+        weapon: w0, fx: f0,
+      });
+    };
+    await page.evaluate(() => window.__harness.resetState());
+    const pristine = await fullState();
+    // 사격 난장: 지붕(기와 낙하) + 상자(강체 임펄스) + 창호(HANJI) 순서로 갈긴다
+    await setInput({ yaw: 0, pitch: 0.6, fire: true });  // 상공(지붕 방향)
+    await step(40);
+    await setInput({ yaw: aimYaw, pitch: aimPitch, fire: true });
+    await step(40);
+    await setInput({ fire: false });
+    await step(30);
+    const dirtyFx = await page.evaluate(() => window.__harness.getFxState());
+    check('p2b_fx_engaged', dirtyFx.particles.emittedTotal > 0 && dirtyFx.decals.cursor > 0, {
+      fx: dirtyFx,
+    });
+    await page.evaluate(() => window.__harness.resetState());
+    const restored = await fullState();
+    check('p2b_reset_byte_identical', restored === pristine, restored === pristine ? {} : {
+      diffHint: '복원 불일치 — 두 스냅샷 길이 ' + pristine.length + ' vs ' + restored.length,
+    });
+
+    // --- 7e. resetState가 사격 상태를 완전 초기화 (§7 결정성) ---
+    await page.evaluate(() => window.__harness.resetState());
+    const cleared = await page.evaluate(() => window.__harness.getWeaponState());
+    check('reset_clears_counters', cleared.counters.fired === 0 && cleared.counters.pellets === 0, {
+      counters: cleared.counters,
+    });
+    check('reset_clears_hanji', Object.keys(cleared.hanji).length === 0, { hanji: cleared.hanji });
+    check('reset_refills_ammo', cleared.weapons.CARBINE.ammo === 30 && cleared.weapons.SHOTGUN.ammo === 6, {
+      carbine: cleared.weapons.CARBINE.ammo, shotgun: cleared.weapons.SHOTGUN.ammo,
+    });
+
+    // --- 7f. [R4] 탄흔 데칼 부재 클립 — 창살 탄흔이 창호지 위로 번지지 않는다 ---
+    // 데칼은 부재에 맞춰 잘리지 않는 쿼드다. 창살은 24 mm 각재인데 탄흔 쿼드는 38~64 mm 라
+    // 종이 위로 번졌다(R4 실측). 맞은 부재의 월드 AABB 를 인스턴스 속성으로 넘겨 프래그먼트에서 자른다.
+    //
+    // **기하로 잰다(픽셀 아님)**: 같은 장면을 두 번 찍어 차분하면 TAA 지터 잔여가 화면 전체에
+    // 11,600 px 남는데 탄흔 발자국은 1,104 px, 클립이 지우는 양은 435 px 라 잡음이 신호를 삼킨다.
+    // 클립의 성립은 기하 성질이므로 기하로 판정하고, 그림 증거(클립 유무 두 실행의 직접 차분:
+    // 435 px 삭제, 남는 띠 16 px = 24 mm 창살)는 docs/R4-LOG.md 에 남긴다.
+    {
+      await page.evaluate(() => window.__harness.resetState());
+      const PANE = 'na_w_-3_hanji';
+      const pose = await page.evaluate((n) => window.__harness.debugObjectPose(n), PANE);
+      if (!pose) {
+        check('decal_within_member', false, { reason: `판 ${PANE} 없음 — 검사 대상을 찾지 못했다` });
+      } else {
+        const [cx, cy, cz] = pose.center;
+        const eye = [cx - 0.6, cy, cz];
+        // 창살 중앙(띠 0)과 **가장자리**(중앙선 +10 mm) 두 곳 — 가장자리 명중이 더 잘 번진다
+        for (const dy of [0, 0.010]) {
+          await page.evaluate(({ e, d }) => window.__harness.debugFire({
+            pos: [e[0], e[1] + d, e[2]], yaw: -Math.PI / 2, pitch: 0,
+          }), { e: eye, d: dy });
+        }
+        await step(2);
+        // 판정 대상만 남긴다 — 탄자는 판을 뚫고 뒤의 기둥·벽에도 탄흔을 남긴다(그 자체는 정상)
+        const trim = await page.evaluate((e) => window.__harness.debugTrimDecals(e, 1.0), eye);
+        if (DECAL_NO_CLIP) await page.evaluate(() => window.__harness.debugDecalNoClip());
+        const rep = await page.evaluate(() => window.__harness.debugDecalClipReport());
+        check('decal_clip_wired', rep.length >= 1 && rep.every((r) => r.clipHalf[1] < 1000), {
+          decals: trim, report: rep, note: '창살 탄흔마다 부재 상자가 실렸는지 (1e4 = 상자 없음)',
+        });
+        check('decal_within_member', rep.length >= 1 && rep.every((r) => r.cuts), {
+          report: rep,
+          note: '쿼드가 부재 상자를 넘으므로 프래그먼트에서 잘린다 = 종이 위로 번지지 않는다',
+        });
       }
-      await step(2);
-      // 판정 대상만 남긴다 — 탄자는 판을 뚫고 뒤의 기둥·벽에도 탄흔을 남긴다(그 자체는 정상)
-      const trim = await page.evaluate((e) => window.__harness.debugTrimDecals(e, 1.0), eye);
-      if (DECAL_NO_CLIP) await page.evaluate(() => window.__harness.debugDecalNoClip());
-      const rep = await page.evaluate(() => window.__harness.debugDecalClipReport());
-      check('decal_clip_wired', rep.length >= 1 && rep.every((r) => r.clipHalf[1] < 1000), {
-        decals: trim, report: rep, note: '창살 탄흔마다 부재 상자가 실렸는지 (1e4 = 상자 없음)',
-      });
-      check('decal_within_member', rep.length >= 1 && rep.every((r) => r.cuts), {
-        report: rep,
-        note: '쿼드가 부재 상자를 넘으므로 프래그먼트에서 잘린다 = 종이 위로 번지지 않는다',
-      });
     }
   }
 
@@ -338,5 +458,10 @@ try {
   await server.close();
 }
 
-console.log(JSON.stringify({ ok: failures.length === 0, ...(testOverride ? { testOverride } : {}), failures, log }, null, 2));
+console.log(JSON.stringify({
+  ok: failures.length === 0, ...(testOverride ? { testOverride } : {}),
+  sections: SECTIONS, ...(SECTION !== undefined ? { section: SECTION } : {}),
+  ...(EXPOSURE_DRIFT ? { injection: { key: 'rateUp', value: DRIFT_RATE_UP } } : {}),
+  failures, log,
+}, null, 2));
 process.exit(failures.length === 0 ? 0 : 1);

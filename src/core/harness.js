@@ -97,6 +97,12 @@ export function installHarness(ctx) {
     tagMask: false,
   };
 
+  /** P4B 신규 API 공통 가드(설계서 §10-1): fixed 모드 전용 · stepFrames 진행 중 호출 금지 */
+  function requireFixedIdle(name) {
+    if (mode !== 'fixed') throw new Error(`${name} requires fixed mode`);
+    if (state.busy) throw new Error(`${name} called while stepFrames in progress`);
+  }
+
   /** 샷 액션 실행 — 즉시(applyShot)·지연(stepFrames) 공용 (P2B) */
   function runShotAction(act) {
     if (act.type !== 'fire') throw new Error(`unknown shot action: ${act.type}`);
@@ -246,7 +252,7 @@ export function installHarness(ctx) {
       opacityApplier?.restoreAll(); // 이벤트를 놓친 판(프로브가 유니폼을 직접 만진 경우 등)까지 부팅 상태로
       fx.reset();                   // 이월 마커 방지
       audio?.reset();               // P4A: 울리는 소리 정지 · 중복 억제 · 공간 재측정 (P4-BRIEF −1-B 3)
-      pipeline.reset();             // TAA 히스토리·이전 VP 무효화 (P3 C1)
+      pipeline.reset();             // TAA 히스토리·이전 VP 무효화 (P3 C1) + 노출 잠금·testOverride 층 해제·스냅 (P4B §9-5)
       viewmodel.setVisible(mode === 'realtime');
       bus.resetToBoot();            // 부팅 이후 추가된 구독 해제 (감사 A4)
       stats.reset();
@@ -316,6 +322,7 @@ export function installHarness(ctx) {
         bodies,
         simTime: clock.time,
         frame: clock.frame,
+        exposure: pipeline.exposure.contractCheck(), // P4B §9-3: 직전 프레임 그리기 값 대 노출 계약
       };
     },
 
@@ -366,6 +373,43 @@ export function installHarness(ctx) {
     /** C4 노출 상태 — {ev100, evTarget, avgLum, ec, exposure} 직전 프레임 적응 1×1 판독 (계측 전용, 동기 readback) */
     getExposure() {
       return pipeline.exposure.read();
+    },
+
+    /**
+     * P4B §9-3 노출 계약 일치 검사 — {ok, version, status, hash, overrideActive, measurement, drawnFrames, drawn, mismatches}.
+     * 직전 프레임의 **그리기 시점 값**(미터 드로우 유니폼, 블룸·출력 드로우의 ec)과 컴파일 대상 셰이더 문자열을 계약과 대조한다.
+     * testOverride 층이 활성이면 ok=false. 해시는 노드에서 같은 계약 파일로 다시 계산해 대조한다(playtest).
+     */
+    getExposureContract() {
+      requireFixedIdle('getExposureContract');
+      return pipeline.exposure.contractCheck();
+    },
+
+    /**
+     * P4B §9-5 측정용 노출 잠금 — 다음 프레임부터 적응 EV100 을 ev 로 고정한다(ADAPT 유니폼, 프로그램 수 불변).
+     * 계약 위반이 아니라 측정 상태다: 잠근 도구는 반환된 measurement 를 출력에 남긴다(PATCH-015-E). resetState 가 푼다.
+     */
+    lockExposure(ev) {
+      requireFixedIdle('lockExposure');
+      pipeline.exposure.lock(ev);
+      return { ok: true, measurement: { exposure: 'locked', ev100: ev } };
+    },
+
+    unlockExposure() {
+      requireFixedIdle('unlockExposure');
+      pipeline.exposure.unlock();
+      return { ok: true, measurement: { exposure: 'adaptive' } };
+    },
+
+    /**
+     * P4B §9-5 노출 testOverride 층 — 유니폼 계약 키(evMin·evMax·kneeSlope·rateUp·rateDown·ec·centerWeight)의 부분 덮어쓰기.
+     * exposureprobe 후보 실측 전용. contractCheck 가 일부러 잡고(ok=false), getStats 에 표식이 박힌다. resetState 가 해제한다.
+     */
+    debugExposureOverride(partial) {
+      requireFixedIdle('debugExposureOverride');
+      const applied = pipeline.exposure.setTestOverride(partial);
+      state.testOverride = `debugExposureOverride(${JSON.stringify(applied)}) — 노출 계약 후보 층, 계약 판정 무효`;
+      return { ok: true, override: applied };
     },
 
     /**
@@ -496,11 +540,16 @@ export function installHarness(ctx) {
     /**
      * [R4] 노출 적응 동결 (테스트 훅). 층을 껐다 켜며 비교하는 검사는 노출이 움직이면 전 화면이
      * 바뀌어 "무엇이 달라졌나"를 못 잰다 — PATCH-015/016 에서 같은 오염을 이미 겪었다.
-     * 되돌릴 수 없다(다음 resetState/페이지 재적재까지). 반환값은 얼린 시점의 노출 상태.
+     * [P4B §9-5] 종전 구현(render 를 no-op 으로 갈아끼움)은 resetState 로도 풀리지 않고 표식도 없었다 —
+     * 지금은 현재 적응 EV100 원값(Float32 그대로 = 같은 비트)으로 lock 을 걸고 표식을 남긴다. resetState 가 푼다.
+     * 반환값은 얼린 시점의 노출 상태 + measurement.
      */
     debugFreezeExposure() {
-      pipeline.exposure.render = () => {};
-      return pipeline.exposure.read();
+      requireFixedIdle('debugFreezeExposure');
+      const ev = pipeline.exposure.readRawEv();
+      pipeline.exposure.lock(ev);
+      state.testOverride = `debugFreezeExposure(ev100=${ev}) — 노출 잠금 테스트 훅, 계약 판정 무효`;
+      return { ...pipeline.exposure.read(), measurement: { exposure: 'locked', ev100: ev } };
     },
 
     /** [R4] 카메라를 from 에 두고 at 을 본다 (테스트 훅 — 근접 검사용 시점 고정) */

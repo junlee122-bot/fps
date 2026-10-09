@@ -39,11 +39,11 @@ Retina DPR 실제 게임플레이(내부 해상도 3.34MP, 2.07MP 아님)에서 
 |---|---|---|---|
 | `tools/capture.mjs` | 없음 | 지정 샷 1장 빠르게 | ✗ |
 | `tools/shotset.mjs` | **없음** | 11샷 빠른 리뷰 | **✗ 절대 금지** |
-| `tools/baseline.mjs` | **비트 동일** | 레퍼런스 생성. 음성 `--test-hanji-unsync`(창호지 판별 유니폼을 부팅 기본값으로 오염 → 부팅 가드가 exit 1, 케이스 27) | ✓ |
+| `tools/baseline.mjs` | **비트 동일** | 레퍼런스 생성. 음성 `--test-hanji-unsync`(창호지 판별 유니폼을 부팅 기본값으로 오염 → 부팅 가드가 exit 1, 케이스 27). **[P4B]** 샷 사이드카·`report.json` 샷 항목에 그 샷을 그린 노출 계약 `exposureContract {version, status, hash, ok, overrideActive}`(기록 — 게이트는 픽셀 동일성) | ✓ |
 | `tools/imagediff.mjs` | — | 픽셀 비교 | ✓ |
 > **[P4A]** `baseline.mjs` 는 12샷 뒤 오디오 결정성 해시(`render.js` SCENARIO 스테레오 → SHA-256)를 `report.json.audioHash` 에 함께 저장하고, `imagediff` 는 양쪽 `report.json` 의 해시를 25번째 행(`__audio_scenario`)으로 대조한다 — 한쪽에만 있거나 다르면 exit 1.
 | `tools/profile.mjs` | 통계적 | 프레임타임 분포·히치 귀속 | ✓ |
-| `tools/playtest.mjs` | — | 이동·사격 스모크 + **창호지 구멍 모델 검사**(구멍 수 = 피격 수, 구멍 UV·무기별 반지름, 찢어짐 임계 — PATCH-014-D) + **탄흔 데칼 부재 클립 검사**(`decal_clip_wired` + `decal_within_member`: 창살 중앙·가장자리 명중 뒤 탄흔마다 쿼드 월드 반폭과 클립 상자 반폭을 재서 부재 밖으로 잘리는지 **기하로** 판정 — 픽셀 차분은 TAA 지터 잔여 11,600 px 가 신호 435 px 를 삼켜 쓸 수 없었다, R4 실측). 음성 `--inject-no-holes`(케이스 26) · `--inject-decal-noclip`(클립 해제 → 종이 위 번짐, 케이스 28) | ✓ |
+| `tools/playtest.mjs` | — | 이동·사격 스모크 + **창호지 구멍 모델 검사**(구멍 수 = 피격 수, 구멍 UV·무기별 반지름, 찢어짐 임계 — PATCH-014-D) + **탄흔 데칼 부재 클립 검사**(`decal_clip_wired` + `decal_within_member`: 창살 중앙·가장자리 명중 뒤 탄흔마다 쿼드 월드 반폭과 클립 상자 반폭을 재서 부재 밖으로 잘리는지 **기하로** 판정 — 픽셀 차분은 TAA 지터 잔여 11,600 px 가 신호 435 px 를 삼켜 쓸 수 없었다, R4 실측). 음성 `--inject-no-holes`(케이스 26) · `--inject-decal-noclip`(클립 해제 → 종이 위 번짐, 케이스 28). **[P4B 단계 1] 노출 계약 절 `p4b-exposure`**(설계서 §9-3·§9-5): `p4b_exposure_contract_ok` 를 부팅 직후 · resetState 후 · 절 스크립트 후 세 번 — **그리기 시점 값**(미터 드로우 유니폼, 블룸·출력 드로우의 `ec`)과 컴파일 대상 셰이더 문자열이 계약과 같고 페이지 해시 = 노드에서 같은 계약 파일로 다시 계산한 해시, + frozen 뷰 · 측정 잠금/해제 · testOverride 층이 잡히고 resetState 가 푼다. 음성 `--inject-exposure-drift --section p4b-exposure`(계약 적용 직후 rateUp 변경 → 그리기 값 드리프트, 케이스 30). `--section <절>` 은 **`--inject-*` 와 함께일 때만**(아니면 exit 2, `tools/lib/sections.mjs`) | ✓ |
 > 구멍 검사는 **1차 연사(14 프레임 ≈3 발, T 미만)** 에서 비공허 조건(임계 미만 판 ≥1 · 구멍 ≥1)으로 재고, 2차 연사(44 프레임)로 임계를 넘겨 찢어짐을 잰다 — 종전 60 프레임 단일 연사는 T=6 을 바로 넘겨 검사 1·2 가 `every([])` 로 공허하게 통과했다(R4 마감 체인 2차 케이스 26 이 발견).
 | `tools/audioaudit.mjs` | 케이스 21 | **[P4A]** 표면 체인 오클루전 게이트 — 차폐 표면(surfaces.js 에서 기계적 도출: DECAL·지면 제외 → 11종·55쌍)마다 시험 음원을 한 겹 너머로 OfflineAudioContext 렌더 → 4축(차단 주파수·감쇠·잔향 결합·지연) 측정, **들리는 축**(차단 1/3옥타브·감쇠 3 dB·잔향 결합은 하한 위에서만)으로 관통 등급이 다른 쌍 ≥2축 · ROOF_SOIL vs EARTH_WALL ≥2축 · 같은 등급 쌍은 보고만. BRONZE T60 ≥ 3 s, 공간 잔향 6쌍 상이, 결정성(독립 페이지 2회 SHA-256 동일). 음성 `--test-clone A=B`. **발주자 청감 판정 전까지 게이트 체인 밖**(P4-BRIEF −1-B: 창살–천 · 기둥–초가 · 기둥–지붕흙 3쌍이 1축) | ✓ |
 | `tools/distaudit.mjs` | 케이스 29 | **[P4 §7 배포물 검사]** `vite build` → `dist/` 를 자체 정적 서버로 부팅(fixed) — HTTP ≥400 응답 0 · 콘솔/페이지 오류 0 · 매니페스트(오디오, 이후 모델·FX 텍스처) 에셋 전부 번들에 실려 200 · import map 잔존 없음·배포 배너 있음. 게이트가 배포되는 것을 검사하지 않던 공백을 메운다. 음성 `--inject-missing <stem>` | ✓ |
@@ -118,6 +118,12 @@ window.__harness = {
 }
 ```
 
+> **[P4B §9 노출 계약]** 노출 적응 값(범위·속도·계량)의 단일 출처는 동결 계약 `src/render/exposure-contract.js`(단독 수정 금지, 해시는 CONTRACT-NOTES)다.
+> `getExposureContract()` → `{ok, version, status, hash, overrideActive, measurement, drawn, mismatches}`(직전 프레임 **그리기 시점 값** 대 계약, `getInvariants().exposure` 와 같은 값) ·
+> `lockExposure(ev)`/`unlockExposure()`(측정 잠금 — 계약 위반이 아니라 측정 상태, 잠근 도구는 반환된 `measurement` 를 출력에 남긴다, PATCH-015-E) ·
+> `debugExposureOverride(partial)`(후보 실측 전용 testOverride 층 — `ok=false` + `getStats().testOverride` 표식) · `debugFreezeExposure()`(현재 EV 원값 잠금 + 표식).
+> 전부 fixed 모드 · stepFrames 밖에서만. **resetState 가 잠금과 층을 모두 푼다**(`pipeline.reset` → `exposure.reset`).
+>
 > **[PATCH-007-C] `renderTagMask()`** — 캡처·`getStats()` **뒤**에만 호출하는 확장. 직전 프레임과 같은 카메라·TAA 지터로
 > 자발광·일시광 태그 오브젝트(규칙은 `src/render/tagmask.js` 한 곳: FX_FLASH·FX_TRACER, emissive≠0 ∧ emissiveIntensity ≥ 1.0)의
 > **가시 픽셀**을 1로 그린 비트 마스크를 돌려준다. `baseline.mjs`가 `<shot>.emask.png`로 저장하고 `paletteaudit.mjs`가 그 픽셀에만
@@ -232,6 +238,18 @@ node tools/playtest.mjs --inject-no-holes    # 음성: 피격은 기록되고 �
 ```
 종전 모델(판 전체 불투명도 감소)이라면 이 음성 입력으로도 통과해 버린다 — 그것이 PATCH-013-B 가 지적한 게임 규칙 결함이고, 케이스 26이 재발을 막는다.
 
+**절(section)과 노출 계약 (P4B 설계서 §9-3 · §10-5, 단계 1)** — playtest 는 절 단위로 돈다. 각 절은 resetState 로 시작하고,
+P4B 절은 첫 resetState 자리(부팅 직후 판정 뒤)에 둔다: `p4b-exposure` → `core`(P0–R4 이동·충돌·강체·사격·창호지·데칼).
+`p4b-exposure` 는 `p4b_exposure_contract_ok`(부팅 직후 · resetState 후 · 절 스크립트 후 — 직전 프레임 **그리기 시점 값**과 컴파일 대상 셰이더
+문자열 대 계약, 페이지 해시 = 노드 해시, 그리기 기록 ≥ 1) · `p4b_exposure_frozen_view` · `p4b_exposure_lock`/`_unlock` · `p4b_exposure_override_caught` ·
+`p4b_exposure_reset_clears` 를 잰다.
+```
+node tools/playtest.mjs --inject-exposure-drift --section p4b-exposure   # 음성: 계약 적용 직후 rateUp 변경 → exit 1 + testOverride + mismatches ∋ rateUp(그리기 값)
+```
+`--section <절>` 은 **`--inject-*` 와 함께일 때만** 허용한다 — 음성 훅 없는 부분 실행은 게이트 통과처럼 보이므로 exit 2(PATCH-001-C).
+켠 훅의 겨냥 절과 다른 절을 주어도 exit 2(훅이 건너뛴 절에 걸려 음성이 공허해진다). 부분 실행은 testOverride 에 `section=<절>` 이 박힌다.
+규칙의 단일 위치는 `tools/lib/sections.mjs`(양성·음성은 `test/sections.test.mjs`).
+
 ---
 
 ## 5. 패스 종료 게이트
@@ -268,6 +286,7 @@ node tools/playtest.mjs                          # exit 0
 > 상한을 가지며(harnesstest 케이스 10이 동시 부하로 시간 초과한 실측), 타임아웃으로 인한 실패는 결과를 신뢰할 수 없게 하고 그 상태의
 > "통과"는 통과가 아니다. 게이트가 도는 동안 같은 기계에서 다른 렌더 작업(프로브·캡처)도 돌리지 않는다.
 > 상한은 **실측 × 2.5** 로 둔다 — 감사 도구 30 분(albedo·viewmodel ≈12 분), playtest 케이스 26·28 은 100 분(단독 완주 ≈38 분, R4 실측).
+> playtest **절 부분 실행**(`--section`, 케이스 30 = `p4b-exposure`)은 75 초(단독 30 초, P4B 단계 1 실측 2026-10-08) — 음성은 전체가 아니라 겨냥 절만 돈다(P4B 설계서 §10-7 시간 예산 ①).
 > 상한에 잘린 실행은 `timedOut=true` 로 요약 줄에 남는다(exit 1 + 출력 공백 + 표식 없음이 그 서명 — R4 마감 체인 1차가 여기서 멈췄다).
 
 의도된 시각 변경이 있는 패스에서는 `imagediff` 실패가 정상이다. 단,
