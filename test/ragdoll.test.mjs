@@ -241,6 +241,74 @@ test('판 앞 0.3 m 팔 뻗은 사망: 초기 클램프 뒤 뼈–판 교차 0, 
   }
 });
 
+/** 뼈 선분(막대 15)이 정적 삼각형을 건너는 수 — 선분 = 길이 제한 레이캐스트(마스크는 래그돌과 같은 CHARACTER) */
+function boneSegmentHits(physics, x, t = SYNTH_A, hit = makeHitRecord()) {
+  let n = 0;
+  for (let r = 0; r < 15; r++) {
+    const a = t.rods[r * 2] * 3, b = t.rods[r * 2 + 1] * 3;
+    const dx = x[b] - x[a], dy = x[b + 1] - x[a + 1], dz = x[b + 2] - x[a + 2];
+    const len = Math.hypot(dx, dy, dz);
+    if (len > 1e-12 && physics.static.raycast(x[a], x[a + 1], x[a + 2], dx / len, dy / len, dz / len, len, MASK.CHARACTER, hit)) n++;
+  }
+  return n;
+}
+
+test('매 서브스텝: 뼈 선분(막대 15)이 어떤 정적 삼각형도 건너지 않는다 (§6-3④ 뼈 충돌)', (t) => {
+  // 검출기 반응 확인 — 팔 뻗은 시나리오의 클램프 전 자세는 판을 건너는 뼈가 있다
+  const reach = SCENARIOS.find((s) => s.pose.reach);
+  assert.ok(reach);
+  assert.ok(boneSegmentHits(physicsFor(reach.world), posePositions(reach.pose)) >= 1, '검출기가 교차를 잡는다');
+  let segSteps = 0;
+  for (const sc of SCENARIOS) {
+    const physics = physicsFor(sc.world);
+    const rd = newRagdoll(physics);
+    activateScenario(rd, sc);
+    const hit = makeHitRecord();
+    runScenario(rd, FINAL_POSE_SUBSTEPS, (prev, cur, k) => {
+      segSteps += 15;
+      const n = boneSegmentHits(physics, cur, SYNTH_A, hit);
+      assert.equal(n, 0, `${sc.name} step ${k}: 삼각형을 건너는 뼈 ${n}(tri ${hit.tri})`);
+    });
+  }
+  assert.ok(segSteps >= 1);
+  t.diagnostic(`뼈 선분 검사 ${segSteps}`);
+});
+
+test('중력이 작용한다: 서 있다 쓰러지는 시나리오마다 질량 중심이 내려간다 (§6-3①)', (t) => {
+  const falling = SCENARIOS.filter((s) => !s.pose.reach);
+  assert.ok(falling.length >= 1);
+  const com = (rd, x) => {
+    let m = 0, y = 0;
+    for (let i = 0; i < N; i++) { const mi = 1 / rd.invMass[i]; m += mi; y += mi * x[i * 3 + 1]; }
+    return y / m;
+  };
+  for (const sc of falling) {
+    const rd = newRagdoll(physicsFor(sc.world));
+    activateScenario(rd, sc);
+    const x = new Float64Array(48);
+    rd.particles(0, x);
+    const y0 = com(rd, x);
+    runScenario(rd);
+    rd.particles(0, x);
+    const y1 = com(rd, x);
+    assert.ok(y1 < y0, `${sc.name}: 질량 중심 ${y0.toFixed(3)} → ${y1.toFixed(3)} m (내려가지 않았다)`);
+    t.diagnostic(`${sc.name}: 질량 중심 높이 ${y0.toFixed(3)} → ${y1.toFixed(3)} m`);
+  }
+});
+
+test('파사드 중력 배선: initRagdoll 의 래그돌은 physics.gravity 를 쓴다(다른 중력이면 해시가 달라진다)', () => {
+  const physics = buildSynthetic(new PhysicsWorld());
+  physics.initRagdoll({ slots: 6, mask: MASK.CHARACTER });
+  assert.equal(physics.ragdoll.gravity, physics.gravity);
+  const sc = SCENARIOS.find((s) => s.name === 'synthetic_floor');
+  const run = (rd) => { rd.registerTemplate('synth_a', SYNTH_A); activateScenario(rd, sc); runScenario(rd); return rd.hash(); };
+  const viaFacade = run(physics.ragdoll);
+  const same = run(new RagdollWorld(physics.static, { slots: 6, gravity: physics.gravity, mask: MASK.CHARACTER }));
+  const other = run(new RagdollWorld(physics.static, { slots: 6, gravity: physics.gravity / 2, mask: MASK.CHARACTER }));
+  assert.equal(viaFacade, same);
+  assert.notEqual(other, same, '중력이 결과를 바꾼다(비공허)');
+});
+
 test('파사드: physics.step = rigid → ragdoll, rigid.bodies 불변·강체 궤적 무영향', () => {
   const mk = () => {
     const physics = buildSynthetic(new PhysicsWorld());
