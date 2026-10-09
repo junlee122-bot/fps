@@ -21,8 +21,8 @@ export const NON_ACTOR_OCCLUDERS_MAX = 2;
  * 24 는 **후보**(결정 #1 승인 시 발주자 지시 2026-10-09(UTC): 종료 보고에서 확인받는다). 초과는 throw(승인됨).
  */
 export const PRIMS_PER_ACTOR_MAX = 24;
-/** 발주자 확정 전 후보인 상한 이름 — 종료 보고에 그대로 싣는다(014-C) */
-export const CANDIDATE_LIMITS = Object.freeze(['ACTOR_SLOTS', 'NON_ACTOR_OCCLUDERS_MAX', 'PRIMS_PER_ACTOR_MAX']);
+/** 발주자 확정 전 후보인 값의 이름 — 종료 보고에 그대로 싣는다(014-C) */
+export const CANDIDATE_LIMITS = Object.freeze(['ACTOR_SLOTS', 'NON_ACTOR_OCCLUDERS_MAX', 'PRIMS_PER_ACTOR_MAX', 'HITBOX_SURFACE']);
 /** 골격 뼈 상한 — biped 24(§2-4) */
 export const BONES_MAX = 24;
 /** 캐릭터 1종 삼각형 상한 — 계약값 PATCH-010-C, 3인칭 무기 포함(결정 13 보수 해석) */
@@ -65,6 +65,12 @@ export const SKILL_PRIMITIVES = Object.freeze([
 export const SKILL_MAX_ACTIVE = 1;
 
 /** 무기 계열 — 이름만. 실제 목록은 weapons/params.js 를 아는 main.js·테스트가 ctx.weaponFamilies 로 주입 */
+
+/**
+ * hitbox 원시의 탄도 표면 — **후보, 발주자 확정 대기**(설계서 결정 #9: v0 hitbox 원시는 모두 FABRIC).
+ * BRONZE(BLOCK)면 몸이 차단물이 된다(§4-1-C·D). 확정 전까지 이 상수 하나만 바꾸면 규칙이 따라온다.
+ */
+export const HITBOX_SURFACE = 'FABRIC';
 
 /** 원시 구역(§2-3). 히트 구역·차폐·surfaceaudit 분류가 이 어휘를 쓴다 */
 export const ZONES = Object.freeze(['head', 'torso', 'limb', 'shell', 'cloth', 'prop']);

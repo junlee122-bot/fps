@@ -14,7 +14,7 @@
  *   skeletons,       // {이름: 골격 템플릿}
  *   abilityNames, skillPrimitives,
  *   characters,      // {id: def} — 외견·identicalTo 교차 참조(없으면 다른 캐릭터 참조는 문제로 낸다)
- *   footstepProfiles?, // 발소리 프로파일 키 목록(있으면 소속 검사)
+ *   footstepProfiles?, // 발소리 프로파일 키 목록(있으면 소속 검사, 없으면 skipped 에 이름·사유 기록)
  *   stageBand?,      // [y0, y1] 무대 가시 대역(있으면 최고점 경고, §2-5 규칙 7)
  *   skipInjected?,   // true = 주입 목록(materialKeys·weaponFamilies) 소속 검사를 건너뛰고 skipped 에 기록
  * }
@@ -23,7 +23,7 @@
 import {
   PRIMS_PER_ACTOR_MAX, TRIS_PER_CHARACTER_MAX, STEP_HEIGHT, AGENT_RADIUS_MAX, CAPSULE_STEM_MIN,
   FACTIONS, TEAM_KEYS, RESERVED_ABILITIES, SKILL_MAX_ACTIVE, ZONES, PRIM_KINDS, BAND_MODES,
-  AUDIT_POSES, APPEARANCE_TEAMS, SELF, DEFAULT_STATE,
+  AUDIT_POSES, APPEARANCE_TEAMS, SELF, DEFAULT_STATE, HITBOX_SURFACE,
 } from './limits.js';
 import { PenClass } from '../../core/surfaces.js';
 import { buildRestFor, bendDegAt } from './skeletons/biped.js';
@@ -316,6 +316,12 @@ function checkPrims(sink, def, ctx, tpl, slots, dangleBones) {
     if (!ZONES.includes(p.zone)) sink.bad('prim.zone', `${path}.zone`, `구역은 ${ZONES.join('|')}`);
     for (const f of ['occluder', 'hitbox']) if (f in p && typeof p[f] !== 'boolean') sink.bad('prim.flag', `${path}.${f}`, '불리언이어야 한다');
     if (p.zone === 'prop' && p.hitbox !== false) sink.bad('prim.propHitbox', `${path}.hitbox`, "무기·장비(zone 'prop') 원시는 hitbox:false 여야 한다(§2-3)");
+    // 무기·장비 원시도 창호지 실루엣에 보인다 — 차폐에서 빼면 판 위 윤곽과 메시가 어긋난다(§2-3 occluder:true)
+    if (p.zone === 'prop' && p.occluder === false) sink.bad('prim.propOccluder', `${path}.occluder`, "무기·장비(zone 'prop') 원시는 occluder:true 여야 한다(§2-3)");
+    // hitbox 원시의 탄도 표면 — 결정 #9 후보(HITBOX_SURFACE, 발주자 확정 대기)
+    if (p.hitbox !== false && isStr(p.surface) && p.surface !== HITBOX_SURFACE) {
+      sink.bad('prim.hitboxSurface', `${path}.surface`, `hitbox 원시의 표면은 '${HITBOX_SURFACE}'(결정 #9 후보, 발주자 확정 대기) — '${p.surface}'`);
+    }
     if (p.bone === 'prop' && p.zone !== 'prop') sink.bad('prim.propZone', `${path}.zone`, "prop 뼈 원시는 zone 'prop' 이어야 한다");
     if ('seg' in p && !(Number.isInteger(p.seg) && p.seg >= 1)) { sink.bad('prim.seg', `${path}.seg`, '1 이상의 정수여야 한다'); geomOk = false; }
     if (p.kind === 'rc') {
@@ -588,7 +594,11 @@ export function validateCharacter(def, ctx) {
     // closedKeys 가 이미 기록
   } else if (!isStr(def.audio.footstep) || !ID_RE.test(def.audio.footstep)) {
     sink.bad('audio.footstep', 'audio.footstep', `발소리 프로파일 키 형식 ${ID_RE}`);
-  } else if (Array.isArray(ctx.footstepProfiles) && !ctx.footstepProfiles.includes(def.audio.footstep)) {
+  } else if (!Array.isArray(ctx.footstepProfiles)) {
+    // 오디오가 발소리 프로파일 키 목록을 아직 내지 않는다(P4C). 조용히 건너뛰지 않고 이름·사유를 남긴다(PATCH-001-C).
+    // 부팅 배선(main.js)은 주입 누락이면 throw 한다(설계서 §2-2 audio.footstep 행).
+    sink.skipped.push(`audio.footstep '${def.audio.footstep}' ∈ footstepProfiles — 주입 없음(ctx.footstepProfiles)`);
+  } else if (!ctx.footstepProfiles.includes(def.audio.footstep)) {
     sink.bad('audio.footstep', 'audio.footstep', `미지 발소리 프로파일 '${def.audio.footstep}'`);
   }
 

@@ -147,7 +147,7 @@
 | `skills[]` | `{primitive, params, maxActive:1, cooldownS, durationS}` | primitive ∈ 닫힌 6종, 값 null 허용 | P4C |
 | `appearance.states` | `{default:{rigOf:'self', lookOf:'self', team:'self'}, <name>:{rigOf, lookOf, team:'self'\|'opponent'}}` | default 필수, 참조 유효, 순환 없음, `rigOf` 대상과 템플릿 동일, **`lookOf === rigOf`**(풀 메시는 캐릭터당 그 look slot 그룹으로 1개, §3-8), **해석된 외견 팀 = `rigOf` 대상 진영**(풀 재질 `{team}`은 부팅 고정) | 표현·차폐·래그돌 배치·(규칙에 따라) 히트 |
 | `silhouette` | `{audit, auditPose, identicalTo:[{state, character, characterState, reason}]}` | 참조 유효, 대칭 해석. `auditPose`는 시각 리그 항목(외견 상태에서는 `rigOf` 대상 값). `identicalTo` 쌍의 해석된 `rigOf`가 같아야 함 | silhouetteaudit |
-| `audio.footstep` | 프로파일 키 | 존재 | 오디오(외견 무관, §4-1-C) |
+| `audio.footstep` | 프로파일 키 | 존재(`ctx.footstepProfiles` 주입 시. 주입이 없으면 검증은 `skipped`에 이름·사유를 남기고, **부팅 배선(main.js)은 주입 누락이면 throw**) | 오디오(외견 무관, §4-1-C) |
 | `ragdoll` | `{template:'biped', massScale, limits?}` | 키 유효 | ragdoll(시각 리그와 함께 컴파일, 템플릿은 질량 **분율**만) |
 | `pose` | `{style:{strideM, armSwing, bob, idleBreath}, aim:{propBone, twoHand}, dangle:[{chain, stiffness, damping}]}` | 체인 뼈 유효 | pose(시각 리그) |
 

@@ -25,12 +25,16 @@ import {
   getRoster, ROSTER_DEFS, resolveAppearance, visualRigOf, characterOf,
   VISUAL_RIG_KEYS, TRUE_KEYS, deriveAgentClasses, agentOf,
 } from '../src/actors/data/index.js';
-import { validateRoster, estimateTris } from '../src/actors/data/schema.js';
+import { validateRoster, estimateTris, primTris, tessOf } from '../src/actors/data/schema.js';
 import { BIPED, buildRest, buildRestFor, massFractions } from '../src/actors/data/skeletons/biped.js';
 import { isDeepFrozen } from '../src/actors/data/freeze.js';
 import {
-  TRIS_PER_CHARACTER_MAX, DEFAULT_STATE, SELF, ABILITY_NAMES, SKILL_PRIMITIVES,
+  TRIS_PER_CHARACTER_MAX, PRIMS_PER_ACTOR_MAX, DEFAULT_STATE, SELF, ABILITY_NAMES, SKILL_PRIMITIVES,
+  HITBOX_SURFACE, CANDIDATE_LIMITS,
 } from '../src/actors/data/limits.js';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, cpSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { SURFACES } from '../src/core/surfaces.js';
 import { WEAPONS } from '../src/weapons/params.js';
 
@@ -63,24 +67,207 @@ async function loadDir(dir) {
 const V1 = (await loadDir(V1_DIR)).map((x) => x.def);
 const NEG = await loadDir(NEG_DIR);
 const ALL8 = [...ROSTER_DEFS, ...V1];
+/**
+ * 발소리 프로파일 키 — 오디오가 아직 목록을 내지 않는다(P4C). 테스트는 8종이 쓰는 키를 주입 목록으로 쓴다.
+ * 오디오가 목록을 내면 그 키로 바꾼다.
+ */
+const FOOTSTEPS = Object.freeze([...new Set(ALL8.map((d) => d.audio.footstep))].sort());
+const CTX_FULL = Object.freeze({ ...CTX, footstepProfiles: FOOTSTEPS });
 
-/** 주석 제거(문자열 안의 // 는 데이터 파일에 없다 — 있으면 린트가 보수적으로 실패한다) */
-const stripComments = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+/**
+ * JS 소스 토큰 분리(정규식 리터럴은 다루지 않는다 — 데이터·검사 대상 파일에 따옴표를 담은 정규식이 있으면
+ * 보수적으로 오검출한다). 반환 {code: 주석 제거·문자열을 ''로 비운 코드, strings: 문자열 내용들}.
+ * 템플릿 리터럴은 ${…} 안의 코드를 code 로 돌려보내고 바깥 텍스트를 문자열로 모은다(여러 줄 포함).
+ */
+function tokenize(src) {
+  let code = '';
+  const strings = [];
+  let i = 0;
+  const n = src.length;
+  const tmplDepth = []; // ${ 안으로 들어간 템플릿마다 중괄호 깊이
+  while (i < n) {
+    const c = src[i];
+    const d = src[i + 1];
+    if (c === '/' && d === '/') { while (i < n && src[i] !== '\n') i++; continue; }
+    if (c === '/' && d === '*') { const e = src.indexOf('*/', i + 2); i = e < 0 ? n : e + 2; code += ' '; continue; }
+    if (c === "'" || c === '"') {
+      let s = '';
+      i++;
+      while (i < n && src[i] !== c && src[i] !== '\n') { if (src[i] === '\\') { s += src[i + 1]; i += 2; } else s += src[i++]; }
+      i++;
+      strings.push(s);
+      code += "''";
+      continue;
+    }
+    if (c === '`' || (c === '}' && tmplDepth.length && tmplDepth[tmplDepth.length - 1] === 0)) {
+      if (c === '}') tmplDepth.pop();
+      let s = '';
+      i++;
+      while (i < n && src[i] !== '`' && !(src[i] === '$' && src[i + 1] === '{')) { if (src[i] === '\\') { s += src[i + 1]; i += 2; } else s += src[i++]; }
+      strings.push(s);
+      code += "''";
+      if (src[i] === '$') { tmplDepth.push(0); i += 2; code += ' '; } else i++;
+      continue;
+    }
+    if (tmplDepth.length) {
+      if (c === '{') tmplDepth[tmplDepth.length - 1]++;
+      else if (c === '}') tmplDepth[tmplDepth.length - 1]--;
+    }
+    code += c;
+    i++;
+  }
+  return { code, strings };
+}
+
+/** 주석만 제거한 소스(문자열 보존) — 줄 구조 린트용 */
+const stripComments = (src) => {
+  let out = '';
+  let i = 0;
+  const n = src.length;
+  while (i < n) {
+    const c = src[i];
+    if (c === "'" || c === '"') { const s = i; i++; while (i < n && src[i] !== c && src[i] !== '\n') i += src[i] === '\\' ? 2 : 1; out += src.slice(s, ++i); continue; }
+    if (c === '/' && src[i + 1] === '/') { while (i < n && src[i] !== '\n') i++; continue; }
+    if (c === '/' && src[i + 1] === '*') { const e = src.indexOf('*/', i + 2); i = e < 0 ? n : e + 2; continue; }
+    out += c;
+    i++;
+  }
+  return out;
+};
 
 /* ================================ 1. 8종 검증 ================================ */
 
 test('3a: v0 로스터 4종이 주입 목록 포함 전수 검증을 통과한다', () => {
   assert.ok(ROSTER_DEFS.length >= 1);
-  const r = getRoster(CTX);
+  const r = getRoster(CTX_FULL);
   assert.deepEqual(r.ids, ROSTER_DEFS.map((d) => d.id));
-  assert.deepEqual(r.skipped, [], '주입 검사를 건너뛴 항목이 없어야 한다');
+  assert.deepEqual(r.skipped, [], '모든 주입 목록을 넘기면 건너뛴 검사가 없어야 한다');
   assert.ok(isDeepFrozen(r), '레지스트리 결과는 깊은 동결');
   for (const d of ROSTER_DEFS) assert.ok(isDeepFrozen(d), `${d.id}: 정의 깊은 동결`);
 });
 
+test('3a: 발소리 목록을 주입하지 않으면 정의마다 skipped 에 이름·사유가 남는다(조용한 생략 금지)', () => {
+  const r = getRoster(CTX);
+  assert.equal(r.skipped.length, ROSTER_DEFS.length);
+  for (const d of ROSTER_DEFS) {
+    assert.ok(r.skipped.some((s) => s.startsWith(`${d.id}:`) && s.includes('audio.footstep') && s.includes(d.audio.footstep) && s.includes('주입 없음')), `${d.id}: skipped 기록`);
+  }
+  // 주입하면 소속을 실제로 검사한다(목록 밖 키는 문제)
+  assert.throws(() => getRoster({ ...CTX, footstepProfiles: [] }), /audio\.footstep/);
+});
+
+test('3a: 경계 — 계약 상수 고정, 원시 정확히 상한은 통과·하나 넘으면 문제', () => {
+  assert.equal(TRIS_PER_CHARACTER_MAX, 25000, 'PATCH-010-C 계약값');
+  assert.equal(PRIMS_PER_ACTOR_MAX, 24, '차폐 텍스처 행 수(결정 #1 후보)');
+  assert.ok(CANDIDATE_LIMITS.includes('PRIMS_PER_ACTOR_MAX') && CANDIDATE_LIMITS.includes('HITBOX_SURFACE'), '후보 표시');
+  assert.equal(HITBOX_SURFACE, 'FABRIC', '결정 #9 후보값');
+  const base = ROSTER_DEFS[0];
+  const filler = (k) => ({ id: `fill_${k}`, bone: 'chest', kind: 'rc', a: [0, 0, 0], b: [0, 0.1, 0], ra: 0.03, rb: 0.03, slot: base.shape.primitives[1].slot, surface: HITBOX_SURFACE, zone: 'torso' });
+  const withPrims = (count) => {
+    const d = clone(base);
+    d.id = 'bound_prims';
+    while (d.shape.primitives.length < count) d.shape.primitives.push(filler(d.shape.primitives.length));
+    return d;
+  };
+  assert.ok(base.shape.primitives.length < PRIMS_PER_ACTOR_MAX);
+  const at = validateRoster([...ALL8, withPrims(PRIMS_PER_ACTOR_MAX)], fullCtx());
+  assert.deepEqual(at.problems, [], `원시 ${PRIMS_PER_ACTOR_MAX} = 상한은 통과`);
+  const over = validateRoster([...ALL8, withPrims(PRIMS_PER_ACTOR_MAX + 1)], fullCtx());
+  assert.deepEqual([...new Set(over.problems.map((p) => p.code))], ['prims.count'], '상한 + 1 은 prims.count 하나');
+});
+
+test('3a: 경계 — 추정 삼각형 정확히 상한은 통과, 상한 초과 최소값은 문제', () => {
+  // 원시별 seg(1..8) 조합으로 만들 수 있는 합을 동적 계획으로 찾는다(정확히 상한 · 상한 초과 최소)
+  const base = ROSTER_DEFS[0];
+  const prims = base.shape.primitives;
+  const SEGS = [1, 2, 3, 4, 5, 6, 7, 8];
+  let reach = new Map([[0, []]]);
+  for (const p of prims) {
+    const next = new Map();
+    const opts = SEGS.map((s) => primTris({ ...p, seg: s }));
+    for (const [sum, segs] of reach) {
+      opts.forEach((t, k) => { const v = sum + t; if (v <= TRIS_PER_CHARACTER_MAX + 64 && !next.has(v)) next.set(v, [...segs, SEGS[k]]); });
+    }
+    reach = next;
+  }
+  const exact = reach.get(TRIS_PER_CHARACTER_MAX);
+  const aboveKey = [...reach.keys()].filter((k) => k > TRIS_PER_CHARACTER_MAX).sort((a, b) => a - b)[0];
+  assert.ok(exact, '정확히 상한인 seg 조합이 있다');
+  assert.ok(aboveKey !== undefined, '상한 초과 조합이 있다');
+  const make = (segs) => { const d = clone(base); d.id = 'bound_tris'; d.shape.primitives.forEach((p, i) => { p.seg = segs[i]; }); return d; };
+  const dAt = make(exact);
+  assert.equal(estimateTris(dAt), TRIS_PER_CHARACTER_MAX);
+  assert.deepEqual(validateRoster([...ALL8, dAt], fullCtx()).problems, [], '정확히 상한은 통과');
+  const dOver = make(reach.get(aboveKey));
+  assert.equal(estimateTris(dOver), aboveKey);
+  assert.deepEqual([...new Set(validateRoster([...ALL8, dOver], fullCtx()).problems.map((p) => p.code))], ['tris.budget']);
+});
+
+test('3a: 밴드 경계 고리는 삼각형 추정에 고리마다 2R 을 더한다(§3-7)', () => {
+  // 원시 종류(rc·el)마다 따로 — 한 종류의 공식만 고장 나도 잡히게
+  const prims = ALL8.flatMap((d) => d.shape.primitives);
+  for (const kind of ['rc', 'el']) {
+    const p = prims.find((x) => x.kind === kind && (x.bands || []).length >= 1);
+    assert.ok(p, `밴드 있는 ${kind} 원시 ≥ 1`);
+    const plain = { ...p, bands: [] };
+    const t = tessOf(p);
+    assert.ok(t.rings.length >= 1);
+    assert.equal(primTris(p) - primTris(plain), 2 * t.R * t.rings.length, `${kind}: 고리마다 2R`);
+  }
+});
+
+test('3a: getRoster 는 넘겨받은 정의를 깊은 동결하고, 정규화가 생략 필드 기본값을 명시한다', () => {
+  const defs = ALL8.map(clone);
+  assert.ok(defs.every((d) => !Object.isFrozen(d)));
+  const r = getRoster(CTX_FULL, defs);
+  for (const d of defs) assert.ok(isDeepFrozen(d), `${d.id}: 넘겨받은 정의 깊은 동결`);
+  let omittedHit = 0, omittedOcc = 0, omittedBands = 0;
+  r.defs.forEach((nd, i) => {
+    nd.shape.primitives.forEach((p, j) => {
+      const raw = defs[i].shape.primitives[j];
+      if (!('hitbox' in raw)) { omittedHit++; assert.equal(p.hitbox, true); } else assert.equal(p.hitbox, raw.hitbox);
+      if (!('occluder' in raw)) { omittedOcc++; assert.equal(p.occluder, true); } else assert.equal(p.occluder, raw.occluder);
+      if (!('bands' in raw)) { omittedBands++; assert.deepEqual(p.bands, []); }
+    });
+  });
+  assert.ok(omittedHit >= 1 && omittedOcc >= 1 && omittedBands >= 1, '생략 필드가 실제로 있다(비공허)');
+});
+
+test('3a: 로스터 데이터가 깨져 있으면 actors/data/index.js 를 import 하는 순간 throw 한다(PATCH-001-D)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'actordata-import-'));
+  try {
+    for (const sub of ['actors/data', 'core']) cpSync(join(SRC, ...sub.split('/')), join(dir, 'src', ...sub.split('/')), { recursive: true });
+    const entry = pathToFileURL(join(dir, 'src', 'actors', 'data', 'index.js')).href;
+    const run = () => spawnSync(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(entry)});`], { encoding: 'utf8' });
+    const ok = run();
+    assert.equal(ok.status, 0, `대조군(무변경 사본) import 성공: ${ok.stderr}`);
+    const file = join(dir, 'src', 'actors', 'data', 'characters', `${ROSTER_DEFS[0].id}.js`);
+    const src = readFileSync(file, 'utf8');
+    const broken = src.replace(/radius: [0-9.]+/, 'radius: 0.9');
+    assert.notEqual(broken, src, '변조가 실제로 일어났다');
+    writeFileSync(file, broken);
+    const bad = run();
+    assert.notEqual(bad.status, 0);
+    assert.match(bad.stderr, /actors\/data: 로스터 데이터 구조 검증 실패/);
+    assert.match(bad.stderr, /capsule\.radius/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('3a: 무대 대역 경고(§2-5 규칙 7) — 대역 밖 최고점만 경고, 판정 아님', () => {
+  const band = [0.68, 1.875]; // L0 현행 대역(설계서 §4-7 표, 보고용 입력 — 판정 임계 아님)
+  const r = getRoster({ ...CTX_FULL, stageBand: band }, ALL8);
+  const outside = ALL8.filter((d) => r.reports[d.id].topY < band[0] || r.reports[d.id].topY > band[1]).map((d) => d.id);
+  const inside = ALL8.map((d) => d.id).filter((id) => !outside.includes(id));
+  assert.ok(outside.length >= 1 && inside.length >= 1, '대역 안·밖이 모두 있다(비공허)');
+  const warned = [...new Set(r.warnings.filter((w) => w.code === 'silhouette.band').map((w) => w.path.split(':')[0]))].sort();
+  assert.deepEqual(warned, [...outside].sort());
+});
+
 test('3a: v0 4 + v1 fixture 4 = 8종이 같은 경로로 검증을 통과한다', (t) => {
   assert.equal(V1.length, 4, 'v1 fixture 4종(견우·직녀·심청·흥부)');
-  const r = getRoster(CTX, ALL8);
+  const r = getRoster(CTX_FULL, ALL8);
   assert.equal(r.ids.length, 8);
   assert.equal(new Set(r.ids).size, 8, 'id 유일');
   assert.deepEqual(r.skipped, []);
@@ -130,14 +317,14 @@ function negCase(spec, withOps) {
   // 대조군에서 id 중복 fixture 는 base 와 같은 id 라 그 자체가 위반이다 — 대조군만 이름을 바꾼다
   if (!withOps && BASES[main.id]) main.id = `ctl_${main.id}`;
   const extras = (spec.extra || []).map((e) => build(e, withOps));
-  const skeletons = {};
-  for (const name of spec.skeletons || []) skeletons[name] = { ...BIPED, name };
-  // validateRoster 는 레지스트리의 기본 문맥을 모른다 — getRoster 와 같은 문맥을 직접 짠다
-  const ctx = {
-    ...CTX, surfaces: SURFACES, abilityNames: ABILITY_NAMES, skillPrimitives: SKILL_PRIMITIVES,
-    skeletons: { [BIPED.name]: BIPED, ...skeletons },
-  };
-  return { defs: [...ALL8, main, ...extras], ctx, id: main.id };
+  return { defs: [...ALL8, main, ...extras], ctx: fullCtx(spec.skeletons || []), id: main.id };
+}
+
+/** validateRoster 는 레지스트리의 기본 문맥을 모른다 — getRoster 와 같은 문맥(+ 발소리 목록)을 직접 짠다 */
+function fullCtx(altSkeletons = []) {
+  const skeletons = { [BIPED.name]: BIPED };
+  for (const name of altSkeletons) skeletons[name] = { ...BIPED, name };
+  return { ...CTX_FULL, surfaces: SURFACES, abilityNames: ABILITY_NAMES, skillPrimitives: SKILL_PRIMITIVES, skeletons };
 }
 
 test('3a 음성: fixture 가 있고 형식이 닫혀 있다', () => {
@@ -177,24 +364,31 @@ function walk(dir, out = []) {
   return out;
 }
 
-/** 소스에서 id 와 정확히 같은 문자열 리터럴('…'·"…"·`…`)을 찾는다 */
+/**
+ * 소스의 문자열 리터럴('…'·"…"·`…`, 여러 줄 템플릿 포함) 안에서 id 를 낱말로 찾는다.
+ * 낱말 경계 = [a-z0-9_] 가 아닌 문자 — `'jara,dokkaebi'.split(',')` 같은 묶음도 잡는다.
+ */
 function idLiterals(source, ids) {
   const hits = [];
-  const re = /(['"`])((?:\\.|(?!\1)[^\\\n])*)\1/g;
-  for (const line of stripComments(source).split('\n')) {
-    for (const m of line.matchAll(re)) if (ids.has(m[2])) hits.push(m[2]);
+  for (const s of tokenize(source).strings) {
+    for (const w of s.split(/[^a-z0-9_]+/)) if (ids.has(w)) hits.push(w);
   }
   return hits;
 }
 
-test('3a: src/** 에 로스터 id 문자열 리터럴 0 (캐릭터 데이터 파일 제외)', () => {
+test('3a: src/** 에 로스터 id 문자열 리터럴 0 (캐릭터 데이터 파일·roster.js 제외)', () => {
   const ids = new Set(ALL8.map((d) => d.id));
   assert.equal(ids.size, 8);
-  // 검출기 자체가 반응하는지 먼저 본다 — 공허 통과 방지
-  assert.deepEqual(idLiterals(`if (id === '${ALL8[0].id}') x();`, ids), [ALL8[0].id]);
-  assert.deepEqual(idLiterals(`// '${ALL8[0].id}'\nconst y = "${ALL8[1].id}x";`, ids), []);
+  const [a, b] = ALL8.map((d) => d.id);
+  // 검출기 자체가 반응하는지 먼저 본다 — 공허 통과 방지(검증자 지적 X01·X05·X06 포함)
+  assert.deepEqual(idLiterals(`if (id === '${a}') x();`, ids), [a]);
+  assert.deepEqual(idLiterals(`const u = 'http://a'; if (id === '${a}') x();`, ids), [a], '같은 줄 앞 문자열의 // 뒤도 본다');
+  assert.deepEqual(idLiterals(`const t = \`\n  ${a}\n\`;`, ids), [a], '여러 줄 템플릿');
+  assert.deepEqual(idLiterals(`const l = '${a},${b}'.split(',');`, ids), [a, b], '묶음 문자열');
+  assert.deepEqual(idLiterals(`const t = \`x\${'${a}'}y\`;`, ids), [a], '템플릿 안 식의 문자열');
+  assert.deepEqual(idLiterals(`// '${a}'\n/* "${a}" */\nconst y = "${b}x";`, ids), [], '주석·다른 낱말은 무시');
 
-  const files = walk(SRC).filter((p) => !p.startsWith(CHAR_DIR + sep));
+  const files = walk(SRC).filter((p) => !p.startsWith(CHAR_DIR + sep) && p !== join(DATA_DIR, 'roster.js'));
   assert.ok(files.length >= 1, '검사 파일 ≥ 1');
   const bad = [];
   for (const p of files) {
@@ -213,21 +407,51 @@ test('3a: 8종 정의가 JSON 왕복에 동일하다(함수·undefined·형식 �
 test('3a: 캐릭터 파일 린트 — export default Object.freeze({...}) 하나, import·함수·계산식 0', () => {
   const files = [...jsFiles(CHAR_DIR).map((f) => join(CHAR_DIR, f)), ...jsFiles(V1_DIR).map((f) => join(V1_DIR, f))];
   assert.equal(files.length, 8);
-  for (const p of files) {
-    const code = stripComments(readFileSync(p, 'utf8'));
-    const name = relative(ROOT, p);
-    assert.equal((code.match(/export default Object\.freeze\(\{/g) || []).length, 1, `${name}: export default Object.freeze({...}) 하나`);
-    assert.doesNotMatch(code, /\bimport\b|\brequire\s*\(/, `${name}: import 금지`);
-    assert.doesNotMatch(code, /=>|\bfunction\b/, `${name}: 함수 금지`);
-    assert.doesNotMatch(code, /`/, `${name}: 템플릿 문자열 금지`);
-    // 계산식 검사는 문자열 리터럴을 비운 코드에서 한다('P4-BRIEF §4-1-C' 같은 근거 문자열 오검출 방지)
-    const bare = code.replace(/'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"/g, "''");
-    assert.doesNotMatch(bare, /\bMath\.|\bNumber\(/, `${name}: 계산식 금지`);
-    // 숫자(또는 닫는 괄호) 뒤의 이항 산술 — 음수 리터럴(`[-0.11`, `, -0.5`)은 걸리지 않는다
-    assert.doesNotMatch(bare, /[0-9)\]]\s*[-+*/%]\s*[0-9(.]/, `${name}: 계산식 금지`);
-    // 검출기 반응 확인(공허 통과 방지)
-    assert.match('{ a: 0.1 + 0.2 }', /[0-9)\]]\s*[-+*/%]\s*[0-9(.]/);
+  for (const p of files) assert.deepEqual(dataFileProblems(readFileSync(p, 'utf8')), [], relative(ROOT, p));
+});
+
+/**
+ * 캐릭터 데이터 파일 린트 — 파일 전체가 `export default Object.freeze({ … });` 문 하나이고, 그 안은
+ * 키 · 리터럴(문자열·수·true·false·null) · 괄호 · 쉼표 · 단항 음수뿐이어야 한다.
+ * 반환: 문제 목록(빈 배열 = 통과).
+ */
+function dataFileProblems(source) {
+  if (source.includes('`')) return ['템플릿 문자열 금지'];
+  const { code } = tokenize(source);
+  const body = code.trim();
+  const m = /^export default Object\.freeze\(\{([\s\S]*)\}\);$/.exec(body);
+  if (!m) return ['파일은 export default Object.freeze({…}); 문 하나여야 한다'];
+  const inner = m[1];
+  const out = [];
+  if (/;/.test(inner)) out.push('문 하나만(세미콜론 금지)');
+  // 식별자: 키(뒤에 ':')만 허용, 값 자리 식별자는 true·false·null 만
+  for (const t of inner.matchAll(/(?<![\w$.])[A-Za-z_$][\w$]*/g)) {
+    const rest = inner.slice(t.index + t[0].length);
+    if (/^\s*:/.test(rest)) continue;
+    if (['true', 'false', 'null'].includes(t[0])) continue;
+    out.push(`값 자리 식별자 '${t[0]}'(참조·호출·선언 금지)`);
   }
+  if (/[^\s\w$.,:{}\[\]'\-+]/.test(inner.replace(/''/g, ''))) out.push('허용되지 않은 기호(연산·호출)');
+  // 숫자(또는 닫는 괄호) 뒤의 이항 산술 — 음수 리터럴(`[-0.11`, `, -0.5`)은 걸리지 않는다
+  if (/[0-9)\]]\s*[-+]\s*[0-9(.]/.test(inner.replace(/\d[eE][-+]?\d/g, '0'))) out.push('계산식 금지');
+  return out;
+}
+
+test('3a: 데이터 파일 린트 검출기가 반응한다(검증자 지적 X03·X04 포함)', () => {
+  const ok = "/** c */\nexport default Object.freeze({ a: 1, b: [-0.5, 1e-3], c: { d: 'x // y', e: null, f: true } });\n";
+  assert.deepEqual(dataFileProblems(ok), []);
+  const bad = {
+    'export const 추가': ok + 'export const x = 1;\n',
+    'const 선언·참조': "const k = 2;\nexport default Object.freeze({ a: k });\n",
+    '값 자리 참조': "export default Object.freeze({ a: k });\n",
+    '산술': "export default Object.freeze({ a: 0.1 + 0.2 });\n",
+    '곱셈': "export default Object.freeze({ a: 2 * 3 });\n",
+    '함수': "export default Object.freeze({ a: () => 1 });\n",
+    '호출': "export default Object.freeze({ a: Math.max(1, 2) });\n",
+    'import': "import x from './x.js';\nexport default Object.freeze({ a: 1 });\n",
+    '템플릿': 'export default Object.freeze({ a: `x` });\n',
+  };
+  for (const [why, src] of Object.entries(bad)) assert.ok(dataFileProblems(src).length >= 1, why);
 });
 
 test('3a: roster.js 린트 — import 줄과 배열만, 캐릭터 파일 전부를 import 순서대로', () => {
@@ -320,7 +544,12 @@ test('3a: 외견 해석 — 외견 A 인 B 의 시각 리그는 A 의 리그 객
     const ap = resolveAppearance(r, d.id, state);
     const target = characterOf(r, ap.rigId);
     assert.equal(ap.rigId, s.rigOf);
-    assert.equal(visualRigOf(r, ap.rigId), visualRigOf(r, s.rigOf), '같은 rigId → 같은 리그 객체(비트 동일이 구성으로 성립)');
+    // 외견 리그 = 대상이 default 로 쓰는 리그 객체 그 자체, 자기 리그와는 다른 객체(비트 동일이 구성으로 성립)
+    const targetDefaultRig = visualRigOf(r, resolveAppearance(r, s.rigOf, DEFAULT_STATE).rigId);
+    assert.equal(visualRigOf(r, ap.rigId), targetDefaultRig);
+    assert.notEqual(visualRigOf(r, ap.rigId), visualRigOf(r, resolveAppearance(r, d.id, DEFAULT_STATE).rigId));
+    assert.equal(visualRigOf(r, ap.rigId).skeleton, target.skeleton, '골격 비례·자세도 대상 것');
+    assert.equal(visualRigOf(r, ap.rigId).auditPose, target.silhouette.auditPose);
     assert.equal(ap.team, target.faction, '외견 팀 = rigOf 대상 진영');
     assert.notEqual(ap.team, d.faction, `${d.id}:${state}: 이 fixture 는 상대 진영으로 보인다`);
     // 시각 리그는 대상 것, 진짜 값은 자기 것
