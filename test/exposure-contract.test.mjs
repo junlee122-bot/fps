@@ -263,6 +263,49 @@ test('드리프트 음성 (케이스 30 노드판): 계약을 쓴 직후 rateUp=
   assert.equal(draws.find((d) => d.name === 'C4_EXPOSURE_ADAPT').u.rateUp, 9, '실제 드로우가 9 로 그려졌다');
 });
 
+test('드리프트 음성 — 미터 그리기 기록 키마다(rateUp·rateDown·evMin·evMax·kneeSlope·centerWeight) 그려진 값으로 잡힌다', () => {
+  // 키 하나의 기록이 "계약값 기록"으로 회귀하면 그 키의 검사는 항등이 된다(검토 #15) — 키마다 따로 막는다
+  const KEYS = { rateUp: 'adaptMat', rateDown: 'adaptMat', evMin: 'adaptMat', evMax: 'adaptMat', kneeSlope: 'adaptMat', centerWeight: 'reduceMat' };
+  const DRAW = { adaptMat: 'C4_EXPOSURE_ADAPT', reduceMat: 'C4_EXPOSURE_REDUCE' };
+  const flat = flattenContract();
+  assert.ok(Object.keys(KEYS).length >= 1);
+  for (const [k, mat] of Object.entries(KEYS)) {
+    const { meter, draws } = makeMeter();
+    const drift = flat[k] + 0.5;
+    const orig = meter._applyContract.bind(meter);
+    meter._applyContract = () => { orig(); meter[mat].uniforms[k].value = drift; };
+    frame(meter);
+    const r = meter.contractCheck();
+    assert.equal(r.ok, false, `${k}: 드리프트가 잡혀야 한다`);
+    const m = r.mismatches.find((x) => x.key === k);
+    assert.ok(m, `${k}: ${JSON.stringify(r.mismatches)}`);
+    assert.equal(m.drawn, drift, `${k}: 기록 = 그려진 값`);
+    assert.equal(draws.find((d) => d.name === DRAW[mat]).u[k], drift, `${k}: 실제 드로우가 드리프트 값으로 그려졌다`);
+  }
+});
+
+test('ec 그리기 기록은 pipeline._blit 이 드로우에 묶인 머티리얼 값을 남긴다(미터 값이 아니라)', async () => {
+  const { RenderPipeline } = await import('../src/render/pipeline.js');
+  const { meter } = makeMeter();
+  meter.render(null, 4, 4, 1 / 60);
+  const mats = { bloom: { uniforms: { ec: { value: meter.ec } } }, output: { uniforms: { ec: { value: meter.ec } } } };
+  const fake = {
+    exposure: meter,
+    _ecDraws: new Map([[mats.bloom, 'bloom'], [mats.output, 'output']]),
+    _fsQuad: {}, _fsScene: {}, _fsCam: {},
+    renderer: { getRenderTarget: () => null, setRenderTarget: () => {}, render: () => {} },
+  };
+  // 대조군: 머티리얼 ec = 미터 ec → ec 불일치 없음
+  for (const m of Object.values(mats)) RenderPipeline.prototype._blit.call(fake, m, null);
+  assert.ok(!meter.contractCheck().mismatches.some((x) => x.key === 'ec'));
+  // 음성: 출력 드로우에 묶인 ec 만 어긋나면 그 값이 기록되어 잡힌다
+  mats.output.uniforms.ec.value = meter.ec + 2;
+  for (const m of Object.values(mats)) RenderPipeline.prototype._blit.call(fake, m, null);
+  const r = meter.contractCheck();
+  assert.ok(r.mismatches.some((x) => x.key === 'ec' && x.pass === 'output' && x.drawn === meter.ec + 2), JSON.stringify(r.mismatches));
+  assert.ok(!r.mismatches.some((x) => x.key === 'ec' && x.pass === 'bloom'));
+});
+
 test('그리기 뒤 유니폼만 바꾸면 ok 유지 — 검사는 현재 유니폼이 아니라 그리기 시점 값을 본다', () => {
   const { meter } = makeMeter();
   frame(meter);
