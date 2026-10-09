@@ -1,8 +1,9 @@
 /**
  * test/ragdoll.test.mjs — PBD 래그돌 (P4B 설계서 §6-5, 단계 5 검증).
  *
- * 합성 장면(바닥 · 0.6 m 단 · 0.3 mm 판 · 24 mm 살)과 헤드리스 경내 4곳에서 합성 템플릿으로 돈다.
- * 3a(`biped.js`) 병합 뒤 템플릿을 바꿔 끼운다 — 시나리오·장면은 `test-fixtures/ragdoll/`(test/ 밖, HANDOFF §4-3).
+ * 합성 장면(바닥 · 0.6 m 단 · 0.3 mm 판 · 24 mm 살)과 헤드리스 경내 4곳에서 v0 로스터 4종의 시각 리그로
+ * 컴파일한 템플릿(`biped.js` + `src/actors/sim/ragdoll-rig.js`, 부록 R3 D3)으로 돈다. 경내 4곳에 4종을 하나씩 둔다.
+ * 시나리오·장면은 `test-fixtures/ragdoll/`(test/ 밖, HANDOFF §4-3).
  *
  * 판정하지 않는 것: 슬립. 720 서브스텝이면 강제 슬립이라 "720 안 슬립"은 공허하다(재검토 #13) —
  * `steps < 720`·`forced` 는 진단으로 보고만 한다.
@@ -21,17 +22,20 @@ import { PhysicsWorld, MASK } from '../src/physics/index.js';
 import { makeClosest, makeHitRecord, segTriangleClosest } from '../src/physics/math.js';
 import { installDeathWiring } from '../src/ai/death.js';
 import { bus } from '../src/core/events.js';
-import { SYNTH_A, SYNTH_B, posePositions } from '../test-fixtures/ragdoll/synthetic-biped.mjs';
+import { RIG_IDS, TEMPLATES, MASS_KG_OF, posePositions } from '../test-fixtures/ragdoll/roster-rigs.mjs';
 import { SYNTH, buildSynthetic } from '../test-fixtures/ragdoll/worlds.mjs';
 import {
-  SCENARIOS, PHYSICS_DT, FINAL_POSE_SUBSTEPS, MASS_KG,
+  SCENARIOS, PHYSICS_DT, FINAL_POSE_SUBSTEPS,
   physicsFor, newRagdoll, activateScenario, runScenario, finalPose,
 } from '../test-fixtures/ragdoll/scenarios.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const N = RAGDOLL_PARTICLES;
+/** 두 외견 리그(로스터 앞의 둘) — 분포가 다른 템플릿 쌍 */
+const [RA, RB] = RIG_IDS;
+const TA = TEMPLATES[RA], TB = TEMPLATES[RB];
 
-function rodErrors(rd, x, t = SYNTH_A, slot = 0) {
+function rodErrors(rd, x, t, slot = 0) {
   let max = 0;
   for (let r = 0; r < 15; r++) {
     const a = t.rods[r * 2], b = t.rods[r * 2 + 1];
@@ -42,7 +46,7 @@ function rodErrors(rd, x, t = SYNTH_A, slot = 0) {
 }
 
 /** 이름이 맞는 정적 객체의 삼각형과 뼈 선분 교차 수 (d² = 0) */
-function boneCrossings(physics, objName, x, t = SYNTH_A) {
+function boneCrossings(physics, objName, x, t) {
   const o = physics.static.objects.find((ob) => ob && ob.name === objName);
   assert.ok(o, `static object ${objName} exists`);
   const cl = makeClosest();
@@ -60,34 +64,34 @@ function boneCrossings(physics, objName, x, t = SYNTH_A) {
 
 /* ------------------------------------------------------------------ */
 
-test('템플릿 컴파일: 합성 A·B 통과, 구조 위반은 throw', () => {
-  assert.ok(compileRagdollTemplate(SYNTH_A));
-  assert.ok(compileRagdollTemplate(SYNTH_B));
+test('템플릿 컴파일: 로스터 4종 리그 통과, 구조 위반은 throw', () => {
+  assert.ok(RIG_IDS.length >= 1);
+  for (const id of RIG_IDS) assert.ok(compileRagdollTemplate(TEMPLATES[id]), id);
   const bad = [
-    { ...SYNTH_A, massFrac: SYNTH_A.massFrac.map((v) => v * 1.01) },       // 분율 합 ≠ 1
-    { ...SYNTH_A, parent: [-1, 2, ...SYNTH_A.parent.slice(2)] },            // parent[i] ≥ i
-    { ...SYNTH_A, rods: SYNTH_A.rods.slice(0, 28), rodRadius: SYNTH_A.rodRadius.slice(0, 14) }, // 막대 14
-    { ...SYNTH_A, braces: SYNTH_A.braces.slice(0, 10) },                    // 버팀대 5
-    { ...SYNTH_A, hinges: [...SYNTH_A.hinges.slice(0, 7), 0] },             // 경첩 부호 0
+    { ...TA, massFrac: TA.massFrac.map((v) => v * 1.01) },       // 분율 합 ≠ 1
+    { ...TA, parent: [-1, 2, ...TA.parent.slice(2)] },            // parent[i] ≥ i
+    { ...TA, rods: TA.rods.slice(0, 28), rodRadius: TA.rodRadius.slice(0, 14) }, // 막대 14
+    { ...TA, braces: TA.braces.slice(0, 10) },                    // 버팀대 5
+    { ...TA, hinges: [...TA.hinges.slice(0, 7), 0] },             // 경첩 부호 0
   ];
   assert.ok(bad.length >= 1);
   for (const t of bad) assert.throws(() => compileRagdollTemplate(t), /ragdoll template/);
   const rd = new RagdollWorld(physicsFor('synthetic').static);
-  rd.registerTemplate('a', SYNTH_A);
-  assert.throws(() => rd.registerTemplate('a', SYNTH_A), /already registered/);
-  assert.throws(() => rd.activate(0, 'nope', 70, posePositions(), null, null, null), /unknown template/);
-  assert.throws(() => rd.activate(0, 'a', 0, posePositions(), null, null, null), /massKg/);
+  rd.registerTemplate('a', TA);
+  assert.throws(() => rd.registerTemplate('a', TA), /already registered/);
+  assert.throws(() => rd.activate(0, 'nope', 70, posePositions(RA), null, null, null), /unknown template/);
+  assert.throws(() => rd.activate(0, 'a', 0, posePositions(RA), null, null, null), /massKg/);
 });
 
 test('외견 리그가 달라도 총질량 = 진짜 massKg (분율 × 활성화 질량, 재검토 #10)', () => {
   const rd = newRagdoll(physicsFor('synthetic'));
-  const cases = [['synth_a', 70], ['synth_b', 70], ['synth_a', 54.5], ['synth_b', 91.25]];
+  const cases = [[RA, 70], [RB, 70], [RA, 54.5], [RB, 91.25]];
   assert.ok(cases.length >= 1);
   // 두 템플릿은 실제로 다른 분포여야 비교가 의미 있다
-  assert.ok(SYNTH_A.massFrac.some((v, i) => v !== SYNTH_B.massFrac[i]));
+  assert.ok(TA.massFrac.some((v, i) => v !== TB.massFrac[i]));
   for (const [key, m] of cases) {
     rd.reset();
-    rd.activate(3, key, m, posePositions({ x: -8, z: 8 }), [0, 0, 0], null, null, PHYSICS_DT);
+    rd.activate(3, key, m, posePositions(key, { x: -8, z: 8 }), [0, 0, 0], null, null, PHYSICS_DT);
     let sum = 0;
     for (let i = 0; i < N; i++) sum += 1 / rd.invMass[3 * N + i];
     assert.ok(Math.abs(sum - m) <= 1e-12 * m, `${key} ${m}: Σm = ${sum}`);
@@ -223,26 +227,27 @@ test('판 앞 0.3 m 팔 뻗은 사망: 초기 클램프 뒤 뼈–판 교차 0, 
   for (const sc of reach) {
     const physics = physicsFor(sc.world);
     const paneName = sc.pane === 'synthetic' ? 'pane' : 'na_w_-3_hanji_col';
-    const raw = posePositions(sc.pose);
-    const before = boneCrossings(physics, paneName, raw);
+    const tpl = TEMPLATES[sc.rig];
+    const raw = posePositions(sc.rig, sc.pose);
+    const before = boneCrossings(physics, paneName, raw, tpl);
     assert.ok(before >= 1, `${sc.name}: 클램프 전 판을 건너는 뼈가 있어야 시험이 의미 있다`);
     const rd = newRagdoll(physics);
     activateScenario(rd, sc);
     const x = new Float64Array(48);
     rd.particles(0, x);
-    assert.equal(boneCrossings(physics, paneName, x), 0, `${sc.name}: 클램프 뒤 뼈–판 교차`);
-    const err0 = rodErrors(rd, x);
+    assert.equal(boneCrossings(physics, paneName, x, tpl), 0, `${sc.name}: 클램프 뒤 뼈–판 교차`);
+    const err0 = rodErrors(rd, x, tpl);
     assert.ok(err0 > 0, `${sc.name}: 클램프가 막대를 줄였어야 한다`);
     runScenario(rd);
     rd.particles(0, x);
-    const err1 = rodErrors(rd, x);
+    const err1 = rodErrors(rd, x, tpl);
     assert.ok(err1 < err0, `${sc.name}: 막대 오차 ${err0} → ${err1} (수렴 아님)`);
     t.diagnostic(`${sc.name}: 클램프 전 교차 뼈 ${before}, 막대 최대 오차 ${err0.toFixed(4)} → ${err1.toFixed(4)} m`);
   }
 });
 
 /** 뼈 선분(막대 15)이 정적 삼각형을 건너는 수 — 선분 = 길이 제한 레이캐스트(마스크는 래그돌과 같은 CHARACTER) */
-function boneSegmentHits(physics, x, t = SYNTH_A, hit = makeHitRecord()) {
+function boneSegmentHits(physics, x, t, hit = makeHitRecord()) {
   let n = 0;
   for (let r = 0; r < 15; r++) {
     const a = t.rods[r * 2] * 3, b = t.rods[r * 2 + 1] * 3;
@@ -257,7 +262,7 @@ test('매 서브스텝: 뼈 선분(막대 15)이 어떤 정적 삼각형도 건�
   // 검출기 반응 확인 — 팔 뻗은 시나리오의 클램프 전 자세는 판을 건너는 뼈가 있다
   const reach = SCENARIOS.find((s) => s.pose.reach);
   assert.ok(reach);
-  assert.ok(boneSegmentHits(physicsFor(reach.world), posePositions(reach.pose)) >= 1, '검출기가 교차를 잡는다');
+  assert.ok(boneSegmentHits(physicsFor(reach.world), posePositions(reach.rig, reach.pose), TEMPLATES[reach.rig]) >= 1, '검출기가 교차를 잡는다');
   let segSteps = 0;
   for (const sc of SCENARIOS) {
     const physics = physicsFor(sc.world);
@@ -266,7 +271,7 @@ test('매 서브스텝: 뼈 선분(막대 15)이 어떤 정적 삼각형도 건�
     const hit = makeHitRecord();
     runScenario(rd, FINAL_POSE_SUBSTEPS, (prev, cur, k) => {
       segSteps += 15;
-      const n = boneSegmentHits(physics, cur, SYNTH_A, hit);
+      const n = boneSegmentHits(physics, cur, TEMPLATES[sc.rig], hit);
       assert.equal(n, 0, `${sc.name} step ${k}: 삼각형을 건너는 뼈 ${n}(tri ${hit.tri})`);
     });
   }
@@ -301,7 +306,7 @@ test('파사드 중력 배선: initRagdoll 의 래그돌은 physics.gravity 를 
   physics.initRagdoll({ slots: 6, mask: MASK.CHARACTER });
   assert.equal(physics.ragdoll.gravity, physics.gravity);
   const sc = SCENARIOS.find((s) => s.name === 'synthetic_floor');
-  const run = (rd) => { rd.registerTemplate('synth_a', SYNTH_A); activateScenario(rd, sc); runScenario(rd); return rd.hash(); };
+  const run = (rd) => { newRagdoll(physics, rd); activateScenario(rd, sc); runScenario(rd); return rd.hash(); };
   const viaFacade = run(physics.ragdoll);
   const same = run(new RagdollWorld(physics.static, { slots: 6, gravity: physics.gravity, mask: MASK.CHARACTER }));
   const other = run(new RagdollWorld(physics.static, { slots: 6, gravity: physics.gravity / 2, mask: MASK.CHARACTER }));
@@ -320,10 +325,10 @@ test('파사드: physics.step = rigid → ragdoll, rigid.bodies 불변·강체 �
   assert.equal(A.physics.gravity, A.physics.rigid.gravity);
   const rd = A.physics.initRagdoll({ slots: 6 });
   assert.throws(() => A.physics.initRagdoll(), /already/);
-  rd.registerTemplate('synth_a', SYNTH_A);
+  rd.registerTemplate(RA, TA);
   const bodies0 = A.physics.rigid.bodies.slice();
   assert.ok(bodies0.length >= 1);
-  rd.activate(0, 'synth_a', MASS_KG, posePositions({ x: -4, z: -6.6 }), [0, 0, 1], null, null, PHYSICS_DT);
+  rd.activate(0, RA, MASS_KG_OF[RA], posePositions(RA, { x: -4, z: -6.6 }), [0, 0, 1], null, null, PHYSICS_DT);
   for (let k = 0; k < 240; k++) { A.physics.step(PHYSICS_DT); B.physics.step(PHYSICS_DT); }
   assert.ok(rd.state(0).steps >= 1, 'physics.step 이 래그돌을 돌렸다');
   assert.equal(A.physics.rigid.bodies.length, bodies0.length);
@@ -339,9 +344,9 @@ test('사망 배선: actor:death → ragdollSeed(외견 rigKey, 진짜 massKg) �
   const actors = {
     ragdollSeed(slot, outPos, outVel) {
       seeds.push(slot);
-      outPos.set(posePositions({ x: -8, z: 8 }));
+      outPos.set(posePositions(RB, { x: -8, z: 8 }));
       outVel[0] = 0.5;
-      return { rigKey: 'synth_b', massKg: 63 };
+      return { rigKey: RB, massKg: 63 };
     },
   };
   const off = installDeathWiring({ bus, actors, ragdoll: rd });
@@ -357,7 +362,7 @@ test('사망 배선: actor:death → ragdollSeed(외견 rigKey, 진짜 massKg) �
   for (let i = 0; i < N; i++) {
     const m = 1 / rd.invMass[2 * N + i];
     sum += m;
-    assert.ok(Math.abs(m - SYNTH_B.massFrac[i] * 63) <= 1e-12 * 63, '외견 리그(synth_b) 분율 × 진짜 질량');
+    assert.ok(Math.abs(m - TB.massFrac[i] * 63) <= 1e-12 * 63, `외견 리그(${RB}) 분율 × 진짜 질량`);
   }
   assert.ok(Math.abs(sum - 63) <= 1e-12 * 63);
   assert.throws(() => installDeathWiring({ bus, actors }), /required/);
